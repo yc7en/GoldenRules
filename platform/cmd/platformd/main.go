@@ -23,6 +23,7 @@ import (
 	"goldenrules/platform/contracts"
 	"goldenrules/platform/dsl"
 	"goldenrules/platform/facts"
+	"goldenrules/platform/gov"
 	"goldenrules/platform/httpapi"
 	"goldenrules/platform/packages"
 	"goldenrules/platform/persist"
@@ -63,6 +64,14 @@ func main() {
 	}
 	packageSvc := packages.NewService(packageStore)
 
+	govStore, err := persist.Open(filepath.Join(*dataDir, "gov.json"), func() gov.Doc {
+		return gov.Doc{Grays: map[string]gov.Gray{}, Seq: map[string]int{}}
+	})
+	if err != nil {
+		log.Fatalf("打开治理仓库失败: %v", err)
+	}
+	govSvc := gov.NewService(govStore, packageSvc)
+
 	// 事实目录删除前问规则集仓库「这个字段还有人用吗」：注入回调，
 	// 让 facts 包不反向依赖 dsl 包（依赖方向单向，A-1）。
 	factSvc.WithRefChecker(rulesetSvc.ReferencingFact)
@@ -80,6 +89,7 @@ func main() {
 		Facts:        factSvc,
 		Rulesets:     rulesetSvc,
 		Packages:     packageSvc,
+		Gov:          govSvc,
 		ArtifactsDir: *artifactsDir,
 	})
 

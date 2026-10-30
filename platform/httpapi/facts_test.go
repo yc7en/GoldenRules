@@ -11,6 +11,7 @@ import (
 
 	"goldenrules/platform/dsl"
 	"goldenrules/platform/facts"
+	"goldenrules/platform/gov"
 	"goldenrules/platform/packages"
 	"goldenrules/platform/persist"
 )
@@ -53,6 +54,37 @@ func newTestEnv(t *testing.T) (http.Handler, Deps) {
 
 	deps := Deps{Facts: svc, Rulesets: rs, Packages: pk, ArtifactsDir: filepath.Join(dir, "artifacts")}
 	return New(deps), deps
+}
+
+// newGovTestServer 在同一个存储上再接一层治理服务：审批/发布走变更单，
+// 用来测 B9 的闭环；B8 的裸动作仍由 newTestServer（Gov 为 nil）覆盖。
+func newGovTestServer(t *testing.T) http.Handler {
+	t.Helper()
+	_, deps := newTestEnv(t)
+	govStore, err := persist.Open(filepath.Join(t.TempDir(), "gov.json"), func() gov.Doc {
+		return gov.Doc{Grays: map[string]gov.Gray{}, Seq: map[string]int{}}
+	})
+	if err != nil {
+		t.Fatalf("open gov: %v", err)
+	}
+	deps.Gov = gov.NewService(govStore, deps.Packages).WithClock(func() time.Time {
+		return time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	})
+	return New(deps)
+}
+
+// doAs 带操作者身份的请求：`X-Actor` + `X-Actor-Type`（治理侧的职责分离靠它判定）。
+func doAs(t *testing.T, h http.Handler, method, path, body, actor, actorType string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("X-Actor", actor)
+	req.Header.Set("X-Actor-Type", actorType)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	out := map[string]any{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return rec, out
 }
 
 // doRaw 返回原始响应（产物是裸 JSON 文档，不是包装对象）。

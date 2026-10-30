@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"goldenrules/platform/dsl"
+	"goldenrules/platform/gov"
 	"goldenrules/platform/packages"
 )
 
@@ -83,7 +84,15 @@ func (s *Server) getPackageVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /api/v1/packages/{pkg}/versions/{version}/approve
+//
+// 治理接线后（`Deps.Gov != nil`）此接口**关闭**：审批是变更单的动作（`contracts/04` §3），
+// 直接批版本等于绕过审批矩阵。保留分支只为单包测试与演练场景。
 func (s *Server) approvePackage(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Gov != nil {
+		writeError(w, r, http.StatusConflict, gov.CodeChangeRequired,
+			"审批必须走变更单：POST /api/v1/changes 提交、POST /api/v1/changes/{id}/approve 审批", nil)
+		return
+	}
 	v, err := s.deps.Packages.Approve(r.PathValue("pkg"), r.PathValue("version"), actor(r))
 	if err != nil {
 		fail(w, r, err)
@@ -97,6 +106,7 @@ func (s *Server) publishPackage(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ValidFrom  string `json:"validFrom"`
 		ValidUntil string `json:"validUntil"`
+		ChangeID   string `json:"changeId"`
 	}
 	if r.ContentLength > 0 {
 		if err := decode(r, &req); err != nil {
@@ -104,10 +114,24 @@ func (s *Server) publishPackage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	target, ok := s.deps.Packages.Get(r.PathValue("pkg"), r.PathValue("version"))
+	if !ok {
+		fail(w, r, &packages.NotFoundError{PackageID: r.PathValue("pkg"), Version: r.PathValue("version")})
+		return
+	}
+	if err := s.publishGuard(r, req.ChangeID, target); err != nil {
+		fail(w, r, err)
+		return
+	}
+	prev, _ := s.deps.Packages.Active(target.PackageID)
+
 	v, err := s.deps.Packages.Publish(r.PathValue("pkg"), r.PathValue("version"), actor(r), req.ValidFrom, req.ValidUntil)
 	if err != nil {
 		fail(w, r, err)
 		return
+	}
+	if s.deps.Gov != nil {
+		s.deps.Gov.MarkPublished(req.ChangeID, v, actor(r), actorType(r), prev.PackageVersion, req.ValidFrom, req.ValidUntil)
 	}
 	// `contracts/01` §6.1：pending_review 的用例不阻断发布，但发布时必须显式提示。
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -136,6 +160,15 @@ func (s *Server) rollbackPackage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decode(r, &req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "请求体解析失败: "+err.Error(), nil)
+		return
+	}
+	if s.deps.Gov != nil {
+		v, err := s.deps.Gov.Rollback(r.PathValue("pkg"), req.ToVersion, actor(r), actorType(r), req.Reason)
+		if err != nil {
+			fail(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, summarize(v))
 		return
 	}
 	v, err := s.deps.Packages.Rollback(r.PathValue("pkg"), req.ToVersion, actor(r), req.Reason)

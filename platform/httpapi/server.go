@@ -15,14 +15,18 @@ import (
 	"goldenrules/platform/contracts"
 	"goldenrules/platform/dsl"
 	"goldenrules/platform/facts"
+	"goldenrules/platform/gov"
 	"goldenrules/platform/packages"
 )
 
 // Deps 是平台依赖的领域服务集合。B6 起逐包填充。
 type Deps struct {
-	Facts        *facts.Service
-	Rulesets     *dsl.Store
-	Packages     *packages.Service
+	Facts    *facts.Service
+	Rulesets *dsl.Store
+	Packages *packages.Service
+	// Gov 为 nil 时退化为「无治理」模式：审批/发布是裸动作，仅用于单包测试与演练。
+	// platformd 恒接线——生产路径上不存在「跳过变更单直接发布」。
+	Gov          *gov.Service
 	ArtifactsDir string
 }
 
@@ -77,6 +81,18 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/versions/{version}/verify", s.verifyPackage)
 	s.mux.HandleFunc("POST /api/v1/packages/{pkg}/versions/{version}/approve", s.approvePackage)
 	s.mux.HandleFunc("POST /api/v1/packages/{pkg}/versions/{version}/publish", s.publishPackage)
+
+	// ---- B9 审批矩阵与发布治理 ----
+	s.mux.HandleFunc("GET /api/v1/approval-matrix", s.approvalMatrix)
+	s.mux.HandleFunc("GET /api/v1/changes", s.listChanges)
+	s.mux.HandleFunc("POST /api/v1/changes", s.createChange)
+	s.mux.HandleFunc("GET /api/v1/changes/{id}", s.getChange)
+	s.mux.HandleFunc("POST /api/v1/changes/{id}/approve", s.approveChange)
+	s.mux.HandleFunc("POST /api/v1/changes/{id}/reject", s.rejectChange)
+	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/gray", s.getGray)
+	s.mux.HandleFunc("PUT /api/v1/packages/{pkg}/gray", s.putGray)
+	s.mux.HandleFunc("POST /api/v1/rollback", s.rollbackFlat)
+	s.mux.HandleFunc("GET /api/v1/audit", s.listAudit)
 }
 
 // ---------------------------------------------------------------------------
@@ -111,6 +127,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	var neErr *dsl.NotExistError
 	var pkErr *packages.NotFoundError
 	var stErr *packages.StateError
+	var gErr *gov.Error
+	var gnErr *gov.NotFoundError
 
 	switch {
 	case errors.As(err, &vErr):
@@ -137,8 +155,30 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusConflict, facts.CodeInUse, iErr.Error(), map[string]json.RawMessage{
 			"referers": body,
 		})
+	case errors.As(err, &gnErr):
+		writeError(w, r, http.StatusNotFound, gov.CodeChangeNotFound, gnErr.Error(), nil)
+	case errors.As(err, &gErr):
+		writeError(w, r, govStatus(gErr.Code), gErr.Code, gErr.Message, nil)
 	default:
 		writeError(w, r, http.StatusInternalServerError, "INTERNAL", err.Error(), nil)
+	}
+}
+
+// govStatus 治理错误码 → HTTP 状态。
+//
+// 分三类看：**声明式拒绝**（矩阵不允许、职责分离、agent 越权）是 403；
+// **状态不对**（已批过、未批就发、版本不符）是 409；**参数本身错**（未知等级/灰度值）是 400/422。
+func govStatus(code string) int {
+	switch code {
+	case gov.CodeMatrixRejected, gov.CodeSelfApproval, gov.CodeAgentCannotApprove,
+		gov.CodeAgentCannotPublish, gov.CodeSoDApprovePublish, gov.CodeSoDSubmitPublish:
+		return http.StatusForbidden
+	case gov.CodeInvalidArgument:
+		return http.StatusBadRequest
+	case gov.CodeGrayInvalid:
+		return http.StatusUnprocessableEntity
+	default:
+		return http.StatusConflict
 	}
 }
 
