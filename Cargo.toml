@@ -7,6 +7,7 @@ members = [
   "crates/gr-engine",
   "crates/gr-provider",
   "crates/gr-server",
+  "crates/gr-bench",
 ]
 
 [workspace.package]

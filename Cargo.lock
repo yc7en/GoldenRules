@@ -92,6 +92,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gr-bench"
+version = "0.1.0"
+dependencies = [
+ "gr-contract",
+ "gr-engine",
+ "serde_json",
+]
+
+[[package]]
 name = "gr-contract"
 version = "0.1.0"
 dependencies = [
