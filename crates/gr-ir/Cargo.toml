@@ -1,0 +1,11 @@
+[package]
+name = "gr-ir"
+version.workspace = true
+edition.workspace = true
+description = "GoldenRules B1：IR 加载、slot 表解析、场景/前置事实剪枝"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+rust_decimal.workspace = true
+gr-contract.workspace = true
