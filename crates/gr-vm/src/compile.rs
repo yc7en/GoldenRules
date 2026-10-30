@@ -121,6 +121,21 @@ pub fn compile_ruleset(rs: &LoadedRuleSet) -> Result<RuleSetProgram, ErrorContra
     })
 }
 
+/// 编译单个表达式为 chunk（B5 派生事实用）。
+///
+/// 与规则编译**共用同一个 `Compiler`**，因此白名单（`DSL_OP_NOT_ALLOWED`）、
+/// 函数白名单（`DSL_FN_NOT_FOUND`）、元数与深度校验全部一致——
+/// 「派生事实」不可能比规则多出算力，这是复用而非另写一份的原因。
+///
+/// 调用方须先把 `Expr::Fact` 解析成 `Expr::Slot`（与 `gr-ir` 同规则：编译期解析，
+/// 运行期不查表），因此这里不接受未解析的字段引用。
+pub fn compile_expr(expr: &Expr) -> Result<Chunk, ErrorContract> {
+    let mut c = Compiler::new("<expr>", "<expr>");
+    c.compile(expr)?;
+    c.emit(Instr::Return);
+    Ok(c.finish())
+}
+
 fn compile_rule(ruleset_id: &str, rule: &LoadedRule) -> Result<RuleProgram, ErrorContract> {
     let mut c = Compiler::new(ruleset_id, &rule.rule.rule_id);
     c.compile(&rule.rule.when)?;

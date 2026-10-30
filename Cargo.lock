@@ -123,11 +123,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "gr-provider"
+version = "0.1.0"
+dependencies = [
+ "gr-contract",
+ "gr-engine",
+ "gr-vm",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "gr-server"
 version = "0.1.0"
 dependencies = [
  "gr-contract",
  "gr-engine",
+ "gr-provider",
  "serde",
  "serde_json",
 ]

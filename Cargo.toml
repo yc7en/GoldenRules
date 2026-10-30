@@ -5,6 +5,7 @@ members = [
   "crates/gr-ir",
   "crates/gr-vm",
   "crates/gr-engine",
+  "crates/gr-provider",
   "crates/gr-server",
 ]
 

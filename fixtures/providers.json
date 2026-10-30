@@ -1,0 +1,59 @@
+{
+  "scenes": [
+    {
+      "scene": "withdraw-risk-check",
+      "providers": [
+        {
+          "kind": "static",
+          "name": "product-config",
+          "facts": {
+            "config.withdrawDailyLimit": "100000"
+          }
+        },
+        {
+          "kind": "derived",
+          "name": "risk-score-heuristic",
+          "dependsOn": ["customer.withdrawCount24h"],
+          "facts": {
+            "customer.riskScore": {
+              "op": "call",
+              "func": "min",
+              "args": [
+                { "type": "integer", "value": 1000 },
+                {
+                  "op": "call",
+                  "func": "max",
+                  "args": [
+                    { "type": "integer", "value": 0 },
+                    {
+                      "op": "add",
+                      "args": [
+                        {
+                          "op": "mul",
+                          "args": [
+                            { "fact": "customer.withdrawCount24h" },
+                            { "type": "integer", "value": 10 }
+                          ]
+                        },
+                        { "type": "integer", "value": 500 }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "kind": "http",
+          "name": "list-service",
+          "url": "http://127.0.0.1:9100/sanctions",
+          "timeoutMs": 50,
+          "facts": {
+            "sanctions.hit": "hit"
+          }
+        }
+      ]
+    }
+  ]
+}

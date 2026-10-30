@@ -12,6 +12,7 @@
 
 use gr_contract::{DecisionResult, ErrorContract, ExecutionContext, FactSnapshot};
 use gr_engine::{engine_from_json, DecisionOutcome, Engine, EngineConfig};
+use gr_provider::{Assembler, AssemblerSpec};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
@@ -25,6 +26,7 @@ fn main() {
     let mut addr = "127.0.0.1:8080".to_string();
     let mut catalog_path: Option<String> = None;
     let mut package_paths: Vec<String> = Vec::new();
+    let mut providers_path: Option<String> = None;
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -36,8 +38,10 @@ fn main() {
                     package_paths.push(p);
                 }
             }
+            // Assemble 模式的 Provider 配置（不给则 /v1/assemble 返回 503）
+            "--providers" => providers_path = args.next(),
             "--help" | "-h" => {
-                println!("用法: gr-server --addr 127.0.0.1:8080 --facts fixtures/fact-catalog.json --package fixtures/rule-package.json");
+                println!("用法: gr-server --addr 127.0.0.1:8080 --facts fixtures/fact-catalog.json --package fixtures/rule-package.json [--providers fixtures/providers.json]");
                 return;
             }
             other => eprintln!("忽略未知参数: {other}"),
@@ -64,6 +68,25 @@ fn main() {
         println!("已加载 {id} {ver}：{rulesets} 个规则集 / {rules} 条规则");
     }
 
+    // Assemble 是可选的：不给配置就是纯 Snapshot 模式（不取数，A-2 的最保守形态）
+    let assembler = providers_path.as_deref().map(|path| {
+        let catalog: gr_contract::FactCatalog = serde_json::from_str(&catalog_json)
+            .unwrap_or_else(|e| usage_exit(&format!("事实目录 JSON 解析失败: {e}")));
+        let spec: AssemblerSpec = serde_json::from_str(&read_file(path))
+            .unwrap_or_else(|e| usage_exit(&format!("Provider 配置解析失败: {e}")));
+        match Assembler::from_spec(&catalog, &spec) {
+            Ok(a) => {
+                for (scene, names) in a.describe() {
+                    println!("Assemble 场景 {scene}：{} 个 Provider（{}）", names.len(), names.join(", "));
+                }
+                Arc::new(a)
+            }
+            Err(e) => usage_exit(&format!("Provider 装配失败: {e}")),
+        }
+    });
+
+    let service = Arc::new(Service { engine, assembler });
+
     let listener = match TcpListener::bind(&addr) {
         Ok(l) => l,
         Err(e) => {
@@ -76,9 +99,9 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                let engine = Arc::clone(&engine);
+                let service = Arc::clone(&service);
                 thread::spawn(move || {
-                    if let Err(e) = handle(stream, &engine) {
+                    if let Err(e) = handle(stream, &service) {
                         eprintln!("连接处理失败: {e}");
                     }
                 });
@@ -86,6 +109,12 @@ fn main() {
             Err(e) => eprintln!("accept 失败: {e}"),
         }
     }
+}
+
+/// 服务实例：Snapshot 模式只需要 engine；Assemble 模式额外需要 assembler。
+struct Service {
+    engine: Arc<Engine>,
+    assembler: Option<Arc<Assembler>>,
 }
 
 fn usage_exit(msg: &str) -> ! {
@@ -101,13 +130,13 @@ fn read_file(path: &str) -> String {
     })
 }
 
-fn handle(mut stream: TcpStream, engine: &Engine) -> std::io::Result<()> {
+fn handle(mut stream: TcpStream, service: &Service) -> std::io::Result<()> {
     let req = match read_request(&mut stream)? {
         Some(r) => r,
         None => return Ok(()),
     };
 
-    let response = route(&req, engine);
+    let response = route(&req, service);
     write_response(&mut stream, response)
 }
 
@@ -172,11 +201,12 @@ fn reason(status: u16) -> &'static str {
     }
 }
 
-fn route(req: &Request, engine: &Engine) -> Response {
+fn route(req: &Request, service: &Service) -> Response {
     match (req.method.as_str(), req.path.as_str()) {
-        ("GET", "/healthz") => Response::json(200, &health(engine)),
+        ("GET", "/healthz") => Response::json(200, &health(service)),
         ("GET", "/v1/packages") => {
-            let items: Vec<serde_json::Value> = engine
+            let items: Vec<serde_json::Value> = service
+                .engine
                 .describe()
                 .into_iter()
                 .map(|(id, ver, rulesets, rules)| {
@@ -188,20 +218,15 @@ fn route(req: &Request, engine: &Engine) -> Response {
                 .collect();
             Response::json(200, &serde_json::json!({ "packages": items }))
         }
-        ("POST", "/v1/decide") => decide(req, engine, true),
-        ("POST", "/v1/trial") => decide(req, engine, false),
-        ("POST", "/v1/assemble") => Response::json(
-            503,
-            &ErrorContract::new(
-                gr_contract::ErrorCode::ProviderUnavailable,
-                "Assemble 入口在 B5 提供",
-            ),
-        ),
+        ("POST", "/v1/decide") => decide(req, &service.engine, true),
+        ("POST", "/v1/trial") => decide(req, &service.engine, false),
+        ("POST", "/v1/assemble") => assemble(req, service),
         ("GET", "/") => Response::json(
             200,
             &serde_json::json!({
                 "service": "goldenrules-engine",
-                "endpoints": ["/healthz", "/v1/packages", "/v1/decide", "/v1/trial", "/v1/assemble"]
+                "endpoints": ["/healthz", "/v1/packages", "/v1/decide", "/v1/trial", "/v1/assemble"],
+                "assembleEnabled": service.assembler.is_some()
             }),
         ),
         _ => Response::json(
@@ -211,13 +236,16 @@ fn route(req: &Request, engine: &Engine) -> Response {
     }
 }
 
-fn health(engine: &Engine) -> serde_json::Value {
+fn health(service: &Service) -> serde_json::Value {
+    let describe = service.engine.describe();
     serde_json::json!({
         "status": "ok",
         "engineVersion": gr_contract::ENGINE_VERSION,
-        "packages": engine.describe().len(),
-        "rules": engine.describe().iter().map(|(_, _, _, r)| *r).sum::<usize>(),
+        "packages": describe.len(),
+        "rules": describe.iter().map(|(_, _, _, r)| *r).sum::<usize>(),
         "resultVersion": gr_contract::RESULT_VERSION,
+        // Assemble 是否可用：探「Provider 配置装载成功」，探不到就是 503 而不是假健康
+        "assembleScenes": service.assembler.as_ref().map(|a| a.describe().len()).unwrap_or(0),
     })
 }
 
@@ -261,6 +289,60 @@ fn decide(req: &Request, engine: &Engine, with_log: bool) -> Response {
 
 fn to_response(result: &DecisionResult) -> Response {
     Response::json(200, result)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AssembleRequest {
+    context: ExecutionContext,
+    /// 业务入参（事实名 → 原始值）。Provider 只补齐入参没给的那部分。
+    #[serde(default)]
+    inputs: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
+/// Assemble 模式：传业务入参 → 内置 Provider 组装快照 → 同一套决策入口求值。
+///
+/// 响应只回 `DecisionResult`（决策契约 `contracts/03` 统一）：组装出的快照是中间产物，
+/// 可能含 PII（`contracts/02` §9），不对调用方暴露。
+fn assemble(req: &Request, service: &Service) -> Response {
+    let Some(assembler) = service.assembler.as_ref() else {
+        return Response::json(
+            503,
+            &ErrorContract::new(
+                gr_contract::ErrorCode::ProviderUnavailable,
+                "未配置 Provider（启动时缺少 --providers）",
+            ),
+        );
+    };
+
+    let parsed: AssembleRequest = match serde_json::from_slice(&req.body) {
+        Ok(v) => v,
+        Err(e) => {
+            return Response::json(
+                400,
+                &ErrorContract::new(
+                    gr_contract::ErrorCode::IrInvalid,
+                    format!("请求体不是合法的组装请求: {e}"),
+                ),
+            )
+        }
+    };
+
+    let snapshot = match assembler.assemble(&parsed.context, parsed.inputs) {
+        Ok(s) => s,
+        // 场景未配置 = 404；配置/目录不一致 = 500。都是「装配侧」的问题，不是决策。
+        Err(err) => return Response::json(err.error_code.http_status(), &err),
+    };
+
+    match service.engine.decide(&snapshot, &parsed.context) {
+        Ok(outcome) => {
+            if let Ok(line) = serde_json::to_string(&outcome.log) {
+                println!("{line}");
+            }
+            to_response(&outcome.result)
+        }
+        Err(err) => Response::json(err.error_code.http_status(), &err),
+    }
 }
 
 #[allow(dead_code)]

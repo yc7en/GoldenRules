@@ -8,7 +8,7 @@ pub mod eval;
 pub mod vm;
 
 pub use compile::{
-    compile_all, compile_ruleset, BinKind, Chunk, Instr, RuleProgram, RuleSetProgram,
+    compile_all, compile_expr, compile_ruleset, BinKind, Chunk, Instr, RuleProgram, RuleSetProgram,
 };
 pub use eval::{evaluate, run_assigns, EvalOutcome, DEFAULT_REASON_CODE};
 pub use vm::{Budget, VmError, DIV_SCALE};
