@@ -1,0 +1,13 @@
+[package]
+name = "gr-engine"
+version.workspace = true
+edition.workspace = true
+description = "GoldenRules B3/B4：决策入口、DecisionResult、决策日志、错误与降级"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+rust_decimal.workspace = true
+gr-contract.workspace = true
+gr-ir.workspace = true
+gr-vm.workspace = true

@@ -4,6 +4,8 @@ members = [
   "crates/gr-contract",
   "crates/gr-ir",
   "crates/gr-vm",
+  "crates/gr-engine",
+  "crates/gr-server",
 ]
 
 [workspace.package]

@@ -101,11 +101,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "gr-engine"
+version = "0.1.0"
+dependencies = [
+ "gr-contract",
+ "gr-ir",
+ "gr-vm",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "gr-ir"
 version = "0.1.0"
 dependencies = [
  "gr-contract",
  "rust_decimal",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "gr-server"
+version = "0.1.0"
+dependencies = [
+ "gr-contract",
+ "gr-engine",
  "serde",
  "serde_json",
 ]

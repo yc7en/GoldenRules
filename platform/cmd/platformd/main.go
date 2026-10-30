@@ -1,63 +1,87 @@
-// Command platformd 是 BRMS 管理平台（Go）的进程骨架。
+// Command platformd 是 BRMS 管理平台（Go）进程。
 //
-// B0 只保证：进程能独立起来、契约绑定能编译、契约 JSON 能双向解析。
-// B6 起在本进程内填事实目录 / 规则编辑 / 校验 / 审批 / 发布，决策执行仍在 Rust 决策服务。
+// 职责边界（`ARCHITECTURE.md` §2.1）：平台产出规则包与治理记录，**不依赖决策服务的
+// 运行时状态**；决策执行永远在 Rust 决策服务里，本进程不内嵌执行器。
+//
+// 已实现工作包：
+//
+//	B6 事实目录（facts）—— CRUD、单一真源、幂等生成物、CI 过期校验
+//
+// 数据落在 -data 指定的目录（一份 JSON 文档一个文件），P0 不引入数据库。
 package main
 
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"goldenrules/platform/contracts"
+	"goldenrules/platform/facts"
+	"goldenrules/platform/httpapi"
+	"goldenrules/platform/persist"
 )
 
 func main() {
 	addr := flag.String("addr", ":8080", "管理平台监听地址")
+	dataDir := flag.String("data", "./data", "数据目录（JSON 文档存储）")
+	artifactsDir := flag.String("artifacts", "./artifacts", "事实目录生成物输出目录")
+	seed := flag.String("seed", "", "首启时导入的事实目录样例（fixtures/fact-catalog.json）")
 	flag.Parse()
 
-	mux := http.NewServeMux()
+	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
+		log.Fatalf("创建数据目录失败: %v", err)
+	}
 
-	// 健康检查：只报进程活着 + 契约版本，不碰决策服务
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"status":     "ok",
-			"service":    "goldenrules-platform",
-			"timeLayout": contracts.GoldenTimeLayout,
-			"now":        time.Now().UTC().Format(time.RFC3339),
-		})
+	factStore, err := persist.Open(filepath.Join(*dataDir, "facts.json"), func() facts.Catalog {
+		return facts.Catalog{CatalogVersion: facts.CatalogVersion(time.Now().UTC(), 0)}
 	})
+	if err != nil {
+		log.Fatalf("打开事实目录失败: %v", err)
+	}
+	factSvc := facts.New(factStore)
 
-	// B6+ 的接口占位：契约在 contracts/ 里已经冻结，实现按 PLAN 包推进
-	mux.HandleFunc("GET /api/v1/facts", notImplemented("B6"))
-	mux.HandleFunc("GET /api/v1/rulesets", notImplemented("B7"))
-	mux.HandleFunc("GET /api/v1/packages", notImplemented("B8"))
+	if *seed != "" {
+		if err := seedFacts(factSvc, *seed); err != nil {
+			log.Fatalf("导入样例失败: %v", err)
+		}
+	}
+
+	handler := httpapi.New(httpapi.Deps{Facts: factSvc, ArtifactsDir: *artifactsDir})
 
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	log.Printf("goldenrules-platform listening on %s", *addr)
+	log.Printf("goldenrules-platform listening on %s (data=%s)", *addr, *dataDir)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("platform exit: %v", err)
 	}
 }
 
-func notImplemented(pkg string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusNotImplemented, contracts.ErrorContract{
-			ErrorCode: "NOT_IMPLEMENTED",
-			Message:   "该能力属于 " + pkg + " 工作包，尚未实现",
-			TraceID:   r.Header.Get("X-Trace-Id"),
-		})
+// seedFacts 只在目录为空时导入，避免重启覆盖人工改动。
+func seedFacts(svc *facts.Service, path string) error {
+	if len(svc.Catalog().Facts) > 0 {
+		return nil
 	}
-}
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var cat contracts.FactCatalog
+	if err := json.Unmarshal(raw, &cat); err != nil {
+		return err
+	}
+	for _, f := range cat.Facts {
+		if _, issues, err := svc.Create("seed", f); err != nil {
+			return fmt.Errorf("%s: %w (%+v)", f.Fact, err, issues)
+		}
+	}
+	log.Printf("已导入 %d 条事实契约（%s）", len(cat.Facts), cat.CatalogVersion)
+	return nil
 }

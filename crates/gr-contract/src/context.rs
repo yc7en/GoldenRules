@@ -11,6 +11,9 @@ pub struct ExecutionContext {
     pub scene: String,
     /// RFC3339（UTC），唯一时间基准
     pub request_time: String,
+    /// 只选规则集（场景挂多个规则集时必须显式指定，P0 不做多规则集编排）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ruleset_id: Option<String>,
     /// 只选规则集版本（不可与 grayTag 同传，`contracts/02` §6.2）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ruleset_version: Option<String>,
@@ -36,6 +39,7 @@ impl ExecutionContext {
             tenant_id: tenant_id.into(),
             scene: scene.into(),
             request_time: request_time.into(),
+            ruleset_id: None,
             ruleset_version: None,
             gray_tag: None,
             package_version: None,
