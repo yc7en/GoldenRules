@@ -78,6 +78,19 @@ func newGovTestServer(t *testing.T) http.Handler {
 // 密钥固定写在测试里（32 字节 hex），只用于本地断言加解密通路。
 func newObsTestServer(t *testing.T, withKey, withReplay bool) http.Handler {
 	t.Helper()
+	var rep obs.Replayer
+	if withReplay {
+		rep = stubReplayer{}
+	}
+	return newObsEnv(t, withKey, rep)
+}
+
+// newObsEnv 用指定的回放后端装配环境。
+//
+// 单独抽出来是为了能注入**类型化 nil**（`(*obs.HTTPReplayer)(nil)`）——那正是
+// 「没配 --engine-url」时真实装配出来的值，也是曾经把日志列表打成 500 的值。
+func newObsEnv(t *testing.T, withKey bool, rep obs.Replayer) http.Handler {
+	t.Helper()
 	_, deps := newTestEnv(t)
 	dir := t.TempDir()
 	logStore, err := persist.Open(filepath.Join(dir, "logs.json"), func() obs.LogDoc {
@@ -112,8 +125,8 @@ func newObsTestServer(t *testing.T, withKey, withReplay bool) http.Handler {
 	deps.Gov = gov.NewService(govStore, deps.Packages).WithClock(func() time.Time {
 		return time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	})
-	if withReplay {
-		deps.Replayer = stubReplayer{}
+	if rep != nil {
+		deps.Replayer = rep
 	}
 	return New(deps)
 }

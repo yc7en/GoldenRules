@@ -36,10 +36,23 @@ func NewHTTPReplayer(baseURL string) *HTTPReplayer {
 	return &HTTPReplayer{BaseURL: baseURL, Client: &http.Client{Timeout: 5 * time.Second}}
 }
 
-func (r *HTTPReplayer) Describe() string { return "gr-server " + r.BaseURL }
+// Describe 回放后端自述。
+//
+// nil 接收者返回空串而不是 panic：`NewHTTPReplayer("")` 返回的是**类型化 nil**
+// （`*HTTPReplayer` 的 nil），装进 `Replayer` 接口后接口本身不为 nil。这种「看着不是 nil
+// 其实是 nil」的值一旦漏到 handler 里，会把整个日志列表接口打成 500——所以这里兜一层。
+func (r *HTTPReplayer) Describe() string {
+	if r == nil {
+		return ""
+	}
+	return "gr-server " + r.BaseURL
+}
 
 // Decide 调 `/v1/decide`。注意用 decide 而不是 trial：回放要的是与线上同一入口的语义。
 func (r *HTTPReplayer) Decide(snapshot, execCtx json.RawMessage) (json.RawMessage, error) {
+	if r == nil {
+		return nil, fmt.Errorf("回放后端未配置（--engine-url 为空）")
+	}
 	body, err := json.Marshal(map[string]json.RawMessage{
 		"context":  execCtx,
 		"snapshot": snapshot,

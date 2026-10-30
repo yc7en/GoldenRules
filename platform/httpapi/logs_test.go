@@ -164,6 +164,110 @@ func TestLogsValidationAndNotFound(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 
+// 密钥轮换：自述 → 轮换 → 老日志仍可回放 → 重加密 → 审计留痕。
+//
+// 这条路径的价值全在「轮换后历史数据还能读」：所以断言里必须真的回放一次老日志。
+func TestLogKeyRotationOverHTTP(t *testing.T) {
+	h := newObsTestServer(t, true, true)
+
+	// 1 自述：当前钥、来源、保留集
+	rec, resp := do(t, h, "GET", "/api/v1/logs/key", "")
+	if rec.Code != http.StatusOK || resp["configured"] != true {
+		t.Fatalf("密钥自述 = %d %s", rec.Code, rec.Body)
+	}
+	first := resp["key"].(map[string]any)
+	oldKeyID := first["keyId"].(string)
+	if oldKeyID == "" || first["algo"] != "AES-256-GCM" {
+		t.Fatalf("自述字段不全: %s", rec.Body)
+	}
+	if _, leaked := first["key"]; leaked {
+		t.Fatal("自述不得返回密钥本身")
+	}
+
+	// 2 入库一条带原始快照的日志
+	body := `{"log":` + engineLog + `,"rawSnapshot":{"snapshotId":"snap-001"}}`
+	rec, resp = do(t, h, "POST", "/api/v1/logs", body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("ingest = %d %s", rec.Code, rec.Body)
+	}
+	logID := resp["logIds"].([]any)[0].(string)
+
+	// 3 轮换到新钥
+	newKey := "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	rec, resp = do(t, h, "POST", "/api/v1/logs/key/rotate", `{"key":"`+newKey+`","reason":"季度轮换"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rotate = %d %s", rec.Code, rec.Body)
+	}
+	key2 := resp["key"].(map[string]any)
+	if key2["keyId"] == oldKeyID {
+		t.Fatalf("轮换后 keyId 未变: %v", key2["keyId"])
+	}
+	retained := key2["retainedKeyIds"].([]any)
+	if len(retained) != 1 || retained[0] != oldKeyID {
+		t.Fatalf("旧钥应在保留集: %v", retained)
+	}
+
+	// 4 关键断言：轮换前写入的日志仍可回放
+	rec, resp = do(t, h, "POST", "/api/v1/logs/"+logID+"/replay", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("轮换后旧日志应可回放，实际 %d %s", rec.Code, rec.Body)
+	}
+
+	// 5 重加密：把历史密文搬到当前钥
+	rec, resp = do(t, h, "POST", "/api/v1/logs/key/rewrap", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rewrap = %d %s", rec.Code, rec.Body)
+	}
+	if resp["rewrapped"] != float64(1) {
+		t.Fatalf("应重加密 1 条，实际 %v", resp["rewrapped"])
+	}
+	// 幂等
+	rec, resp = do(t, h, "POST", "/api/v1/logs/key/rewrap", "")
+	if rec.Code != http.StatusOK || resp["rewrapped"] != float64(0) {
+		t.Fatalf("重复重加密应为 0，实际 %d %s", rec.Code, rec.Body)
+	}
+
+	// 6 审计：轮换与重加密各留一条
+	rec, resp = do(t, h, "GET", "/api/v1/audit?limit=50", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("audit = %d %s", rec.Code, rec.Body)
+	}
+	raw, _ := json.Marshal(resp)
+	for _, action := range []string{"LOG_KEY_ROTATED", "LOG_KEY_REWRAPPED"} {
+		if !strings.Contains(string(raw), action) {
+			t.Fatalf("审计缺少 %s: %s", action, raw)
+		}
+	}
+}
+
+// 轮换入参校验：既没给 key 也没说从托管源取 → 400，而不是「静默不轮换」。
+func TestLogKeyRotateValidation(t *testing.T) {
+	h := newObsTestServer(t, true, true)
+	rec, resp := do(t, h, "POST", "/api/v1/logs/key/rotate", `{}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("空入参应 400，实际 %d %s", rec.Code, rec.Body)
+	}
+	rec, resp = do(t, h, "POST", "/api/v1/logs/key/rotate", `{"key":"short"}`)
+	if rec.Code != http.StatusBadRequest || resp["errorCode"] != "OBS_KEY_INVALID" {
+		t.Fatalf("非法密钥应 400 OBS_KEY_INVALID，实际 %d %s", rec.Code, rec.Body)
+	}
+}
+
+// 无密钥部署：自述要说清「只有脱敏视图」，轮换要报 422 而不是 500。
+func TestLogKeyEndpointsWithoutKey(t *testing.T) {
+	h := newObsTestServer(t, false, true)
+	rec, resp := do(t, h, "GET", "/api/v1/logs/key", "")
+	if rec.Code != http.StatusOK || resp["configured"] != false {
+		t.Fatalf("无密钥自述 = %d %s", rec.Code, rec.Body)
+	}
+	rec, resp = do(t, h, "POST", "/api/v1/logs/key/rotate", `{"key":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"}`)
+	if rec.Code != http.StatusUnprocessableEntity || resp["errorCode"] != "OBS_KEY_MISSING" {
+		t.Fatalf("无密钥轮换应 422，实际 %d %s", rec.Code, rec.Body)
+	}
+}
+
+// ---------------------------------------------------------------------------
+
 // stubReplayer 模拟决策服务：回放结论取日志里的 decision（= 恒一致），
 // 只用于验证平台侧编排与比对，不验证引擎。
 type stubReplayer struct{}
@@ -183,3 +287,20 @@ func (stubReplayer) Decide(snapshot, execCtx json.RawMessage) (json.RawMessage, 
 }
 
 var _ obs.Replayer = stubReplayer{}
+
+// 类型化 nil 的回放后端不能把日志列表打成 500。
+//
+// 这个坑真实踩过：`NewHTTPReplayer("")` 返回 `*HTTPReplayer(nil)`，装进接口后
+// `deps.Replayer != nil` 为真，handler 一调 Describe 就空指针 panic。
+func TestNilTypedReplayerDoesNotPanic(t *testing.T) {
+	// 用类型化 nil 装配：模拟「没配 --engine-url」的真实结果
+	h := newObsEnv(t, true, (*obs.HTTPReplayer)(nil))
+	rec, body := do(t, h, "GET", "/api/v1/logs", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("列日志 = %d %s", rec.Code, rec.Body)
+	}
+	storage := body["storage"].(map[string]any)
+	if storage["replayAvailable"] != false {
+		t.Fatalf("未配置回放后端应报 replayAvailable=false: %v", storage)
+	}
+}

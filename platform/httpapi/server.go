@@ -83,6 +83,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/versions/{version}", s.getPackageVersion)
 	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/versions/{version}/artifact", s.packageArtifact)
 	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/versions/{version}/verify", s.verifyPackage)
+	// F-PKG06：approved 用例门禁预演（发布时自动强制）
+	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/versions/{version}/testcases", s.packageTestcases)
 	s.mux.HandleFunc("POST /api/v1/packages/{pkg}/versions/{version}/approve", s.approvePackage)
 	s.mux.HandleFunc("POST /api/v1/packages/{pkg}/versions/{version}/publish", s.publishPackage)
 
@@ -93,6 +95,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/changes/{id}", s.getChange)
 	s.mux.HandleFunc("POST /api/v1/changes/{id}/approve", s.approveChange)
 	s.mux.HandleFunc("POST /api/v1/changes/{id}/reject", s.rejectChange)
+	// 紧急通道（contracts/04 §7）：紧急发布、事后补审、待补审巡检
+	s.mux.HandleFunc("POST /api/v1/changes/{id}/emergency-publish", s.emergencyPublish)
+	s.mux.HandleFunc("POST /api/v1/changes/{id}/makeup-review", s.makeupReview)
+	s.mux.HandleFunc("GET /api/v1/changes/pending-makeup-review", s.pendingMakeupReview)
 	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/gray", s.getGray)
 	s.mux.HandleFunc("PUT /api/v1/packages/{pkg}/gray", s.putGray)
 	s.mux.HandleFunc("POST /api/v1/rollback", s.rollbackFlat)
@@ -102,6 +108,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/logs", s.ingestLogs)
 	s.mux.HandleFunc("GET /api/v1/logs", s.listLogs)
 	s.mux.HandleFunc("GET /api/v1/logs/stats", s.logStats)
+	// 密钥自述与轮换（`contracts/03` §8.2）。字面量 key 段优先于 {id}，不会与详情路由打架。
+	s.mux.HandleFunc("GET /api/v1/logs/key", s.getLogKey)
+	s.mux.HandleFunc("POST /api/v1/logs/key/rotate", s.rotateLogKey)
+	s.mux.HandleFunc("POST /api/v1/logs/key/rewrap", s.rewrapLogKey)
 	s.mux.HandleFunc("GET /api/v1/logs/{id}", s.getLog)
 	s.mux.HandleFunc("POST /api/v1/logs/{id}/replay", s.replayLog)
 }
@@ -161,7 +171,13 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.As(err, &pkErr):
 		writeError(w, r, http.StatusNotFound, packages.CodeNotFound, pkErr.Error(), nil)
 	case errors.As(err, &stErr):
-		writeError(w, r, http.StatusConflict, stErr.Code, stErr.Message, nil)
+		status := http.StatusConflict
+		// 「有 approved 用例但没人能执行」不是状态冲突，是平台能力缺失 → 503：
+		// 让调用方去补配置，而不是去改包。
+		if stErr.Code == packages.CodeVerifyUnavailable {
+			status = http.StatusServiceUnavailable
+		}
+		writeError(w, r, status, stErr.Code, stErr.Message, nil)
 	case errors.As(err, &iErr):
 		body, _ := json.Marshal(iErr.Referers)
 		writeError(w, r, http.StatusConflict, facts.CodeInUse, iErr.Error(), map[string]json.RawMessage{
@@ -204,6 +220,12 @@ func obsStatus(code string) int {
 		return http.StatusNotFound
 	case obs.CodeInvalidLog, obs.CodeKeyMissing, obs.CodeRawUnavailable, obs.CodeRawPurged:
 		return http.StatusUnprocessableEntity
+	case obs.CodeKeyInvalid:
+		return http.StatusBadRequest
+	case obs.CodeKeyUnknown:
+		// 钥匙不在手上不是「参数写错」：请求完全合法，只是这把钥没配过来 → 409，
+		// 让调用方去补钥匙而不是去改请求。
+		return http.StatusConflict
 	case obs.CodeReplayUnavailable:
 		return http.StatusNotImplemented
 	case obs.CodeDuplicateLog:
