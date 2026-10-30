@@ -1,0 +1,5 @@
+# 文本文件统一 LF 入库：core.autocrlf=true 的机器上避免整仓换行符抖动
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
