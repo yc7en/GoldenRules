@@ -32,6 +32,7 @@ pub enum OnMissing {
     /// 跳过引用该字段的规则
     Skip,
     /// 走场景降级决策
+    #[serde(rename = "FALLBACK_DECISION")]
     FallbackDecision,
 }
 

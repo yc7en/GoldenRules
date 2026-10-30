@@ -185,9 +185,14 @@ fn ruleset_outputs_are_merged_deterministically() {
     let pkg = json!({
         "packageId": "pkg-merge", "packageVersion": "v1", "factSchemaVersion": "c",
         "dslVersion": "1.0", "irVersion": "1.0", "metadata": {},
+        "outputSchemas": [{
+            "outputSchemaId": "merge-out", "outputSchemaVersion": "v1",
+            "fields": { "level": { "type": "string" }, "shared": { "type": "integer" } }
+        }],
         "rulesets": [{
             "rulesetId": "rs-merge", "version": "v1", "scene": "s",
             "hitStrategy": "ALL", "defaultDecision": "REJECT",
+            "outputSchemaId": "merge-out", "outputSchemaVersion": "v1",
             "slotTable": [{ "name": "request.amount", "type": "decimal" }],
             "rules": [
                 { "ruleId": "R-high", "priority": 100,

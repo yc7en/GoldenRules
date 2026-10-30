@@ -116,6 +116,22 @@ impl LoadedRuleSet {
             .collect()
     }
 
+    /// 带「跳过字段」的求值计划（`onMissing: SKIP`）。
+    ///
+    /// 与 `plan` 的差别：`plan` 只看前置事实（不命中即可剪），这里还要看
+    /// **规则引用的任意字段**——SKIP 语义是「这条规则整体不参与本次计算」。
+    pub fn plan_skipping(&self, missing_slots: &BTreeSet<u32>, skip_slots: &BTreeSet<u32>) -> Vec<u32> {
+        self.rules
+            .iter()
+            .filter(|r| match r.gating_slot {
+                Some(slot) => !missing_slots.contains(&slot),
+                None => true,
+            })
+            .filter(|r| !r.referenced_slots.iter().any(|s| skip_slots.contains(s)))
+            .map(|r| r.index)
+            .collect()
+    }
+
     pub fn rule(&self, index: u32) -> &Arc<LoadedRule> {
         &self.rules[index as usize]
     }
