@@ -16,6 +16,7 @@ import (
 	"goldenrules/platform/dsl"
 	"goldenrules/platform/facts"
 	"goldenrules/platform/gov"
+	"goldenrules/platform/obs"
 	"goldenrules/platform/packages"
 )
 
@@ -26,7 +27,10 @@ type Deps struct {
 	Packages *packages.Service
 	// Gov 为 nil 时退化为「无治理」模式：审批/发布是裸动作，仅用于单包测试与演练。
 	// platformd 恒接线——生产路径上不存在「跳过变更单直接发布」。
-	Gov          *gov.Service
+	Gov *gov.Service
+	// Obs 决策日志；Replayer 为 nil 表示回放不可用（没配决策服务地址）。
+	Obs          *obs.Service
+	Replayer     obs.Replayer
 	ArtifactsDir string
 }
 
@@ -93,6 +97,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/v1/packages/{pkg}/gray", s.putGray)
 	s.mux.HandleFunc("POST /api/v1/rollback", s.rollbackFlat)
 	s.mux.HandleFunc("GET /api/v1/audit", s.listAudit)
+
+	// ---- B10 决策日志与审计 ----
+	s.mux.HandleFunc("POST /api/v1/logs", s.ingestLogs)
+	s.mux.HandleFunc("GET /api/v1/logs", s.listLogs)
+	s.mux.HandleFunc("GET /api/v1/logs/stats", s.logStats)
+	s.mux.HandleFunc("GET /api/v1/logs/{id}", s.getLog)
+	s.mux.HandleFunc("POST /api/v1/logs/{id}/replay", s.replayLog)
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +140,7 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	var stErr *packages.StateError
 	var gErr *gov.Error
 	var gnErr *gov.NotFoundError
+	var oErr *obs.Error
 
 	switch {
 	case errors.As(err, &vErr):
@@ -159,6 +171,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusNotFound, gov.CodeChangeNotFound, gnErr.Error(), nil)
 	case errors.As(err, &gErr):
 		writeError(w, r, govStatus(gErr.Code), gErr.Code, gErr.Message, nil)
+	case errors.As(err, &oErr):
+		writeError(w, r, obsStatus(oErr.Code), oErr.Code, oErr.Message, nil)
 	default:
 		writeError(w, r, http.StatusInternalServerError, "INTERNAL", err.Error(), nil)
 	}
@@ -179,6 +193,23 @@ func govStatus(code string) int {
 		return http.StatusUnprocessableEntity
 	default:
 		return http.StatusConflict
+	}
+}
+
+// obsStatus 观测错误码 → HTTP 状态。
+// 「查不到」404；「回放暂时做不到」501（不是服务坏了，是没配能力）；其余按请求错 4xx。
+func obsStatus(code string) int {
+	switch code {
+	case obs.CodeLogNotFound:
+		return http.StatusNotFound
+	case obs.CodeInvalidLog, obs.CodeKeyMissing, obs.CodeRawUnavailable, obs.CodeRawPurged:
+		return http.StatusUnprocessableEntity
+	case obs.CodeReplayUnavailable:
+		return http.StatusNotImplemented
+	case obs.CodeDuplicateLog:
+		return http.StatusConflict
+	default:
+		return http.StatusBadGateway
 	}
 }
 

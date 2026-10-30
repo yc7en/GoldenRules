@@ -12,6 +12,7 @@ import (
 	"goldenrules/platform/dsl"
 	"goldenrules/platform/facts"
 	"goldenrules/platform/gov"
+	"goldenrules/platform/obs"
 	"goldenrules/platform/packages"
 	"goldenrules/platform/persist"
 )
@@ -70,6 +71,50 @@ func newGovTestServer(t *testing.T) http.Handler {
 	deps.Gov = gov.NewService(govStore, deps.Packages).WithClock(func() time.Time {
 		return time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	})
+	return New(deps)
+}
+
+// newObsTestServer 再接一层决策日志服务；withReplay=false 时无回放后端。
+// 密钥固定写在测试里（32 字节 hex），只用于本地断言加解密通路。
+func newObsTestServer(t *testing.T, withKey, withReplay bool) http.Handler {
+	t.Helper()
+	_, deps := newTestEnv(t)
+	dir := t.TempDir()
+	logStore, err := persist.Open(filepath.Join(dir, "logs.json"), func() obs.LogDoc {
+		return obs.LogDoc{Seq: map[string]int{}}
+	})
+	if err != nil {
+		t.Fatalf("open logs: %v", err)
+	}
+	rawStore, err := persist.Open(filepath.Join(dir, "raw.json"), func() obs.RawDoc {
+		return obs.RawDoc{Blobs: map[string]obs.RawSnapshotRef{}}
+	})
+	if err != nil {
+		t.Fatalf("open raw: %v", err)
+	}
+	var box *obs.Box
+	if withKey {
+		box, err = obs.NewBox("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
+		if err != nil {
+			t.Fatalf("box: %v", err)
+		}
+	}
+	deps.Obs = obs.New(logStore, rawStore, box).WithClock(func() time.Time {
+		return time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	})
+	// 回放/日志访问要写审计，所以观测环境也带上治理服务。
+	govStore, err := persist.Open(filepath.Join(t.TempDir(), "gov.json"), func() gov.Doc {
+		return gov.Doc{Grays: map[string]gov.Gray{}, Seq: map[string]int{}}
+	})
+	if err != nil {
+		t.Fatalf("open gov: %v", err)
+	}
+	deps.Gov = gov.NewService(govStore, deps.Packages).WithClock(func() time.Time {
+		return time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	})
+	if withReplay {
+		deps.Replayer = stubReplayer{}
+	}
 	return New(deps)
 }
 

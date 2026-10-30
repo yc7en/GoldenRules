@@ -164,6 +164,9 @@ const (
 	ActionPackagePublished  = "PACKAGE_PUBLISHED"
 	ActionPackageRolledBack = "PACKAGE_ROLLED_BACK"
 	ActionGrayUpdated       = "GRAY_UPDATED"
+	// B10：日志原文访问与回放也要留痕（谁在什么时候看了谁的原始快照）。
+	ActionLogRawAccessed = "LOG_RAW_ACCESSED"
+	ActionReplayExecuted = "REPLAY_EXECUTED"
 )
 
 // Doc 治理仓库文档（一份 JSON：变更单 + 灰度配置 + 审计事件）。

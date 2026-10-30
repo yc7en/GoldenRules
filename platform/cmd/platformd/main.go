@@ -25,6 +25,7 @@ import (
 	"goldenrules/platform/facts"
 	"goldenrules/platform/gov"
 	"goldenrules/platform/httpapi"
+	"goldenrules/platform/obs"
 	"goldenrules/platform/packages"
 	"goldenrules/platform/persist"
 )
@@ -34,6 +35,9 @@ func main() {
 	dataDir := flag.String("data", "./data", "数据目录（JSON 文档存储）")
 	artifactsDir := flag.String("artifacts", "./artifacts", "事实目录生成物输出目录")
 	seed := flag.String("seed", "", "首启时导入的样例目录（内含 fact-catalog.json 与 rule-package.json）")
+	logKey := flag.String("log-key", "", "原始快照加密密钥（32 字节 hex/base64）；不给则读 GOLDENRULES_LOG_KEY，再不给就只存脱敏视图")
+	retention := flag.Int("replay-retention-days", obs.DefaultRetentionDays, "原始快照保留天数；<=0 表示不保存原始快照")
+	engineURL := flag.String("engine-url", "", "决策服务地址（仅用于回放/试跑编排，不参与决策路径）；不给则回放不可用")
 	flag.Parse()
 
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
@@ -85,11 +89,35 @@ func main() {
 		}
 	}
 
+	// 决策日志分两套存储：logs.json 是脱敏视图，raw.json 是原始快照密文（`contracts/03` §8.2）。
+	logStore, err := persist.Open(filepath.Join(*dataDir, "logs.json"), func() obs.LogDoc {
+		return obs.LogDoc{Seq: map[string]int{}}
+	})
+	if err != nil {
+		log.Fatalf("打开决策日志失败: %v", err)
+	}
+	rawStore, err := persist.Open(filepath.Join(*dataDir, "raw.json"), func() obs.RawDoc {
+		return obs.RawDoc{Blobs: map[string]obs.RawSnapshotRef{}}
+	})
+	if err != nil {
+		log.Fatalf("打开原始快照存储失败: %v", err)
+	}
+	box, err := obs.NewBoxFromEnv(*logKey)
+	if err != nil {
+		// 没有密钥不是致命错误：降级为「只存脱敏视图」，但要吼一声，别让人以为回放能用。
+		log.Printf("警告：%v —— 原始快照不落盘，回放不可用", err)
+		box = nil
+	}
+	obsSvc := obs.New(logStore, rawStore, box).WithRetention(*retention)
+	replayer := obs.NewHTTPReplayer(*engineURL)
+
 	handler := httpapi.New(httpapi.Deps{
 		Facts:        factSvc,
 		Rulesets:     rulesetSvc,
 		Packages:     packageSvc,
 		Gov:          govSvc,
+		Obs:          obsSvc,
+		Replayer:     replayer,
 		ArtifactsDir: *artifactsDir,
 	})
 
