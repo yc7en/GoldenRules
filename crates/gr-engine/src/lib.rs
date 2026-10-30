@@ -14,6 +14,7 @@ pub mod limits;
 pub mod log;
 pub mod outputs;
 pub mod slots;
+pub mod verify;
 
 use gr_contract::{
     Decision, DecisionLogEntry, DecisionResult, DegradedReason, ErrorCode, ErrorContract,

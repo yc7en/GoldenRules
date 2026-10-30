@@ -184,6 +184,12 @@ pub enum TestCaseStatus {
 pub struct TestCase {
     pub test_id: String,
     pub scene: String,
+    /// 用例针对的规则集（`contracts/01` §6.1）。
+    ///
+    /// 场景挂多个规则集时必填：P0 不做多规则集编排，不带就是「不知道该问谁」，
+    /// 门禁会明确拒绝（而不是随便挑一个跑出个看似通过的结果）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ruleset_id: Option<String>,
     pub input: BTreeMap<String, serde_json::Value>,
     pub expect: Expectation,
     #[serde(default)]

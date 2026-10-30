@@ -98,12 +98,15 @@ type OutputField struct {
 
 // TestCase 测试用例（规则包一等成员，contracts/01 §6.1）。
 type TestCase struct {
-	TestID string                     `json:"testId"`
-	Scene  string                     `json:"scene"`
-	Input  map[string]json.RawMessage `json:"input"`
-	Expect Expectation                `json:"expect"`
-	Author string                     `json:"author,omitempty"`
-	Status string                     `json:"status,omitempty"`
+	TestID string `json:"testId"`
+	Scene  string `json:"scene"`
+	// RulesetID 用例针对的规则集（`contracts/01` §6.1）。
+	// 场景挂多个规则集时必填，否则引擎侧门禁会以 AMBIGUOUS_SCENE 拒绝执行。
+	RulesetID string                     `json:"rulesetId,omitempty"`
+	Input     map[string]json.RawMessage `json:"input"`
+	Expect    Expectation                `json:"expect"`
+	Author    string                     `json:"author,omitempty"`
+	Status    string                     `json:"status,omitempty"`
 }
 
 // Expectation 期望的决策结果（业务确认此列）。

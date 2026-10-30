@@ -43,6 +43,11 @@ const (
 	CodeNotApproved    = "PKG_NOT_APPROVED"
 	CodeStillServing   = "PKG_STILL_SERVING"
 	CodeRollbackTarget = "PKG_ROLLBACK_TARGET_INVALID"
+	// F-PKG06 发布门禁
+	CodeVerifyFailed = "PKG_TESTCASE_FAILED"
+	// CodeVerifyUnavailable 「包里有 approved 用例，但没有执行器能证明它们通过」。
+	// 这时**不能放行**：放行等于把「已验证」变成一句没人核实过的话。
+	CodeVerifyUnavailable = "PKG_VERIFY_UNAVAILABLE"
 )
 
 // Version 一个规则包版本。发布后**内容不可变**（`contracts/06` §2.2），

@@ -8,6 +8,7 @@
 //! - `POST /v1/trial`       试跑：同 decide，但不落决策日志（平台 dry-run 用）
 //! - `POST /v1/assemble`    Assemble 模式：传业务入参，服务内调 Provider 组装（B5）
 //! - `POST /v1/admin/reload` 热重载规则包（B12：先编译后切换，发布零中断）
+//! - `POST /v1/admin/verify` approved 用例发布门禁（F-PKG06：跑候选包，任一失败即阻断）
 //!
 //! 刻意用 `std::net` 手写极简 HTTP，而不是引 axum：
 //! 决策服务对协议栈的要求只有「HTTP/1.1 + JSON + keep-alive」，多一个依赖就多一类升级风险。
@@ -421,12 +422,15 @@ fn route(req: &Request, service: &Service) -> Response {
         ("POST", "/v1/trial") => decide(req, service, false),
         ("POST", "/v1/assemble") => assemble(req, service),
         ("POST", "/v1/admin/reload") => reload(req, service),
+        // F-PKG06：发布门禁用例执行（拿候选包跑它自己的 approved 用例）
+        ("POST", "/v1/admin/verify") => verify(req, service),
         ("GET", "/") => Response::json(
             200,
             &serde_json::json!({
                 "service": "goldenrules-engine",
                 "endpoints": ["/healthz", "/v1/packages", "/v1/limits", "/v1/decide",
-                              "/v1/trial", "/v1/assemble", "/v1/admin/reload"],
+                              "/v1/trial", "/v1/assemble", "/v1/admin/reload",
+                              "/v1/admin/verify"],
                 "assembleEnabled": service.assembler().is_some(),
                 "generation": service.generation(),
             }),
@@ -559,19 +563,8 @@ fn assemble(req: &Request, service: &Service) -> Response {
 /// 失败语义：新包编译不过 → 返回 500 且**旧引擎继续服务**。
 /// 「重载失败就把服务打挂」是最坏的选择：一次手滑的发布不该让整条链路停摆。
 fn reload(req: &Request, service: &Service) -> Response {
-    if let Some(expected) = &service.reload_token {
-        match req.header("x-reload-token") {
-            Some(got) if got == expected => {}
-            _ => {
-                return Response::json(
-                    401,
-                    &ErrorContract::new(
-                        gr_contract::ErrorCode::IrInvalid,
-                        "热重载需要正确的 X-Reload-Token",
-                    ),
-                )
-            }
-        }
+    if let Some(denied) = admin_denied(req, service) {
+        return denied;
     }
 
     match service.reload() {
@@ -594,4 +587,117 @@ fn reload(req: &Request, service: &Service) -> Response {
 #[allow(dead_code)]
 fn outcome_summary(o: &DecisionOutcome) -> String {
     format!("{} {}", o.result.decision, o.result.reason_code)
+}
+
+// ---------------------------------------------------------------- 发布门禁
+
+/// 管理员端点的统一鉴权。
+///
+/// 返回 `Some(response)` 表示应直接拒绝。思路是把「谁能改服务行为」收敛到一个判据里：
+/// 热重载与用例门禁都是发布链路上的动作，不该出现「一个要 token、一个不用」的裂缝。
+fn admin_denied(req: &Request, service: &Service) -> Option<Response> {
+    let expected = service.reload_token.as_ref()?;
+    match req.header("x-reload-token") {
+        Some(got) if got == expected => None,
+        _ => Some(Response::json(
+            401,
+            &ErrorContract::new(
+                gr_contract::ErrorCode::IrInvalid,
+                "该管理端点需要正确的 X-Reload-Token",
+            ),
+        )),
+    }
+}
+
+/// 发布门禁（F-PKG06）：拿候选包跑它自己的 approved 用例。
+///
+/// 入参只带包体，不带事实目录——门禁必须用**这台引擎真正在跑的那份目录**，
+/// 否则「在我本地用另一份目录跑过了」就成了绕过门禁的口子。
+#[derive(serde::Deserialize)]
+struct VerifyRequest {
+    package: gr_contract::RulePackage,
+}
+
+fn verify(req: &Request, service: &Service) -> Response {
+    if let Some(denied) = admin_denied(req, service) {
+        return denied;
+    }
+    let body: VerifyRequest = match serde_json::from_slice(&req.body) {
+        Ok(v) => v,
+        Err(e) => {
+            return Response::json(
+                400,
+                &ErrorContract::new(
+                    gr_contract::ErrorCode::IrInvalid,
+                    format!("请求体解析失败（需要 {{\"package\": {{...}}}}）: {e}"),
+                ),
+            )
+        }
+    };
+
+    let catalog_json = match std::fs::read_to_string(&service.sources.catalog_path) {
+        Ok(v) => v,
+        Err(e) => {
+            return Response::json(
+                500,
+                &ErrorContract::new(
+                    gr_contract::ErrorCode::IrInvalid,
+                    format!("读取事实目录 {} 失败: {e}", service.sources.catalog_path),
+                ),
+            )
+        }
+    };
+    let catalog: FactCatalog = match serde_json::from_str(&catalog_json) {
+        Ok(v) => v,
+        Err(e) => {
+            return Response::json(
+                500,
+                &ErrorContract::new(
+                    gr_contract::ErrorCode::IrInvalid,
+                    format!("事实目录 JSON 解析失败: {e}"),
+                ),
+            )
+        }
+    };
+
+    // 门禁是串行跑用例，不该被生产在途上限挡住；其余装载期硬顶照旧生效。
+    let mut config = service.sources.config.clone();
+    config.max_inflight = usize::MAX;
+
+    match gr_engine::verify::verify_package(&body.package, &catalog, config) {
+        Ok(report) => {
+            let failures: Vec<serde_json::Value> = report
+                .failures
+                .iter()
+                .map(|f| {
+                    serde_json::json!({
+                        "testId": f.test_id, "code": f.code, "message": f.message
+                    })
+                })
+                .collect();
+            let passed = report.ok();
+            if !passed {
+                eprintln!(
+                    "用例门禁未通过：包 {} 有 {} 条用例失败",
+                    body.package.package_id, report.failed
+                );
+            }
+            Response::json(
+                200,
+                &serde_json::json!({
+                    "passed": passed,
+                    "summary": report.summary(),
+                    "total": report.total,
+                    "ran": report.ran,
+                    "passedCount": report.passed,
+                    "failedCount": report.failed,
+                    "skipped": report.skipped,
+                    "failures": failures,
+                    "packageId": body.package.package_id,
+                    "packageVersion": body.package.package_version,
+                }),
+            )
+        }
+        Err(err) => Response::json(err.error_code.http_status(), &err),
+    }
 }

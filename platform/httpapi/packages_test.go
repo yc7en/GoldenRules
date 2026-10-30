@@ -248,3 +248,110 @@ func seedAmountRuleset(t *testing.T, h http.Handler) {
 		t.Fatalf("put ruleset = %d %s", rec.Code, rec.Body)
 	}
 }
+
+// ---------------------------------------------------------------- 用例门禁（F-PKG06）
+
+// 带一条已确认用例的规则集：门禁必须真跑（或明确报告「没人能跑」）。
+const rulesetWithApprovedTest = `{
+  "rulesetId": "rs-amount-limit",
+  "scene": "withdraw-risk-check",
+  "version": "rs-1",
+  "hitStrategy": "ALL",
+  "defaultDecision": "REJECT",
+  "rules": [
+    {
+      "ruleId": "R1",
+      "priority": 100,
+      "when": "request.amount > 1000",
+      "then": {"decision": "REJECT", "reasonCode": "AMOUNT_LIMIT_EXCEEDED"}
+    }
+  ],
+  "tests": [
+    {
+      "testId": "T001",
+      "scene": "withdraw-risk-check",
+      "rulesetId": "rs-amount-limit",
+      "input": {"request.amount": "1500"},
+      "expect": {"decision": "REJECT", "reasonCode": "AMOUNT_LIMIT_EXCEEDED"},
+      "author": "business.C",
+      "status": "approved"
+    }
+  ]
+}`
+
+func seedApprovedCase(t *testing.T, h http.Handler) {
+	t.Helper()
+	if rec, _ := do(t, h, "POST", "/api/v1/facts", factForRule); rec.Code != http.StatusCreated {
+		t.Fatalf("create fact = %d %s", rec.Code, rec.Body)
+	}
+	if rec, _ := do(t, h, "PUT", "/api/v1/rulesets/rs-amount-limit", rulesetWithApprovedTest); rec.Code != http.StatusOK {
+		t.Fatalf("put ruleset = %d %s", rec.Code, rec.Body)
+	}
+}
+
+// 没有门禁执行器时，带 approved 用例的包必须发不出去（fail-closed）。
+func TestPublishBlockedWhenGateUnavailable(t *testing.T) {
+	h := newTestServer(t)
+	seedApprovedCase(t, h)
+	if rec, body := do(t, h, "POST", "/api/v1/packages", pkgDraftBody); rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", rec.Code, body)
+	}
+	if rec, _ := do(t, h, "POST", "/api/v1/packages/pkg-withdraw/versions/v1/approve", ""); rec.Code != http.StatusOK {
+		t.Fatalf("approve 失败")
+	}
+	rec, body := do(t, h, "POST", "/api/v1/packages/pkg-withdraw/versions/v1/publish", "")
+	if rec.Code != http.StatusServiceUnavailable || body["errorCode"] != "PKG_VERIFY_UNAVAILABLE" {
+		t.Fatalf("无执行器应 503 PKG_VERIFY_UNAVAILABLE，实际 %d %s", rec.Code, rec.Body)
+	}
+	if msg, _ := body["message"].(string); !strings.Contains(msg, "engine-url") {
+		t.Fatalf("诊断应指出缺什么配置: %s", msg)
+	}
+	// 状态没动
+	rec, body = do(t, h, "GET", "/api/v1/packages/pkg-withdraw/versions/v1", "")
+	if rec.Code != http.StatusOK || body["status"] != "approved" {
+		t.Fatalf("被拦下后应仍是 approved，实际 %d %s", rec.Code, rec.Body)
+	}
+}
+
+// 预演入口：无执行器时同样 503，且不改状态。
+func TestTestcasePreviewWithoutVerifier(t *testing.T) {
+	h := newTestServer(t)
+	seedApprovedCase(t, h)
+	if rec, body := do(t, h, "POST", "/api/v1/packages", pkgDraftBody); rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", rec.Code, body)
+	}
+	rec, body := do(t, h, "GET", "/api/v1/packages/pkg-withdraw/versions/v1/testcases", "")
+	if rec.Code != http.StatusServiceUnavailable || body["errorCode"] != "PKG_VERIFY_UNAVAILABLE" {
+		t.Fatalf("预演应 503，实际 %d %s", rec.Code, rec.Body)
+	}
+}
+
+// 只有未确认用例时，预演返回「无需执行」而不是报错——两种情形不能长得一样。
+func TestTestcasePreviewWithOnlyPendingCases(t *testing.T) {
+	h := newTestServer(t)
+	seedAmountRuleset(t, h)
+	if rec, body := do(t, h, "POST", "/api/v1/packages", pkgDraftBody); rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", rec.Code, body)
+	}
+	rec, body := do(t, h, "GET", "/api/v1/packages/pkg-withdraw/versions/v1/testcases", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("预演 = %d %s", rec.Code, rec.Body)
+	}
+	rep := body["report"].(map[string]any)
+	if rep["passed"] != true || rep["ran"] != float64(0) || rep["skipped"] != float64(1) {
+		t.Fatalf("无用例可跑时应 passed=true/ran=0/skipped=1: %s", rec.Body)
+	}
+	gate := body["gate"].(map[string]any)
+	if gate["enforcedOnPublish"] != true {
+		t.Fatalf("应说明门禁在发布时强制: %s", rec.Body)
+	}
+}
+
+// 未知版本预演 → 404。
+func TestTestcasePreviewUnknownVersion(t *testing.T) {
+	h := newTestServer(t)
+	rec, body := do(t, h, "GET", "/api/v1/packages/pkg-nope/versions/v1/testcases", "")
+	if rec.Code != http.StatusNotFound || body["errorCode"] != "PKG_NOT_FOUND" {
+		t.Fatalf("未知包应 404，实际 %d %s", rec.Code, rec.Body)
+	}
+}

@@ -14,11 +14,19 @@ import (
 type Service struct {
 	st  *persist.Store[Repo]
 	now func() time.Time
+	// verifier 执行 approved 用例的发布门禁；nil 表示「本进程没有执行器」。
+	verifier TestCaseVerifier
 }
 
 // NewService 构造服务。
 func NewService(st *persist.Store[Repo]) *Service {
 	return &Service{st: st, now: func() time.Time { return time.Now().UTC() }}
+}
+
+// WithVerifier 挂上用例门禁执行器（F-PKG06）。
+func (s *Service) WithVerifier(v TestCaseVerifier) *Service {
+	s.verifier = v
+	return s
 }
 
 // WithClock 注入时钟（测试确定性；也用于验证「定时发布」）。
@@ -161,6 +169,11 @@ func (s *Service) Approve(packageID, version, actor string) (Version, error) {
 // 同一版本重复发布是幂等操作（§4.2），不产生新版本号、不重复改状态。
 // 支持「定时发布」：`validFrom` 在未来时，包处于 published 但尚未生效。
 func (s *Service) Publish(packageID, version, actor, validFrom, validUntil string) (Version, error) {
+	// 用例门禁在读锁之外跑：它是一次外部调用（引擎执行），不能塞进存储更新的临界区，
+	// 否则慢门禁会把整个包仓库的读写都堵住。
+	if err := s.runPublishGate(packageID, version); err != nil {
+		return Version{}, err
+	}
 	var out Version
 	err := s.st.Update(func(r *Repo) error {
 		v, err := find(r, packageID, version)

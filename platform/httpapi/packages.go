@@ -226,6 +226,33 @@ func (s *Server) verifyPackage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /api/v1/packages/{pkg}/versions/{version}/testcases —— 预演发布门禁。
+//
+// 只读：跑（或按配置判定）包内 approved 用例，把结果摆出来。真正阻断发生在 publish。
+// 单独提供一个「预演」入口的价值在于：发布人可以在按下发布键之前先看到哪条用例红了，
+// 而不是在发布动作里收到一句「被拦下了」。
+func (s *Server) packageTestcases(w http.ResponseWriter, r *http.Request) {
+	pkgID, version := r.PathValue("pkg"), r.PathValue("version")
+	rep, err := s.deps.Packages.Verify(pkgID, version)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	if rep.Failures == nil {
+		rep.Failures = []packages.VerifyFailure{}
+	}
+	v, _ := s.deps.Packages.Get(pkgID, version)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"report": rep,
+		"gate": map[string]any{
+			"enforcedOnPublish": true,
+			"approvedCases":     v.ConfirmedTC,
+			"unconfirmedCases":  v.UnconfirmedTC,
+			"note":              "任一 approved 用例失败将阻断发布（contracts/01 §6.1）",
+		},
+	})
+}
+
 // summarize 列表/摘要视图：去掉包体（IR 可能很大），保留生命周期字段。
 func summarize(v packages.Version) map[string]any {
 	return map[string]any{

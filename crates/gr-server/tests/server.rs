@@ -234,3 +234,83 @@ fn overload_is_reported_as_503() {
     let body = request(s.port, &decide_raw(false));
     assert!(body.contains("EXEC_OVERLOAD"), "应返回过载错误，实际: {body}");
 }
+
+// ---------------------------------------------------------------- 发布门禁（F-PKG06）
+
+/// 取 fixture 包，按需把首条用例改成 approved 并指定规则集。
+fn candidate_package(approved: bool) -> serde_json::Value {
+    let raw = std::fs::read_to_string(fixtures().join("rule-package.json")).expect("read package");
+    let mut pkg: serde_json::Value = serde_json::from_str(&raw).expect("parse package");
+    let tc = &mut pkg["tests"][0];
+    // 该场景挂 3 个规则集，门禁要求用例写明 rulesetId
+    tc["rulesetId"] = serde_json::json!("rs-amount-limit");
+    tc["status"] = serde_json::json!(if approved { "approved" } else { "pending_review" });
+    pkg
+}
+
+fn post_json(port: u16, path: &str, body: &serde_json::Value, token: Option<&str>) -> String {
+    let payload = serde_json::to_string(body).unwrap();
+    let auth = token
+        .map(|t| format!("X-Reload-Token: {t}\r\n"))
+        .unwrap_or_default();
+    request(
+        port,
+        &format!(
+            "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n{auth}Content-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+            payload.len()
+        ),
+    )
+}
+
+#[test]
+fn verify_endpoint_runs_approved_cases() {
+    let s = start(&[]);
+    let body = serde_json::json!({ "package": candidate_package(true) });
+    let out: serde_json::Value =
+        serde_json::from_str(&post_json(s.port, "/v1/admin/verify", &body, None)).unwrap();
+    assert_eq!(out["passed"], true, "应放行: {out}");
+    assert_eq!(out["ran"], 1);
+    assert_eq!(out["passedCount"], 1);
+    assert_eq!(out["failedCount"], 0);
+}
+
+#[test]
+fn verify_endpoint_blocks_failing_case() {
+    let s = start(&[]);
+    let mut pkg = candidate_package(true);
+    // 把期望改成 REJECT：规则实际给 REVIEW，门禁必须拦下
+    pkg["tests"][0]["expect"]["decision"] = serde_json::json!("REJECT");
+    pkg["tests"][0]["expect"]["reasonCode"] = serde_json::json!("AMOUNT_LIMIT_EXCEEDED");
+    let body = serde_json::json!({ "package": pkg });
+    let out: serde_json::Value =
+        serde_json::from_str(&post_json(s.port, "/v1/admin/verify", &body, None)).unwrap();
+    assert_eq!(out["passed"], false, "应拦下: {out}");
+    assert_eq!(out["failedCount"], 1);
+    assert_eq!(out["failures"][0]["code"], "DECISION_MISMATCH");
+    assert_eq!(out["failures"][0]["testId"], "T001");
+}
+
+#[test]
+fn verify_endpoint_respects_token() {
+    let s = start(&["--reload-token", "s3cret"]);
+    let body = serde_json::json!({ "package": candidate_package(true) });
+    let denied = post_json(s.port, "/v1/admin/verify", &body, None);
+    assert!(denied.contains("X-Reload-Token"), "无 token 应被拒: {denied}");
+    let ok = post_json(s.port, "/v1/admin/verify", &body, Some("s3cret"));
+    assert!(ok.contains("\"passed\":true"), "带 token 应放行: {ok}");
+}
+
+#[test]
+fn verify_endpoint_reports_ambiguous_scene() {
+    let s = start(&[]);
+    let mut pkg = candidate_package(true);
+    pkg["tests"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("rulesetId");
+    let body = serde_json::json!({ "package": pkg });
+    let out: serde_json::Value =
+        serde_json::from_str(&post_json(s.port, "/v1/admin/verify", &body, None)).unwrap();
+    assert_eq!(out["passed"], false);
+    assert_eq!(out["failures"][0]["code"], "AMBIGUOUS_SCENE");
+}

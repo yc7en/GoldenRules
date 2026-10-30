@@ -37,7 +37,9 @@ func main() {
 	seed := flag.String("seed", "", "首启时导入的样例目录（内含 fact-catalog.json 与 rule-package.json）")
 	logKey := flag.String("log-key", "", "原始快照加密密钥（32 字节 hex/base64）；不给则读 GOLDENRULES_LOG_KEY，再不给就只存脱敏视图")
 	retention := flag.Int("replay-retention-days", obs.DefaultRetentionDays, "原始快照保留天数；<=0 表示不保存原始快照")
-	engineURL := flag.String("engine-url", "", "决策服务地址（仅用于回放/试跑编排，不参与决策路径）；不给则回放不可用")
+	engineURL := flag.String("engine-url", "", "决策服务地址（用于回放/试跑编排与发布门禁，不参与决策路径）；不给则回放与门禁不可用")
+	engineToken := flag.String("engine-token", "", "调用决策服务管理端点（/v1/admin/*）的 X-Reload-Token；引擎启用 token 时必须给")
+	noVerify := flag.Bool("no-verify-gate", false, "关闭 approved 用例发布门禁（仅限演练环境；生产不许关）")
 	flag.Parse()
 
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
@@ -67,6 +69,14 @@ func main() {
 		log.Fatalf("打开规则包仓库失败: %v", err)
 	}
 	packageSvc := packages.NewService(packageStore)
+	// 发布门禁执行器（F-PKG06）：只有引擎那台 VM 能证明用例真的会得出那个结论。
+	// 没配 --engine-url 且包里有 approved 用例时，发布会被拦下（fail-closed），
+	// 而不是「反正验不了就先放行」——那等于把「已验证」变成一句没人核实过的话。
+	if *noVerify {
+		log.Printf("警告：已关闭 approved 用例发布门禁（--no-verify-gate），仅限演练环境")
+	} else if *engineURL != "" {
+		packageSvc.WithVerifier(packages.NewHTTPTestCaseVerifier(*engineURL, *engineToken))
+	}
 
 	govStore, err := persist.Open(filepath.Join(*dataDir, "gov.json"), func() gov.Doc {
 		return gov.Doc{Grays: map[string]gov.Gray{}, Seq: map[string]int{}}
@@ -107,9 +117,18 @@ func main() {
 		// 没有密钥不是致命错误：降级为「只存脱敏视图」，但要吼一声，别让人以为回放能用。
 		log.Printf("警告：%v —— 原始快照不落盘，回放不可用", err)
 		box = nil
+	} else {
+		// 挂上托管密钥源：本地缺某把历史钥时按需向 KMS 取（本轮实现为环境变量源，
+		// KMS 实现只需满足 obs.KeyProvider 接口即可替换）。
+		box.WithKeyProvider(obs.NewEnvKeyProvider())
 	}
 	obsSvc := obs.New(logStore, rawStore, box).WithRetention(*retention)
-	replayer := obs.NewHTTPReplayer(*engineURL)
+	// 注意：必须显式声明为接口类型再赋值。直接把可能为 nil 的 *HTTPReplayer 塞进
+	// Deps.Replayer，会得到一个「非 nil 的接口包着 nil 指针」，handler 里 != nil 判断失效。
+	var replayer obs.Replayer
+	if r := obs.NewHTTPReplayer(*engineURL); r != nil {
+		replayer = r
+	}
 
 	handler := httpapi.New(httpapi.Deps{
 		Facts:        factSvc,
