@@ -1,0 +1,234 @@
+{
+  "packageId": "pkg-withdraw-risk",
+  "packageVersion": "v12",
+  "factSchemaVersion": "catalog-v2026.10",
+  "dslVersion": "1.0",
+  "irVersion": "1.0",
+  "signature": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "metadata": {
+    "createdAt": "2026-10-30T09:00:00Z",
+    "createdBy": "engineer.A",
+    "riskLevel": "L3",
+    "changelog": "加入频次联动与风险评分兜底"
+  },
+  "outputSchemas": [
+    {
+      "outputSchemaId": "withdraw-risk-output",
+      "outputSchemaVersion": "v1",
+      "fields": {
+        "riskLevel": { "type": "enum", "values": ["LOW", "MEDIUM", "HIGH"] },
+        "excessAmount": { "type": "decimal", "unit": "CNY", "nullable": true },
+        "discountAmount": { "type": "decimal", "unit": "CNY", "nullable": true },
+        "rate": { "type": "decimal", "nullable": true }
+      }
+    }
+  ],
+  "rulesets": [
+    {
+      "rulesetId": "rs-list-check",
+      "version": "rs-20261030-3",
+      "scene": "withdraw-risk-check",
+      "hitStrategy": "FIRST",
+      "defaultDecision": "APPROVE",
+      "outputSchemaId": "withdraw-risk-output",
+      "outputSchemaVersion": "v1",
+      "slotTable": [
+        { "name": "sanctions.hit", "type": "boolean", "factVersion": "v1" },
+        { "name": "request.currency", "type": "enum", "factVersion": "v1" }
+      ],
+      "rules": [
+        {
+          "ruleId": "R1001",
+          "version": "v3",
+          "scene": "withdraw-risk-check",
+          "priority": 100,
+          "riskLevel": "L3",
+          "when": { "op": "eq", "args": [{ "fact": "sanctions.hit" }, { "type": "boolean", "value": true }] },
+          "then": { "decision": "REJECT", "reasonCode": "LIST_SANCTION_HIT", "reasonMessage": "命中制裁名单" }
+        },
+        {
+          "ruleId": "R1002",
+          "version": "v1",
+          "scene": "withdraw-risk-check",
+          "priority": 90,
+          "riskLevel": "L2",
+          "when": { "op": "ne", "args": [{ "fact": "request.currency" }, { "type": "string", "value": "CNY" }] },
+          "then": { "decision": "REJECT", "reasonCode": "AMOUNT_CURRENCY_UNSUPPORTED", "reasonMessage": "仅支持 CNY 提款" }
+        }
+      ]
+    },
+    {
+      "rulesetId": "rs-amount-limit",
+      "version": "rs-20261030-5",
+      "scene": "withdraw-risk-check",
+      "hitStrategy": "ALL",
+      "defaultDecision": "REJECT",
+      "outputSchemaId": "withdraw-risk-output",
+      "outputSchemaVersion": "v1",
+      "slotTable": [
+        { "name": "request.amount", "type": "decimal", "factVersion": "v2" },
+        { "name": "config.withdrawDailyLimit", "type": "decimal", "factVersion": "v1" },
+        { "name": "customer.level", "type": "enum", "factVersion": "v1" },
+        { "name": "request.currency", "type": "enum", "factVersion": "v1" }
+      ],
+      "rules": [
+        {
+          "ruleId": "R2001",
+          "version": "v4",
+          "scene": "withdraw-risk-check",
+          "priority": 100,
+          "riskLevel": "L3",
+          "when": { "op": "gt", "args": [{ "fact": "request.amount" }, { "fact": "config.withdrawDailyLimit" }] },
+          "then": {
+            "decision": "REJECT",
+            "reasonCode": "AMOUNT_LIMIT_EXCEEDED",
+            "assign": [
+              { "var": "excessAmount", "expr": { "op": "sub", "args": [{ "fact": "request.amount" }, { "fact": "config.withdrawDailyLimit" }] } },
+              { "var": "riskLevel", "expr": { "type": "enum", "value": "HIGH" } }
+            ]
+          }
+        },
+        {
+          "ruleId": "R2002",
+          "version": "v2",
+          "scene": "withdraw-risk-check",
+          "priority": 80,
+          "riskLevel": "L2",
+          "when": { "op": "gt", "args": [{ "fact": "request.amount" }, { "type": "decimal", "value": "1000" }] },
+          "then": {
+            "decision": "REVIEW",
+            "reasonCode": "AMOUNT_REVIEW",
+            "assign": [{ "var": "riskLevel", "expr": { "type": "enum", "value": "MEDIUM" } }]
+          }
+        },
+        {
+          "ruleId": "R2003",
+          "version": "v1",
+          "scene": "withdraw-risk-check",
+          "priority": 60,
+          "riskLevel": "L1",
+          "when": {
+            "op": "and",
+            "args": [
+              { "op": "eq", "args": [{ "fact": "customer.level" }, { "type": "string", "value": "VIP" }] },
+              { "op": "gt", "args": [{ "fact": "request.amount" }, { "type": "decimal", "value": "5000" }] }
+            ]
+          },
+          "then": {
+            "decision": "APPROVE",
+            "reasonCode": "OK",
+            "assign": [
+              { "var": "riskLevel", "expr": { "type": "enum", "value": "LOW" } },
+              { "var": "discountAmount", "expr": { "op": "mul", "args": [{ "fact": "request.amount" }, { "type": "decimal", "value": "0.1" }] } }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "rulesetId": "rs-freq",
+      "version": "rs-20261030-2",
+      "scene": "withdraw-risk-check",
+      "hitStrategy": "ALL",
+      "defaultDecision": "APPROVE",
+      "outputSchemaId": "withdraw-risk-output",
+      "outputSchemaVersion": "v1",
+      "slotTable": [
+        { "name": "customer.withdrawCount24h", "type": "integer", "factVersion": "v1" },
+        { "name": "customer.riskScore", "type": "integer", "factVersion": "v1" }
+      ],
+      "rules": [
+        {
+          "ruleId": "R3001",
+          "version": "v2",
+          "scene": "withdraw-risk-check",
+          "priority": 100,
+          "riskLevel": "L3",
+          "when": { "op": "gte", "args": [{ "fact": "customer.withdrawCount24h" }, { "type": "integer", "value": 5 }] },
+          "then": { "decision": "REJECT", "reasonCode": "FREQ_WITHDRAW_EXCEEDED", "reasonMessage": "24 小时内提款次数超限" }
+        },
+        {
+          "ruleId": "R3002",
+          "version": "v1",
+          "scene": "withdraw-risk-check",
+          "priority": 70,
+          "riskLevel": "L2",
+          "when": {
+            "op": "or",
+            "args": [
+              { "op": "isNull", "args": [{ "fact": "customer.riskScore" }] },
+              { "op": "lt", "args": [{ "fact": "customer.riskScore" }, { "type": "integer", "value": 600 }] }
+            ]
+          },
+          "then": { "decision": "REVIEW", "reasonCode": "FREQ_RISK_SCORE_LOW" }
+        }
+      ]
+    },
+    {
+      "rulesetId": "rs-withdraw-rate",
+      "version": "rs-20261030-1",
+      "scene": "withdraw-rate",
+      "hitStrategy": "FIRST",
+      "defaultDecision": "REJECT",
+      "outputSchemaId": "withdraw-risk-output",
+      "outputSchemaVersion": "v1",
+      "slotTable": [
+        { "name": "request.channel", "type": "enum", "factVersion": "v1" },
+        { "name": "request.amount", "type": "decimal", "factVersion": "v2" }
+      ],
+      "rules": [
+        {
+          "ruleId": "R4001",
+          "version": "v1",
+          "scene": "withdraw-rate",
+          "priority": 100,
+          "when": {
+            "op": "and",
+            "args": [
+              { "op": "eq", "args": [{ "fact": "request.channel" }, { "type": "string", "value": "APP" }] },
+              { "op": "lte", "args": [{ "fact": "request.amount" }, { "type": "decimal", "value": "1000" }] }
+            ]
+          },
+          "then": {
+            "decision": "APPROVE",
+            "reasonCode": "OK",
+            "assign": [{ "var": "rate", "expr": { "type": "decimal", "value": "0.10" } }]
+          }
+        },
+        {
+          "ruleId": "R4002",
+          "version": "v1",
+          "scene": "withdraw-rate",
+          "priority": 90,
+          "when": {
+            "op": "and",
+            "args": [
+              { "op": "eq", "args": [{ "fact": "request.channel" }, { "type": "string", "value": "APP" }] },
+              { "op": "gt", "args": [{ "fact": "request.amount" }, { "type": "decimal", "value": "1000" }] }
+            ]
+          },
+          "then": {
+            "decision": "REVIEW",
+            "reasonCode": "AMOUNT_REVIEW",
+            "assign": [{ "var": "rate", "expr": { "type": "decimal", "value": "0.08" } }]
+          }
+        }
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "testId": "T001",
+      "scene": "withdraw-risk-check",
+      "input": {
+        "request.amount": "1500",
+        "config.withdrawDailyLimit": "100000",
+        "customer.level": "NORMAL",
+        "request.currency": "CNY"
+      },
+      "expect": { "decision": "REVIEW", "reasonCode": "AMOUNT_REVIEW" },
+      "author": "agent",
+      "status": "pending_review"
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "catalogVersion": "catalog-v2026.10",
+  "facts": [
+    {
+      "fact": "request.amount",
+      "displayName": "本次提款金额",
+      "type": "decimal",
+      "format": "decimal128",
+      "unit": "CNY",
+      "semantics": "本次请求的提款本金，精确十进制，单位元",
+      "required": true,
+      "freshness": { "maxAgeSec": 0, "onStale": "ERROR" },
+      "consistency": "STRONG",
+      "source": "core-trade",
+      "owner": "core-team",
+      "sensitivity": "PII",
+      "version": "v2",
+      "onMissing": "ERROR"
+    },
+    {
+      "fact": "request.currency",
+      "displayName": "币种",
+      "type": "enum",
+      "enum": ["CNY", "USD", "EUR"],
+      "semantics": "提款币种，ISO-4217",
+      "required": true,
+      "consistency": "STRONG",
+      "owner": "core-team",
+      "sensitivity": "INTERNAL",
+      "version": "v1",
+      "onMissing": "ERROR"
+    },
+    {
+      "fact": "request.channel",
+      "displayName": "申请渠道",
+      "type": "enum",
+      "enum": ["APP", "WEB", "API"],
+      "semantics": "发起提款的客户端渠道",
+      "required": true,
+      "consistency": "STRONG",
+      "owner": "core-team",
+      "sensitivity": "INTERNAL",
+      "version": "v1",
+      "onMissing": "ERROR"
+    },
+    {
+      "fact": "sanctions.hit",
+      "displayName": "是否命中制裁/名单",
+      "type": "boolean",
+      "semantics": "名单服务返回的最终命中结果，由数据供给层判定",
+      "required": true,
+      "consistency": "STRONG",
+      "source": "list-service",
+      "owner": "risk-team",
+      "sensitivity": "PII",
+      "version": "v1",
+      "onMissing": "ERROR"
+    },
+    {
+      "fact": "customer.withdrawCount24h",
+      "displayName": "客户近24小时提款成功次数",
+      "type": "integer",
+      "format": "int64",
+      "unit": "count",
+      "semantics": "滚动窗口，UTC，按客户维度去重，仅统计成功提款",
+      "required": true,
+      "freshness": { "maxAgeSec": 5, "onStale": "DEGRADE" },
+      "consistency": "EVENTUAL",
+      "source": "risk-metrics-service",
+      "owner": "risk-metrics-team",
+      "sensitivity": "INTERNAL",
+      "version": "v1",
+      "onMissing": "ERROR"
+    },
+    {
+      "fact": "customer.level",
+      "displayName": "客户等级",
+      "type": "enum",
+      "enum": ["NORMAL", "VIP"],
+      "semantics": "客户分层等级",
+      "required": true,
+      "consistency": "EVENTUAL",
+      "owner": "crm-team",
+      "sensitivity": "INTERNAL",
+      "version": "v1",
+      "onMissing": "ERROR"
+    },
+    {
+      "fact": "customer.riskScore",
+      "displayName": "客户风险评分",
+      "type": "integer",
+      "semantics": "0-1000，分数越高越安全；缺失时按默认值兜底",
+      
+      "nullable": true,
+      "hasDefault": true,
+      "default": 600,
+      "consistency": "EVENTUAL",
+      "source": "risk-model",
+      "owner": "risk-team",
+      "sensitivity": "INTERNAL",
+      "version": "v1",
+      "onMissing": "DEFAULT"
+    },
+    {
+      "fact": "config.withdrawDailyLimit",
+      "displayName": "单日提款限额",
+      "type": "decimal",
+      "unit": "CNY",
+      "semantics": "配置类事实，按产品维度下发的限额",
+      "required": true,
+      "consistency": "STRONG",
+      "owner": "product-team",
+      "sensitivity": "INTERNAL",
+      "version": "v1",
+      "onMissing": "ERROR"
+    }
+  ]
+}
