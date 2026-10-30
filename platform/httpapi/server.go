@@ -35,6 +35,10 @@ type Deps struct {
 	// CORSOrigin 非空时给响应加跨源头，供本地联调控制台从 file:// 直接调接口。
 	// 默认空（不启用）：平台没有认证，把「谁都能跨源读」做成默认姿态不合适。
 	CORSOrigin string
+	// EngineURL/EngineToken 决策服务地址。给了才提供「引擎自述」与「试跑转发」，
+	// 浏览器因此不必直连引擎（引擎不开跨源，它是无认证的内部服务）。
+	EngineURL   string
+	EngineToken string
 }
 
 // Server 持有依赖与路由表。
@@ -142,6 +146,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/logs/key/rewrap", s.rewrapLogKey)
 	s.mux.HandleFunc("GET /api/v1/logs/{id}", s.getLog)
 	s.mux.HandleFunc("POST /api/v1/logs/{id}/replay", s.replayLog)
+
+	// ---- 决策服务转发（界面不直连引擎）----
+	s.mux.HandleFunc("GET /api/v1/engine", s.engineInfo)
+	s.mux.HandleFunc("POST /api/v1/trial", s.engineTrial)
 }
 
 // ---------------------------------------------------------------------------

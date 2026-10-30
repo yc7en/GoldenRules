@@ -140,6 +140,8 @@ func main() {
 		Replayer:     replayer,
 		ArtifactsDir: *artifactsDir,
 		CORSOrigin:   *corsOrigin,
+		EngineURL:    *engineURL,
+		EngineToken:  *engineToken,
 	})
 
 	srv := &http.Server{

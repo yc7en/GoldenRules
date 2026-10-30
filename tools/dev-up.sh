@@ -67,6 +67,7 @@ echo
 echo "决策服务  http://$ENGINE_ADDR/healthz"
 echo "管理平台  http://$PLATFORM_ADDR/healthz"
 echo "自测台    file://$(cd "$ROOT" && pwd)/tools/console/index.html"
+echo "BRMS 界面 在 ../GoldenRules 下 npm run dev（默认 http://localhost:5173）"
 echo
 echo "自测台里把「平台地址」填成 http://$PLATFORM_ADDR，然后点「一键跑全链路」。"
 echo "数据目录 $DATA_DIR（删掉它即可重置）。Ctrl-C 退出。"
