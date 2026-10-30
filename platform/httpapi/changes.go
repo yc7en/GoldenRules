@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"time"
 
 	"goldenrules/platform/gov"
 	"goldenrules/platform/packages"
@@ -184,7 +185,7 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 
 // changeSummary 列表视图：去掉审批位明细以外的冗长字段。
 func changeSummary(c gov.Change) map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		"changeId":       c.ChangeID,
 		"packageId":      c.PackageID,
 		"packageVersion": c.PackageVersion,
@@ -197,7 +198,81 @@ func changeSummary(c gov.Change) map[string]any {
 		"approved":       len(c.Approvals),
 		"remaining":      len(c.Remaining()),
 		"createdAt":      c.CreatedAt,
+		// 审批时效（contracts/04 §8）：列表页要能直接按「已超时」排序催办
+		"sla": c.SLA(time.Now().UTC()),
 	}
+	if c.Emergency {
+		out["emergency"] = true
+		out["makeupReviewDueAt"] = c.MakeupReviewDueAt
+		out["makeupReviewPending"] = c.MakeupReviewMissing()
+	}
+	return out
+}
+
+// POST /api/v1/changes/{id}/emergency-publish —— 紧急通道（contracts/04 §7）
+//
+// 紧急发布是例外路径，因此接口上把「共同授权人」单独列为字段而不是塞进 header：
+// 双人授权必须能在请求体里被审计系统读到。
+func (s *Server) emergencyPublish(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Reason          string `json:"reason"`
+		ValidFrom       string `json:"validFrom"`
+		ValidUntil      string `json:"validUntil"`
+		SecondActor     string `json:"secondActor"`
+		SecondActorType string `json:"secondActorType"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "请求体解析失败: "+err.Error(), nil)
+		return
+	}
+	c, err := s.deps.Gov.EmergencyPublish(gov.EmergencyInput{
+		ChangeID:        r.PathValue("id"),
+		Actor:           actor(r),
+		ActorType:       actorType(r),
+		Reason:          req.Reason,
+		ValidFrom:       req.ValidFrom,
+		ValidUntil:      req.ValidUntil,
+		SecondActor:     req.SecondActor,
+		SecondActorType: req.SecondActorType,
+	})
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"change":              c,
+		"emergency":           true,
+		"makeupReviewDueAt":   c.MakeupReviewDueAt,
+		"pendingMakeupReview": c.MakeupReviewMissing(),
+	})
+}
+
+// POST /api/v1/changes/{id}/makeup-review —— 紧急发布后补审（contracts/04 §7）
+func (s *Server) makeupReview(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Role    string `json:"role"`
+		Comment string `json:"comment"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "请求体解析失败: "+err.Error(), nil)
+		return
+	}
+	c, err := s.deps.Gov.MakeupReview(r.PathValue("id"), actor(r), actorType(r), req.Role, req.Comment)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
+// GET /api/v1/changes/pending-makeup-review —— 超时巡检：紧急发布但未补审的单子
+func (s *Server) pendingMakeupReview(w http.ResponseWriter, r *http.Request) {
+	list := s.deps.Gov.PendingMakeupReviews()
+	out := make([]map[string]any, 0, len(list))
+	for _, c := range list {
+		out = append(out, changeSummary(c))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"total": len(out), "items": out})
 }
 
 // publishGuard 发布前的治理检查。`Gov` 未接线（单包测试/演练）时放行，

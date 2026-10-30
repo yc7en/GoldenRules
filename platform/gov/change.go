@@ -96,6 +96,34 @@ type Change struct {
 	UpdatedAt   string `json:"updatedAt"`
 	PublishedAt string `json:"publishedAt,omitempty"`
 	PublishedBy string `json:"publishedBy,omitempty"`
+
+	// --- 紧急通道（`contracts/04` §7）---
+	//
+	// 紧急发布是**例外路径**，所以它的证据必须比正常路径更厚：谁按的、谁共同授权、
+	// 什么时候必须补审、补了没有。少一项，例外就会变成常态。
+	Emergency         bool   `json:"emergency,omitempty"`
+	EmergencyBy       string `json:"emergencyBy,omitempty"`
+	EmergencySecondBy string `json:"emergencySecondBy,omitempty"`
+	EmergencyAt       string `json:"emergencyAt,omitempty"`
+	EmergencyReason   string `json:"emergencyReason,omitempty"`
+	// MakeupReviewDueAt 补审截止（紧急发布后 24h，`contracts/04` §7）
+	MakeupReviewDueAt string         `json:"makeupReviewDueAt,omitempty"`
+	MakeupReviews     []MakeupReview `json:"makeupReviews,omitempty"`
+}
+
+// MakeupReview 事后补审记录。`Late` 单独记：超期补审与按时补审的合规含义不同。
+type MakeupReview struct {
+	Actor     string `json:"actor"`
+	ActorType string `json:"actorType"`
+	Role      string `json:"role"`
+	At        string `json:"at"`
+	Late      bool   `json:"late"`
+	Comment   string `json:"comment,omitempty"`
+}
+
+// MakeupReviewMissing 紧急发布后是否还没补审。
+func (c Change) MakeupReviewMissing() bool {
+	return c.Emergency && len(c.MakeupReviews) == 0
 }
 
 // Remaining 还没有人占的审批位。
@@ -164,9 +192,16 @@ const (
 	ActionPackagePublished  = "PACKAGE_PUBLISHED"
 	ActionPackageRolledBack = "PACKAGE_ROLLED_BACK"
 	ActionGrayUpdated       = "GRAY_UPDATED"
+	// 紧急通道（`contracts/04` §7）：紧急发布与事后补审各留一条独立事件，
+	// 便于「本月紧急发布了几次、有没有没补审的」这类问题一次查出来。
+	ActionChangeEmergency      = "CHANGE_EMERGENCY_PUBLISHED"
+	ActionChangeMakeupReviewed = "CHANGE_MAKEUP_REVIEWED"
 	// B10：日志原文访问与回放也要留痕（谁在什么时候看了谁的原始快照）。
 	ActionLogRawAccessed = "LOG_RAW_ACCESSED"
 	ActionReplayExecuted = "REPLAY_EXECUTED"
+	// 密钥轮换与重加密：轮换会改变「谁能读历史原始快照」的前提，必须留痕。
+	ActionLogKeyRotated = "LOG_KEY_ROTATED"
+	ActionLogKeyRewrapped = "LOG_KEY_REWRAPPED"
 )
 
 // Doc 治理仓库文档（一份 JSON：变更单 + 灰度配置 + 审计事件）。
