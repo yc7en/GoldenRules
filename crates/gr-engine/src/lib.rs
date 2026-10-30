@@ -10,6 +10,7 @@
 //! 不做：取数（Assemble 是 B5 的入口层）、业务动作。执行内核 `gr-vm` 不看快照。
 
 pub mod guard;
+pub mod limits;
 pub mod log;
 pub mod outputs;
 pub mod slots;
@@ -25,16 +26,28 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 
+use limits::{Gate, LimitsReport, PackageStats, SceneLimit};
+
 #[derive(Clone, Debug)]
 pub struct EngineConfig {
     /// 单快照大小上限（`contracts/02` §3.4，默认 1 MiB）
     pub max_snapshot_bytes: usize,
-    /// 单次决策指令预算（B11 会做成可配；这里先给安全默认值）
+    /// 单次决策指令预算（场景可覆盖，B11）
     pub step_budget: u64,
-    /// 单次执行时间预算（ms，`contracts/01` §4.5 默认 50ms）
+    /// 单次执行时间预算（ms，`contracts/01` §4.5 默认 50ms；场景可覆盖）
     pub deadline_ms: u64,
     /// 未知字段是否严格拒绝（`contracts/02` §3.3；P0 默认严格）
     pub strict_unknown_fields: bool,
+    /// 单包规则数上限（装载期，B11）
+    pub max_rules_per_package: usize,
+    /// 单包指令总量上限（装载期，B11）：拦「规则不多但表达式爆炸」的包
+    pub max_instrs_per_package: usize,
+    /// 单包内存估算上限（装载期，B11）
+    pub max_package_bytes: usize,
+    /// 全局在途决策数上限（B11）：超出直接 503，不排队
+    pub max_inflight: usize,
+    /// 场景级覆盖（B11 隔离）：慢场景给宽预算，核心场景收紧
+    pub scene_limits: BTreeMap<String, SceneLimit>,
 }
 
 impl Default for EngineConfig {
@@ -44,6 +57,30 @@ impl Default for EngineConfig {
             step_budget: 200_000,
             deadline_ms: 50,
             strict_unknown_fields: true,
+            // 与 gr-ir 的 LoadLimits 默认值对齐：一处口径，避免「引擎说 1000、IR 说 500」
+            max_rules_per_package: LoadLimits::default().max_rules_per_package,
+            max_instrs_per_package: 400_000,
+            max_package_bytes: 16 * 1024 * 1024,
+            // 单机 P0 默认 256：够跑满 CPU 又不至于让排队延迟失控
+            max_inflight: 256,
+            scene_limits: BTreeMap::new(),
+        }
+    }
+}
+
+impl EngineConfig {
+    fn load_limits(&self) -> LoadLimits {
+        LoadLimits { max_rules_per_package: self.max_rules_per_package, ..LoadLimits::default() }
+    }
+
+    /// 场景的生效预算：场景覆盖优先，否则全局默认。
+    pub fn limits_for(&self, scene: &str) -> limits::EffectiveLimits {
+        let over = self.scene_limits.get(scene);
+        limits::EffectiveLimits {
+            scene: scene.to_string(),
+            step_budget: over.and_then(|l| l.step_budget).unwrap_or(self.step_budget),
+            deadline_ms: over.and_then(|l| l.deadline_ms).unwrap_or(self.deadline_ms),
+            max_inflight: over.and_then(|l| l.max_inflight).unwrap_or(self.max_inflight),
         }
     }
 }
@@ -52,6 +89,8 @@ impl Default for EngineConfig {
 pub struct CompiledPackage {
     pub loaded: Arc<LoadedPackage>,
     pub programs: BTreeMap<String, Arc<RuleSetProgram>>,
+    /// 资源画像（装载期算一次）
+    pub stats: PackageStats,
 }
 
 impl CompiledPackage {
@@ -61,7 +100,33 @@ impl CompiledPackage {
         for (id, rs) in &loaded.rulesets {
             programs.insert(id.clone(), Arc::new(compile_ruleset(rs)?));
         }
-        Ok(Self { loaded, programs })
+
+        let mut instrs = 0usize;
+        let mut bytes = 0usize;
+        for program in programs.values() {
+            instrs += program.total_instrs;
+            for rule in &program.programs {
+                bytes += limits::chunk_bytes(&rule.when);
+                for (_, chunk) in &rule.assigns {
+                    bytes += limits::chunk_bytes(chunk);
+                }
+                bytes += limits::RULE_META_BYTES
+                    + rule.rule_id.len()
+                    + rule.reason_code.len()
+                    + rule.reason_message.as_deref().map(str::len).unwrap_or(0);
+            }
+        }
+        bytes += instrs * limits::INSTR_BYTES;
+
+        let stats = PackageStats {
+            package_id: loaded.package_id.clone(),
+            package_version: loaded.package_version.clone(),
+            rulesets: loaded.rulesets.len(),
+            rules: loaded.rule_count,
+            instrs,
+            est_bytes: bytes,
+        };
+        Ok(Self { loaded, programs, stats })
     }
 }
 
@@ -75,6 +140,17 @@ pub struct Engine {
     catalog: Arc<FactCatalog>,
     packages: Vec<Arc<CompiledPackage>>,
     config: EngineConfig,
+    /// 准入闸门（B11）：在途上限，过载快速失败
+    gate: Arc<Gate>,
+}
+
+impl std::fmt::Debug for Engine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Engine")
+            .field("packages", &self.packages.iter().map(|p| &p.stats).collect::<Vec<_>>())
+            .field("inflight", &self.gate.inflight())
+            .finish()
+    }
 }
 
 impl Engine {
@@ -83,10 +159,36 @@ impl Engine {
         packages: Vec<RulePackage>,
         config: EngineConfig,
     ) -> Result<Self, ErrorContract> {
-        let limits = LoadLimits::default();
+        let limits = config.load_limits();
         let mut compiled = Vec::with_capacity(packages.len());
         for pkg in &packages {
-            compiled.push(Arc::new(CompiledPackage::build(pkg, &limits)?));
+            let c = CompiledPackage::build(pkg, &limits)?;
+            // 装载期硬顶：拦「能编但会拖垮共享服务」的包（A-9）
+            if c.stats.instrs > config.max_instrs_per_package {
+                return Err(ErrorContract::new(
+                    ErrorCode::ExecRuleLimitExceeded,
+                    format!(
+                        "规则包 {} 编译后 {} 条指令，超过上限 {}",
+                        c.stats.package_id, c.stats.instrs, config.max_instrs_per_package
+                    ),
+                )
+                .with_detail("packageId", serde_json::json!(c.stats.package_id))
+                .with_detail("instrs", serde_json::json!(c.stats.instrs))
+                .with_detail("limit", serde_json::json!(config.max_instrs_per_package)));
+            }
+            if c.stats.est_bytes > config.max_package_bytes {
+                return Err(ErrorContract::new(
+                    ErrorCode::ExecRuleLimitExceeded,
+                    format!(
+                        "规则包 {} 估算占用 {} 字节，超过上限 {}",
+                        c.stats.package_id, c.stats.est_bytes, config.max_package_bytes
+                    ),
+                )
+                .with_detail("packageId", serde_json::json!(c.stats.package_id))
+                .with_detail("estBytes", serde_json::json!(c.stats.est_bytes))
+                .with_detail("limit", serde_json::json!(config.max_package_bytes)));
+            }
+            compiled.push(Arc::new(c));
         }
         if compiled.is_empty() {
             return Err(ErrorContract::new(
@@ -94,7 +196,20 @@ impl Engine {
                 "引擎没有加载任何规则包",
             ));
         }
-        Ok(Self { catalog: Arc::new(catalog), packages: compiled, config })
+
+        // 场景上限：配置里显式给的优先，其余已知场景用全局默认（新增场景不至于无上限）
+        let mut caps: BTreeMap<String, usize> = BTreeMap::new();
+        for pkg in &compiled {
+            for scene in pkg.loaded.scene_index.keys() {
+                caps.entry(scene.clone()).or_insert(config.max_inflight);
+            }
+        }
+        for (scene, limit) in &config.scene_limits {
+            caps.insert(scene.clone(), limit.max_inflight.unwrap_or(config.max_inflight));
+        }
+        let gate = Arc::new(Gate::new(config.max_inflight, caps.into_iter().collect()));
+
+        Ok(Self { catalog: Arc::new(catalog), packages: compiled, config, gate })
     }
 
     pub fn config(&self) -> &EngineConfig {
@@ -107,6 +222,45 @@ impl Engine {
 
     pub fn packages(&self) -> &[Arc<CompiledPackage>] {
         &self.packages
+    }
+
+    /// 各包的资源画像（装载期算好，运行期零成本）。
+    pub fn stats(&self) -> Vec<PackageStats> {
+        self.packages.iter().map(|p| p.stats.clone()).collect()
+    }
+
+    /// 生效中的资源上限（自述/排障用；`/v1/limits` 与健康检查都读它）。
+    pub fn limits_report(&self) -> LimitsReport {
+        let mut scenes: Vec<_> = self
+            .config
+            .scene_limits
+            .keys()
+            .map(|s| self.config.limits_for(s))
+            .collect();
+        for pkg in &self.packages {
+            for scene in pkg.loaded.scene_index.keys() {
+                if !scenes.iter().any(|l| &l.scene == scene) {
+                    scenes.push(self.config.limits_for(scene));
+                }
+            }
+        }
+        scenes.sort_by(|a, b| a.scene.cmp(&b.scene));
+        LimitsReport {
+            max_snapshot_bytes: self.config.max_snapshot_bytes,
+            max_rules_per_package: self.config.max_rules_per_package,
+            max_instrs_per_package: self.config.max_instrs_per_package,
+            max_package_bytes: self.config.max_package_bytes,
+            max_inflight: self.config.max_inflight,
+            inflight: self.gate.inflight(),
+            step_budget: self.config.step_budget,
+            deadline_ms: self.config.deadline_ms,
+            scenes,
+        }
+    }
+
+    /// 当前在途决策数（健康检查/压测观测用）。
+    pub fn inflight(&self) -> usize {
+        self.gate.inflight()
     }
 
     /// 已加载规则包摘要（健康检查用：探「规则包可加载」）
@@ -130,6 +284,23 @@ impl Engine {
         snapshot: &FactSnapshot,
         ctx: &ExecutionContext,
     ) -> Result<DecisionOutcome, ErrorContract> {
+        // --- 准入（B11）：过载是**真错误**，不是 REJECT 决策 ---
+        //
+        // 先占名额再干活：让过载在毫秒级就失败，而不是先算完再发现没有容量。
+        // 名额在 `_admission` 离开作用域时归还（含 panic 展开路径）。
+        let _admission = self.gate.admit(&ctx.scene).ok_or_else(|| {
+            ErrorContract::new(
+                ErrorCode::ExecOverload,
+                "在途决策数已达上限，拒绝新请求（不排队，fail-closed）",
+            )
+            .with_detail("scene", serde_json::json!(ctx.scene))
+            .with_detail("inflight", serde_json::json!(self.gate.inflight()))
+            .with_detail("maxInflight", serde_json::json!(self.config.max_inflight))
+        })?;
+
+        // 场景级预算（B11 隔离）：慢场景给宽额度，核心场景收紧
+        let scene_limits = self.config.limits_for(&ctx.scene);
+
         // --- 版本选择互斥（`contracts/02` §6.2）：这是真错误，不是决策 ---
         if ctx.ruleset_version.is_some() && ctx.gray_tag.is_some() {
             return Err(ErrorContract::new(
@@ -192,7 +363,7 @@ impl Engine {
 
         // --- 求值 ---
         let plan = rs.plan_skipping(&prepared.fill.missing, &prepared.skip_slots);
-        let mut budget = Budget::new(self.config.step_budget);
+        let mut budget = Budget::new(scene_limits.step_budget);
         let started = Instant::now();
         let outcome = evaluate(&program, &prepared.fill.values, &ctx.request_time, &plan, &mut budget)?;
         let outputs = outputs::compute_outputs(
@@ -205,12 +376,16 @@ impl Engine {
         let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
 
         // 服务级超时：真错误（`contracts/05` §4）
-        if elapsed_ms > self.config.deadline_ms as f64 {
+        if elapsed_ms > scene_limits.deadline_ms as f64 {
             return Err(ErrorContract::new(
                 ErrorCode::ExecTimeout,
-                format!("规则执行 {elapsed_ms:.3}ms 超过预算 {}ms", self.config.deadline_ms),
+                format!(
+                    "规则执行 {elapsed_ms:.3}ms 超过场景 {} 的预算 {}ms",
+                    ctx.scene, scene_limits.deadline_ms
+                ),
             )
-            .with_detail("budgetMs", serde_json::json!(self.config.deadline_ms))
+            .with_detail("scene", serde_json::json!(ctx.scene))
+            .with_detail("budgetMs", serde_json::json!(scene_limits.deadline_ms))
             .with_detail("actualMs", serde_json::json!(round3(elapsed_ms))));
         }
 

@@ -27,6 +27,7 @@ fn main() {
     let mut catalog_path: Option<String> = None;
     let mut package_paths: Vec<String> = Vec::new();
     let mut providers_path: Option<String> = None;
+    let mut config = EngineConfig::default();
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -40,8 +41,31 @@ fn main() {
             }
             // Assemble 模式的 Provider 配置（不给则 /v1/assemble 返回 503）
             "--providers" => providers_path = args.next(),
+            // B11：资源上限（不给则用 EngineConfig::default）
+            "--max-inflight" => {
+                config.max_inflight = parse_arg(&mut args, "--max-inflight");
+            }
+            "--deadline-ms" => {
+                config.deadline_ms = parse_arg(&mut args, "--deadline-ms");
+            }
+            "--step-budget" => {
+                config.step_budget = parse_arg(&mut args, "--step-budget");
+            }
+            "--max-rules" => {
+                config.max_rules_per_package = parse_arg(&mut args, "--max-rules");
+            }
+            "--max-instrs" => {
+                config.max_instrs_per_package = parse_arg(&mut args, "--max-instrs");
+            }
+            "--max-package-bytes" => {
+                config.max_package_bytes = parse_arg(&mut args, "--max-package-bytes");
+            }
+            "--max-snapshot-bytes" => {
+                config.max_snapshot_bytes = parse_arg(&mut args, "--max-snapshot-bytes");
+            }
             "--help" | "-h" => {
                 println!("用法: gr-server --addr 127.0.0.1:8080 --facts fixtures/fact-catalog.json --package fixtures/rule-package.json [--providers fixtures/providers.json]");
+                println!("资源上限: --max-inflight N --deadline-ms N --step-budget N --max-rules N --max-instrs N --max-package-bytes N --max-snapshot-bytes N");
                 return;
             }
             other => eprintln!("忽略未知参数: {other}"),
@@ -56,7 +80,7 @@ fn main() {
     let catalog_json = read_file(&catalog_path);
     let package_jsons: Vec<String> = package_paths.iter().map(|p| read_file(p)).collect();
 
-    let engine = match engine_from_json(&catalog_json, &package_jsons, EngineConfig::default()) {
+    let engine = match engine_from_json(&catalog_json, &package_jsons, config.clone()) {
         Ok(e) => Arc::new(e),
         Err(e) => {
             eprintln!("引擎启动失败: {e}");
@@ -66,6 +90,15 @@ fn main() {
 
     for (id, ver, rulesets, rules) in engine.describe() {
         println!("已加载 {id} {ver}：{rulesets} 个规则集 / {rules} 条规则");
+    }
+    for s in engine.stats() {
+        println!(
+            "资源画像 {} {}：{} 条指令 / 估算 {} KiB",
+            s.package_id,
+            s.package_version,
+            s.instrs,
+            s.est_bytes / 1024
+        );
     }
 
     // Assemble 是可选的：不给配置就是纯 Snapshot 模式（不取数，A-2 的最保守形态）
@@ -121,6 +154,13 @@ fn usage_exit(msg: &str) -> ! {
     eprintln!("{msg}");
     eprintln!("用法: gr-server --addr 127.0.0.1:8080 --facts fixtures/fact-catalog.json --package fixtures/rule-package.json");
     std::process::exit(2);
+}
+
+/// 解析一个数值参数：写错了直接退出，不静默用默认值（资源上限被静默忽略是很危险的）。
+fn parse_arg<T: std::str::FromStr>(args: &mut impl Iterator<Item = String>, flag: &str) -> T {
+    let raw = args.next().unwrap_or_else(|| usage_exit(&format!("{flag} 缺少取值")));
+    raw.parse::<T>()
+        .unwrap_or_else(|_| usage_exit(&format!("{flag} 的取值不合法: {raw}")))
 }
 
 fn read_file(path: &str) -> String {
@@ -205,19 +245,27 @@ fn route(req: &Request, service: &Service) -> Response {
     match (req.method.as_str(), req.path.as_str()) {
         ("GET", "/healthz") => Response::json(200, &health(service)),
         ("GET", "/v1/packages") => {
+            let stats = service.engine.stats();
             let items: Vec<serde_json::Value> = service
                 .engine
                 .describe()
                 .into_iter()
                 .map(|(id, ver, rulesets, rules)| {
+                    let st = stats
+                        .iter()
+                        .find(|s| s.package_id == id && s.package_version == ver);
                     serde_json::json!({
                         "packageId": id, "packageVersion": ver,
-                        "rulesets": rulesets, "rules": rules
+                        "rulesets": rulesets, "rules": rules,
+                        "instrs": st.map(|s| s.instrs),
+                        "estBytes": st.map(|s| s.est_bytes),
                     })
                 })
                 .collect();
             Response::json(200, &serde_json::json!({ "packages": items }))
         }
+        // B11：生效中的资源上限（压测与容量规划读它，不靠猜）
+        ("GET", "/v1/limits") => Response::json(200, &service.engine.limits_report()),
         ("POST", "/v1/decide") => decide(req, &service.engine, true),
         ("POST", "/v1/trial") => decide(req, &service.engine, false),
         ("POST", "/v1/assemble") => assemble(req, service),
@@ -225,7 +273,7 @@ fn route(req: &Request, service: &Service) -> Response {
             200,
             &serde_json::json!({
                 "service": "goldenrules-engine",
-                "endpoints": ["/healthz", "/v1/packages", "/v1/decide", "/v1/trial", "/v1/assemble"],
+                "endpoints": ["/healthz", "/v1/packages", "/v1/limits", "/v1/decide", "/v1/trial", "/v1/assemble"],
                 "assembleEnabled": service.assembler.is_some()
             }),
         ),
@@ -238,6 +286,7 @@ fn route(req: &Request, service: &Service) -> Response {
 
 fn health(service: &Service) -> serde_json::Value {
     let describe = service.engine.describe();
+    let limits = service.engine.limits_report();
     serde_json::json!({
         "status": "ok",
         "engineVersion": gr_contract::ENGINE_VERSION,
@@ -246,6 +295,9 @@ fn health(service: &Service) -> serde_json::Value {
         "resultVersion": gr_contract::RESULT_VERSION,
         // Assemble 是否可用：探「Provider 配置装载成功」，探不到就是 503 而不是假健康
         "assembleScenes": service.assembler.as_ref().map(|a| a.describe().len()).unwrap_or(0),
+        // B11：在途数贴近上限时，扩容前先看这里
+        "inflight": limits.inflight,
+        "maxInflight": limits.max_inflight,
     })
 }
 
