@@ -13,12 +13,14 @@ import (
 	"net/http"
 
 	"goldenrules/platform/contracts"
+	"goldenrules/platform/dsl"
 	"goldenrules/platform/facts"
 )
 
 // Deps 是平台依赖的领域服务集合。B6 起逐包填充。
 type Deps struct {
 	Facts        *facts.Service
+	Rulesets     *dsl.Store
 	ArtifactsDir string
 }
 
@@ -55,6 +57,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/v1/facts/{name}", s.updateFact)
 	s.mux.HandleFunc("DELETE /api/v1/facts/{name}", s.deleteFact)
 	s.mux.HandleFunc("POST /api/v1/facts/{name}/deprecate", s.deprecateFact)
+
+	// ---- B7 规则集编辑与 dry-run ----
+	s.mux.HandleFunc("GET /api/v1/rulesets", s.listRulesets)
+	s.mux.HandleFunc("GET /api/v1/rulesets/{id}", s.getRuleset)
+	s.mux.HandleFunc("PUT /api/v1/rulesets/{id}", s.putRuleset)
+	s.mux.HandleFunc("DELETE /api/v1/rulesets/{id}", s.deleteRuleset)
+	s.mux.HandleFunc("POST /api/v1/rulesets/{id}/validate", s.validateRuleset)
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +95,7 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	var vErr *facts.ValidationError
 	var nErr *facts.NotFoundError
 	var iErr *facts.InUseError
+	var neErr *dsl.NotExistError
 
 	switch {
 	case errors.As(err, &vErr):
@@ -101,6 +111,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 		})
 	case errors.As(err, &nErr):
 		writeError(w, r, http.StatusNotFound, facts.CodeNotFound, nErr.Error(), nil)
+	case errors.As(err, &neErr):
+		writeError(w, r, http.StatusNotFound, "NOT_FOUND", neErr.Error(), nil)
 	case errors.As(err, &iErr):
 		body, _ := json.Marshal(iErr.Referers)
 		writeError(w, r, http.StatusConflict, facts.CodeInUse, iErr.Error(), map[string]json.RawMessage{

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"goldenrules/platform/dsl"
 	"goldenrules/platform/facts"
 	"goldenrules/platform/persist"
 )
@@ -25,7 +26,15 @@ func newTestServer(t *testing.T) http.Handler {
 	svc := facts.New(st).WithClock(func() time.Time {
 		return time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	})
-	return New(Deps{Facts: svc, ArtifactsDir: filepath.Join(dir, "artifacts")})
+
+	rsStore, err := persist.Open(filepath.Join(dir, "rulesets.json"), func() dsl.Repo { return dsl.Repo{} })
+	if err != nil {
+		t.Fatalf("open rulesets: %v", err)
+	}
+	rs := dsl.NewStore(rsStore)
+	svc.WithRefChecker(rs.ReferencingFact)
+
+	return New(Deps{Facts: svc, Rulesets: rs, ArtifactsDir: filepath.Join(dir, "artifacts")})
 }
 
 func do(t *testing.T, h http.Handler, method, path, body string) (*httptest.ResponseRecorder, map[string]any) {

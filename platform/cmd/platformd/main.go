@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"goldenrules/platform/contracts"
+	"goldenrules/platform/dsl"
 	"goldenrules/platform/facts"
 	"goldenrules/platform/httpapi"
 	"goldenrules/platform/persist"
@@ -30,7 +31,7 @@ func main() {
 	addr := flag.String("addr", ":8080", "管理平台监听地址")
 	dataDir := flag.String("data", "./data", "数据目录（JSON 文档存储）")
 	artifactsDir := flag.String("artifacts", "./artifacts", "事实目录生成物输出目录")
-	seed := flag.String("seed", "", "首启时导入的事实目录样例（fixtures/fact-catalog.json）")
+	seed := flag.String("seed", "", "首启时导入的样例目录（内含 fact-catalog.json 与 rule-package.json）")
 	flag.Parse()
 
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
@@ -45,13 +46,32 @@ func main() {
 	}
 	factSvc := facts.New(factStore)
 
+	rulesetStore, err := persist.Open(filepath.Join(*dataDir, "rulesets.json"), func() dsl.Repo {
+		return dsl.Repo{}
+	})
+	if err != nil {
+		log.Fatalf("打开规则集仓库失败: %v", err)
+	}
+	rulesetSvc := dsl.NewStore(rulesetStore)
+
+	// 事实目录删除前问规则集仓库「这个字段还有人用吗」：注入回调，
+	// 让 facts 包不反向依赖 dsl 包（依赖方向单向，A-1）。
+	factSvc.WithRefChecker(rulesetSvc.ReferencingFact)
+
 	if *seed != "" {
-		if err := seedFacts(factSvc, *seed); err != nil {
-			log.Fatalf("导入样例失败: %v", err)
+		if err := seedFacts(factSvc, filepath.Join(*seed, "fact-catalog.json")); err != nil {
+			log.Fatalf("导入事实目录失败: %v", err)
+		}
+		if err := seedRulesets(rulesetSvc, filepath.Join(*seed, "rule-package.json")); err != nil {
+			log.Fatalf("导入规则集失败: %v", err)
 		}
 	}
 
-	handler := httpapi.New(httpapi.Deps{Facts: factSvc, ArtifactsDir: *artifactsDir})
+	handler := httpapi.New(httpapi.Deps{
+		Facts:        factSvc,
+		Rulesets:     rulesetSvc,
+		ArtifactsDir: *artifactsDir,
+	})
 
 	srv := &http.Server{
 		Addr:              *addr,
@@ -83,5 +103,52 @@ func seedFacts(svc *facts.Service, path string) error {
 		}
 	}
 	log.Printf("已导入 %d 条事实契约（%s）", len(cat.Facts), cat.CatalogVersion)
+	return nil
+}
+
+// seedRulesets 把 fixtures 里的规则包拆成规则集定义导入（仅首启、且仓库为空时）。
+//
+// fixtures 里的规则集已经带 slotTable（IR 形态的残留），这里**丢掉**它——
+// 平台侧的真源是 DSL（字段名），slot 表是编译产物，不能反过来当真源导入。
+func seedRulesets(store *dsl.Store, path string) error {
+	if len(store.List("")) > 0 {
+		return nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var pkg contracts.RulePackage
+	if err := json.Unmarshal(raw, &pkg); err != nil {
+		return err
+	}
+	for _, rs := range pkg.Rulesets {
+		def := dsl.Definition{
+			RulesetID:           rs.RulesetID,
+			Scene:               rs.Scene,
+			Version:             rs.Version,
+			HitStrategy:         rs.HitStrategy,
+			DefaultDecision:     rs.DefaultDecision,
+			OutputSchemaID:      rs.OutputSchemaID,
+			OutputSchemaVersion: rs.OutputSchemaVersion,
+			Rules:               rs.Rules,
+		}
+		for i := range pkg.OutputSchemas {
+			s := pkg.OutputSchemas[i]
+			if s.OutputSchemaID == rs.OutputSchemaID && s.OutputSchemaVersion == rs.OutputSchemaVersion {
+				def.OutputSchema = &s
+				break
+			}
+		}
+		for _, tc := range pkg.Tests {
+			if tc.Scene == rs.Scene {
+				def.Tests = append(def.Tests, tc)
+			}
+		}
+		if _, err := store.Put("seed", def); err != nil {
+			return fmt.Errorf("%s: %w", rs.RulesetID, err)
+		}
+	}
+	log.Printf("已导入 %d 个规则集（%s）", len(pkg.Rulesets), pkg.PackageID)
 	return nil
 }
