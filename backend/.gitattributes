@@ -1,0 +1,5 @@
+# 脚本一律用 LF 入库。
+# 本仓库 core.autocrlf=true，若不锁定，Windows 上 checkout 出来会是 CRLF，
+# 于是 `#!/usr/bin/env bash\r` 变成「找不到解释器 bash\r」——报错长得像环境问题，
+# 实际是换行符问题，排查成本远高于这一行配置。
+*.sh text eol=lf

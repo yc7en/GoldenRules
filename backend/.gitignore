@@ -1,0 +1,7 @@
+/target
+**/target
+*.exe
+*.pdb
+.DS_Store
+platform/platformd
+platform/*.test

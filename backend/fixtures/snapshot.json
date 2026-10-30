@@ -1,0 +1,24 @@
+{
+  "snapshotId": "fs-20261030-000123",
+  "snapshotVersion": "v1",
+  "tenantId": "pay-cn",
+  "scene": "withdraw-risk-check",
+  "factSchemaVersion": "catalog-v2026.10",
+  "facts": {
+    "request.amount": "1500",
+    "request.currency": "CNY",
+    "request.channel": "APP",
+    "sanctions.hit": false,
+    "customer.withdrawCount24h": 2,
+    "customer.level": "NORMAL",
+    "customer.riskScore": 620,
+    "config.withdrawDailyLimit": "100000"
+  },
+  "factMeta": {
+    "customer.withdrawCount24h": { "factVersion": "v1", "freshnessSec": 2 }
+  },
+  "missingFacts": [],
+  "degradedFacts": [],
+  "assembledAt": "2026-10-30T10:00:00.123Z",
+  "assemblerVersion": "cb-v2.1"
+}

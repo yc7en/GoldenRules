@@ -1,0 +1,16 @@
+[package]
+name = "gr-server"
+version.workspace = true
+edition.workspace = true
+description = "GoldenRules 决策服务进程：HTTP/JSON 入口（Snapshot / Assemble）"
+
+[[bin]]
+name = "gr-server"
+path = "src/main.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+gr-contract.workspace = true
+gr-engine.workspace = true
+gr-provider.workspace = true

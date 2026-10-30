@@ -1,0 +1,10 @@
+[package]
+name = "gr-contract"
+version.workspace = true
+edition.workspace = true
+description = "GoldenRules 共享契约类型（B0）：IR / 规则包 / 事实快照 / DecisionResult / ErrorContract"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+rust_decimal.workspace = true

@@ -1,0 +1,14 @@
+[package]
+name = "gr-bench"
+version.workspace = true
+edition.workspace = true
+description = "GoldenRules B12：压测与可靠性基线（样本生成 + 进程内延迟 + HTTP 吞吐）"
+
+[[bin]]
+name = "gr-bench"
+path = "src/main.rs"
+
+[dependencies]
+serde_json.workspace = true
+gr-contract.workspace = true
+gr-engine.workspace = true
