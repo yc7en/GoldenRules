@@ -1,13 +1,13 @@
-//! GoldenRules B3+B4：决策入口、`DecisionResult`、决策日志、错误与降级。
+//! GoldenRules B3+B4: decision entry point, `DecisionResult`, decision log, errors and degradation.
 //!
-//! 这一层是「快照 → 决策」的**唯一入口**，做五件事：
-//! 1. 选规则包/规则集（多义必须显式指定，不猜）；
-//! 2. 入口校验与缺失策略（契约违规落 REJECT，不落 500）；
-//! 3. 快照装 slot（一次）；
-//! 4. 调 VM 求值 + 汇总输出变量；
-//! 5. 组装 `DecisionResult`、出口校验、脱敏决策日志。
+//! This layer is the **single entry point** from "snapshot -> decision" and does five things:
+//! 1. Select the rule package / ruleset (ambiguity must be supplied explicitly, never guessed);
+//! 2. Entry validation and missing-value strategy (contract violations become REJECT, never 500);
+//! 3. Load the snapshot into slots (once);
+//! 4. Call the VM to evaluate + aggregate output variables;
+//! 5. Assemble `DecisionResult`, run exit validation, write the masked decision log.
 //!
-//! 不做：取数（Assemble 是 B5 的入口层）、业务动作。执行内核 `gr-vm` 不看快照。
+//! Not done here: fact fetching (assemble is the B5 entry layer), business actions. The execution kernel `gr-vm` never sees the snapshot.
 
 pub mod guard;
 pub mod limits;
@@ -31,23 +31,23 @@ use limits::{Gate, LimitsReport, PackageStats, SceneLimit};
 
 #[derive(Clone, Debug)]
 pub struct EngineConfig {
-    /// 单快照大小上限（`contracts/02` §3.4，默认 1 MiB）
+    /// Per-snapshot size cap (`contracts/02` §3.4, default 1 MiB)
     pub max_snapshot_bytes: usize,
-    /// 单次决策指令预算（场景可覆盖，B11）
+    /// Instruction budget for a single decision (overridable per scene, B11)
     pub step_budget: u64,
-    /// 单次执行时间预算（ms，`contracts/01` §4.5 默认 50ms；场景可覆盖）
+    /// Wall-clock budget for a single execution (ms, `contracts/01` §4.5 default 50ms; overridable per scene)
     pub deadline_ms: u64,
-    /// 未知字段是否严格拒绝（`contracts/02` §3.3；P0 默认严格）
+    /// Whether unknown fields are rejected strictly (`contracts/02` §3.3; P0 defaults to strict)
     pub strict_unknown_fields: bool,
-    /// 单包规则数上限（装载期，B11）
+    /// Cap on rules per package (load time, B11)
     pub max_rules_per_package: usize,
-    /// 单包指令总量上限（装载期，B11）：拦「规则不多但表达式爆炸」的包
+    /// Cap on total instructions per package (load time, B11): catches packages with "few rules but exploding expressions"
     pub max_instrs_per_package: usize,
-    /// 单包内存估算上限（装载期，B11）
+    /// Cap on the estimated memory footprint of one package (load time, B11)
     pub max_package_bytes: usize,
-    /// 全局在途决策数上限（B11）：超出直接 503，不排队
+    /// Global cap on in-flight decisions (B11): above it, return 503 directly, no queuing
     pub max_inflight: usize,
-    /// 场景级覆盖（B11 隔离）：慢场景给宽预算，核心场景收紧
+    /// Per-scene overrides (B11 isolation): slow scenes get a wide budget, core scenes are tightened
     pub scene_limits: BTreeMap<String, SceneLimit>,
 }
 
@@ -58,11 +58,11 @@ impl Default for EngineConfig {
             step_budget: 200_000,
             deadline_ms: 50,
             strict_unknown_fields: true,
-            // 与 gr-ir 的 LoadLimits 默认值对齐：一处口径，避免「引擎说 1000、IR 说 500」
+            // Aligned with gr-ir's LoadLimits defaults: one source of truth, so the engine and the IR never disagree (1000 vs 500)
             max_rules_per_package: LoadLimits::default().max_rules_per_package,
             max_instrs_per_package: 400_000,
             max_package_bytes: 16 * 1024 * 1024,
-            // 单机 P0 默认 256：够跑满 CPU 又不至于让排队延迟失控
+            // Single-node P0 default is 256: enough to saturate the CPU without letting queueing latency run away
             max_inflight: 256,
             scene_limits: BTreeMap::new(),
         }
@@ -74,7 +74,7 @@ impl EngineConfig {
         LoadLimits { max_rules_per_package: self.max_rules_per_package, ..LoadLimits::default() }
     }
 
-    /// 场景的生效预算：场景覆盖优先，否则全局默认。
+    /// Effective budget for a scene: the scene override wins, otherwise the global default.
     pub fn limits_for(&self, scene: &str) -> limits::EffectiveLimits {
         let over = self.scene_limits.get(scene);
         limits::EffectiveLimits {
@@ -86,11 +86,11 @@ impl EngineConfig {
     }
 }
 
-/// 加载并编译好的规则包（不可变，可被多线程共享）。
+/// A loaded and compiled rule package (immutable, shareable across threads).
 pub struct CompiledPackage {
     pub loaded: Arc<LoadedPackage>,
     pub programs: BTreeMap<String, Arc<RuleSetProgram>>,
-    /// 资源画像（装载期算一次）
+    /// Resource profile (computed once at load time)
     pub stats: PackageStats,
 }
 
@@ -141,7 +141,7 @@ pub struct Engine {
     catalog: Arc<FactCatalog>,
     packages: Vec<Arc<CompiledPackage>>,
     config: EngineConfig,
-    /// 准入闸门（B11）：在途上限，过载快速失败
+    /// Admission gate (B11): in-flight cap, fail fast under overload
     gate: Arc<Gate>,
 }
 
@@ -164,7 +164,7 @@ impl Engine {
         let mut compiled = Vec::with_capacity(packages.len());
         for pkg in &packages {
             let c = CompiledPackage::build(pkg, &limits)?;
-            // 装载期硬顶：拦「能编但会拖垮共享服务」的包（A-9）
+            // Load-time hard cap: rejects packages that "compile but would drag down a shared service" (A-9)
             if c.stats.instrs > config.max_instrs_per_package {
                 return Err(ErrorContract::new(
                     ErrorCode::ExecRuleLimitExceeded,
@@ -198,7 +198,7 @@ impl Engine {
             ));
         }
 
-        // 场景上限：配置里显式给的优先，其余已知场景用全局默认（新增场景不至于无上限）
+        // Per-scene caps: explicitly configured ones win, every other known scene falls back to the global default (so a new scene is never uncapped)
         let mut caps: BTreeMap<String, usize> = BTreeMap::new();
         for pkg in &compiled {
             for scene in pkg.loaded.scene_index.keys() {
@@ -225,12 +225,12 @@ impl Engine {
         &self.packages
     }
 
-    /// 各包的资源画像（装载期算好，运行期零成本）。
+    /// Resource profile of every package (computed at load time, zero cost at runtime).
     pub fn stats(&self) -> Vec<PackageStats> {
         self.packages.iter().map(|p| p.stats.clone()).collect()
     }
 
-    /// 生效中的资源上限（自述/排障用；`/v1/limits` 与健康检查都读它）。
+    /// Effective resource caps (for self-description / troubleshooting; both `/v1/limits` and health checks read it).
     pub fn limits_report(&self) -> LimitsReport {
         let mut scenes: Vec<_> = self
             .config
@@ -259,12 +259,12 @@ impl Engine {
         }
     }
 
-    /// 当前在途决策数（健康检查/压测观测用）。
+    /// Current number of in-flight decisions (for health checks / bench observation).
     pub fn inflight(&self) -> usize {
         self.gate.inflight()
     }
 
-    /// 已加载规则包摘要（健康检查用：探「规则包可加载」）
+    /// Summary of the loaded rule packages (for health checks: probes that "the package can be loaded")
     pub fn describe(&self) -> Vec<(String, String, usize, usize)> {
         self.packages
             .iter()
@@ -279,16 +279,16 @@ impl Engine {
             .collect()
     }
 
-    /// Snapshot 模式决策入口（`contracts/02` §3）。
+    /// Snapshot-mode decision entry point (`contracts/02` §3).
     pub fn decide(
         &self,
         snapshot: &FactSnapshot,
         ctx: &ExecutionContext,
     ) -> Result<DecisionOutcome, ErrorContract> {
-        // --- 准入（B11）：过载是**真错误**，不是 REJECT 决策 ---
+        // --- Admission (B11): overload is a **real error**, not a REJECT decision ---
         //
-        // 先占名额再干活：让过载在毫秒级就失败，而不是先算完再发现没有容量。
-        // 名额在 `_admission` 离开作用域时归还（含 panic 展开路径）。
+        // Take the slot before doing any work: overload should fail within milliseconds, instead of computing first and only then finding out there is no capacity.
+        // The slot is returned when `_admission` leaves scope (including the panic-unwind path).
         let _admission = self.gate.admit(&ctx.scene).ok_or_else(|| {
             ErrorContract::new(
                 ErrorCode::ExecOverload,
@@ -299,10 +299,10 @@ impl Engine {
             .with_detail("maxInflight", serde_json::json!(self.config.max_inflight))
         })?;
 
-        // 场景级预算（B11 隔离）：慢场景给宽额度，核心场景收紧
+        // Scene-level budget (B11 isolation): slow scenes get a wide allowance, core scenes are tightened
         let scene_limits = self.config.limits_for(&ctx.scene);
 
-        // --- 版本选择互斥（`contracts/02` §6.2）：这是真错误，不是决策 ---
+        // --- Mutually exclusive version selection (`contracts/02` §6.2): this is a real error, not a decision ---
         if ctx.ruleset_version.is_some() && ctx.gray_tag.is_some() {
             return Err(ErrorContract::new(
                 ErrorCode::VersionSelectionConflict,
@@ -315,7 +315,7 @@ impl Engine {
         let (pkg, program, rs) = self.resolve(&ctx.scene, ctx)?;
         let prepared = guard::prepare(snapshot, ctx, &rs, &self.catalog, &self.config);
 
-        // --- 契约违规 → REJECT 决策（`contracts/05` §1），不落 HTTP 500 ---
+        // --- Contract violation -> REJECT decision (`contracts/05` §1), never an HTTP 500 ---
         if !prepared.violations.is_empty() {
             return Ok(self.build_outcome(OutcomeParts {
                 pkg: &pkg,
@@ -333,11 +333,11 @@ impl Engine {
             }));
         }
 
-        // --- 缺失/降级汇总（供结果与日志使用） ---
+        // --- Aggregate missing values / degradation (used by both the result and the log) ---
         let mut degraded_reasons = snapshot_degraded(snapshot);
         degraded_reasons.extend(guard::defaulted_reasons(&prepared.fill, &rs));
 
-        // --- FALLBACK_DECISION：整个场景走兜底决策 ---
+        // --- FALLBACK_DECISION: the whole scene goes down the fallback decision path ---
         if let Some(fallback) = prepared.fallback {
             degraded_reasons.push(DegradedReason {
                 fact: "_scene".to_string(),
@@ -362,7 +362,7 @@ impl Engine {
             }));
         }
 
-        // --- 求值 ---
+        // --- Evaluation ---
         let plan = rs.plan_skipping(&prepared.fill.missing, &prepared.skip_slots);
         let mut budget = Budget::new(scene_limits.step_budget);
         let started = Instant::now();
@@ -376,7 +376,7 @@ impl Engine {
         )?;
         let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
 
-        // 服务级超时：真错误（`contracts/05` §4）
+        // Service-level timeout: a real error (`contracts/05` §4)
         if elapsed_ms > scene_limits.deadline_ms as f64 {
             return Err(ErrorContract::new(
                 ErrorCode::ExecTimeout,
@@ -407,7 +407,7 @@ impl Engine {
         degraded_reasons.sort_by(|a, b| (&a.fact, &a.reason).cmp(&(&b.fact, &b.reason)));
         degraded_reasons.dedup_by(|a, b| a.fact == b.fact && a.reason == b.reason);
 
-        // --- 出口校验（`contracts/05` §7）：失败也落决策，不静默 ---
+        // --- Exit validation (`contracts/05` §7): a failure still becomes a decision, never silent ---
         let schema = program
             .output_schema_id
             .as_ref()
@@ -469,7 +469,7 @@ impl Engine {
         }))
     }
 
-    /// 组装 `DecisionOutcome`（结果 + 脱敏日志）。所有出口共用一份，避免字段漂移。
+    /// Assemble `DecisionOutcome` (result + masked log). All exit paths share it so fields cannot drift.
     fn build_outcome(&self, parts: OutcomeParts<'_>) -> DecisionOutcome {
         let OutcomeParts {
             pkg,
@@ -544,7 +544,7 @@ impl Engine {
         DecisionOutcome { result, log: entry }
     }
 
-    /// 选包 + 选规则集。歧义一律报错，不做「猜一个」。
+    /// Select the package + select the ruleset. Ambiguity is always an error; never "guess one".
     fn resolve(
         &self,
         scene: &str,
@@ -644,7 +644,7 @@ fn round3(v: f64) -> f64 {
     (v * 1000.0).round() / 1000.0
 }
 
-/// 便捷：从 JSON 文本装配引擎（服务进程用）
+/// Convenience: assemble the engine from JSON text (used by the server process)
 pub fn engine_from_json(
     catalog_json: &str,
     packages_json: &[String],

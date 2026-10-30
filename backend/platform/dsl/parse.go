@@ -8,17 +8,17 @@ import (
 	"strings"
 )
 
-// ParseWhen 解析 `when` 表达式。**字符串形态按文本表达式糖处理**（`contracts/01` §3.2.1）：
+// ParseWhen parses a `when` expression. **A string form is treated as textual expression sugar** (`contracts/01` §3.2.1):
 //
 //	"when": "request.amount > 1000 && request.currency == \"CNY\""
 //
-// 只想要一个纯字面量时，写成 `{"type":"boolean","value":true}`。
+// If you only want a plain literal, write `{"type":"boolean","value":true}`.
 func ParseWhen(raw json.RawMessage, path string, d *diag) *Expr {
 	return parseExpr(raw, path, true, d)
 }
 
-// ParseValue 解析 `assign[].expr`。字符串形态按**字面量**处理（`contracts/01` §3.2.3 的
-// `{"var":"riskLevel","expr":"HIGH"}`），要写表达式请用结构化形态。
+// ParseValue parses `assign[].expr`. A string form is treated as a **literal** (`contracts/01` §3.2.3's
+// `{"var":"riskLevel","expr":"HIGH"}`); use the structured form to write an expression.
 func ParseValue(raw json.RawMessage, path string, d *diag) *Expr {
 	return parseExpr(raw, path, false, d)
 }
@@ -82,7 +82,7 @@ func parseValue(v any, path string, textSugar bool, d *diag) *Expr {
 	return nil
 }
 
-// numberLiteral 无小数点的按 integer，其余按 decimal（值以字符串落地，避免浮点，A-5）。
+// numberLiteral treats values without a decimal point as integer, the rest as decimal (the value is materialised as a string to avoid floats, A-5).
 func numberLiteral(n json.Number) *Expr {
 	s := n.String()
 	if !strings.ContainsAny(s, ".eE") {
@@ -94,7 +94,7 @@ func numberLiteral(n json.Number) *Expr {
 }
 
 func parseObject(m map[string]any, path string, d *diag) *Expr {
-	// 字面量：{"type": "...", "value": ...}
+	// literal: {"type": "...", "value": ...}
 	if tv, ok := m["type"]; ok {
 		kind, _ := tv.(string)
 		val, hasVal := m["value"]
@@ -114,7 +114,7 @@ func parseObject(m map[string]any, path string, d *diag) *Expr {
 		return &Expr{Kind: KindLiteral, Lit: lit}
 	}
 
-	// 字段引用：{"fact": "namespace.field"}
+	// fact reference: {"fact": "namespace.field"}
 	if fv, ok := m["fact"]; ok {
 		name, _ := fv.(string)
 		if strings.TrimSpace(name) == "" {
@@ -124,7 +124,7 @@ func parseObject(m map[string]any, path string, d *diag) *Expr {
 		return &Expr{Kind: KindFact, Fact: name}
 	}
 
-	// slot 引用：编译后形态，dry-run 阶段出现说明作者误用了 IR
+	// slot reference: the post-compilation form; seeing it during dry-run means the author misused the IR
 	if sv, ok := m["slot"]; ok {
 		if n, ok := sv.(json.Number); ok {
 			i, _ := n.Int64()
@@ -134,7 +134,7 @@ func parseObject(m map[string]any, path string, d *diag) *Expr {
 		return nil
 	}
 
-	// 运算：{"op": "...", "args": [...]}
+	// operation: {"op": "...", "args": [...]}
 	opv, ok := m["op"]
 	if !ok {
 		d.errorf(CodeSyntaxError, path, "", "",
@@ -155,7 +155,7 @@ func parseObject(m map[string]any, path string, d *diag) *Expr {
 		e.Func = fn
 	}
 
-	// 白名单先判，避免为非法 op 继续递归出一堆噪声诊断。
+	// Check the allow-list first, so an illegal op does not recurse into a pile of noise diagnostics.
 	if !IsAllowedOp(op) {
 		d.errorf(CodeOpNotAllowed, path+".op", "", "",
 			fmt.Sprintf("运算符 %q 不在白名单内", op),
@@ -193,7 +193,7 @@ func parseObject(m map[string]any, path string, d *diag) *Expr {
 	return e
 }
 
-// coerceLiteral 按声明类型归一化字面量值。
+// coerceLiteral normalises a literal value according to the declared type.
 func coerceLiteral(kind string, val any) (*Literal, error) {
 	switch kind {
 	case "integer":
@@ -244,5 +244,5 @@ func coerceLiteral(kind string, val any) (*Literal, error) {
 	return nil, fmt.Errorf("未知字面量类型 %q（合法：integer/decimal/string/boolean/enum/array）", kind)
 }
 
-// jsonNumber 便于把词法阶段的数字文本转成 json.Number（保持精度，不经 float）。
+// jsonNumber makes it easy to turn numeric text from the lexer into a json.Number (preserving precision, no float round-trip).
 func jsonNumber(s string) json.Number { return json.Number(s) }

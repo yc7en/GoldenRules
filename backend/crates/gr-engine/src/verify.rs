@@ -1,21 +1,21 @@
-//! approved 用例发布门禁（F-PKG06 / `contracts/06` §5）。
+//! approved test-case publish gate (F-PKG06 / `contracts/06` §5).
 //!
-//! 规则包发布前，把包内**状态为 approved 的用例**真跑一遍：任一失败就阻断发布。
+//! Before a rule package is published, actually run the **test cases whose status is approved**: any failure blocks the publish.
 //!
-//! 为什么门禁必须跑真引擎而不是比对 IR 或做静态检查：
-//! 用户故事的验收标准是「这笔提款应该被拒」，只有走完整条 快照→VM→结果 的链路
-//! 才能证明写下的规则真的会得出那个结论。静态检查只能证明「写对了形状」。
+//! Why the gate must run the real engine rather than compare IR or do static checks:
+//! the acceptance criterion of a user story is "this withdrawal should be rejected", and only walking the full snapshot->VM->result chain
+//! can prove that the rule as written really reaches that conclusion. Static checks can only prove "the shape was written correctly".
 //!
-//! 为什么放在引擎侧而不是平台侧：VM 只有这一份实现，平台侧再写一个「近似执行器」
-//! 必然与线上行为漂移——用漂移的执行器当门禁，等于没有门禁。
+//! Why it belongs on the engine side rather than the platform side: there is only one VM implementation; a second "approximate executor" on the platform side
+//! would inevitably drift from production behavior -- gating with a drifting executor is the same as having no gate.
 //!
-//! 三条明确的取舍：
-//! 1. **只跑 approved**。pending_review / rejected 是草稿，不该阻断发布，
-//!    也不该被当作「已验证」——所以报告里单独给出 `skipped`，不混进 `passed`。
-//! 2. **确定性时间**。用例没有「当前时间」概念，统一用固定 `requestTime`，
-//!    否则含时间条件的规则会跑出随机结果（A-5：引擎不读系统时钟）。
-//! 3. **失败即全量收集**，不在第一个失败处短路：发布人需要一次看到所有坏用例，
-//!    而不是修一个跑一次。
+//! Three explicit trade-offs:
+//! 1. **Only run approved**. pending_review / rejected are drafts: they must not block the publish,
+//!    and must not be counted as "verified" either -- so the report lists `skipped` separately instead of folding it into `passed`.
+//! 2. **Deterministic time**. Test cases have no notion of "current time", so a fixed `requestTime` is used uniformly;
+//!    otherwise time-conditional rules would produce random results (A-5: the engine does not read the system clock).
+//! 3. **Collect everything on failure**, no short-circuit at the first failure: the publisher needs to see all bad cases at once,
+//!    rather than fixing one and running again.
 
 use gr_contract::{
     Decision, ErrorContract, ExecutionContext, FactCatalog, FactSnapshot, RulePackage, TestCase,
@@ -25,12 +25,12 @@ use std::collections::BTreeMap;
 
 use crate::{Engine, EngineConfig};
 
-/// 门禁执行时使用的固定时间基准。
+/// Fixed time baseline used when running the gate.
 pub const VERIFY_REQUEST_TIME: &str = "1970-01-01T00:00:00Z";
-/// 门禁用例使用的租户（避免与线上租户数据混淆，也让日志一眼可辨）。
+/// Tenant used by gate test cases (keeps them from being confused with production tenant data, and makes them easy to spot in the log).
 pub const VERIFY_TENANT: &str = "pkg-verify";
 
-/// 单个用例的失败原因。
+/// Reason a single test case failed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TestFailure {
     pub test_id: String,
@@ -39,28 +39,28 @@ pub struct TestFailure {
     pub message: String,
 }
 
-/// 门禁报告。
+/// Gate report.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct VerifyReport {
-    /// 包内用例总数
+    /// Total number of test cases in the package
     pub total: usize,
-    /// 状态为 approved、被真跑过的用例数
+    /// Number of approved cases that were actually executed
     pub ran: usize,
     pub passed: usize,
     pub failed: usize,
-    /// 非 approved 而未执行的用例数
+    /// Number of cases not executed because they are not approved
     pub skipped: usize,
     pub failures: Vec<TestFailure>,
 }
 
 impl VerifyReport {
-    /// 门禁是否放行：没有失败即放行（`ran == 0` 也放行——「没有已批准用例」
-    /// 不等于「用例没通过」，这两种情况必须在报告里分得清）。
+    /// Whether the gate lets the package through: no failure means pass (`ran == 0` also passes -- "there are no approved cases"
+    /// is not the same as "the cases failed", and the report must keep those two apart).
     pub fn ok(&self) -> bool {
         self.failed == 0
     }
 
-    /// 一行摘要，便于写进发布记录与审计。
+    /// One-line summary, convenient for the publish record and the audit trail.
     pub fn summary(&self) -> String {
         format!(
             "approved 用例 {}/{} 通过（跳过 {} 条未批准用例）",
@@ -69,10 +69,10 @@ impl VerifyReport {
     }
 }
 
-/// 跑包内 approved 用例。
+/// Run the approved test cases in the package.
 ///
-/// 编译失败直接以 `Err` 返回（包本身不成立，谈不上「用例通过率」）；
-/// 用例失败收进 `report.failures`，由调用方决定阻断。
+/// A compile failure is returned directly as `Err` (the package itself does not hold up, so "case pass rate" is moot);
+/// case failures are collected into `report.failures`, and the caller decides whether to block.
 pub fn verify_package(
     pkg: &RulePackage,
     catalog: &FactCatalog,
@@ -93,7 +93,7 @@ pub fn verify_package(
         return Ok(report);
     }
 
-    // 单包引擎：用发布候选包自身编译，跑的就是即将上线的那份产物。
+    // Single-package engine: compile from the release-candidate package itself, so what runs is exactly the artifact about to go live.
     let engine = Engine::new(catalog.clone(), vec![pkg.clone()], config)?;
 
     for tc in approved {
@@ -108,7 +108,7 @@ pub fn verify_package(
     Ok(report)
 }
 
-/// 跑单条用例：先解析规则集 → 构造快照 → decide → 比对 决策/原因码/输出。
+/// Run a single test case: resolve the ruleset -> build the snapshot -> decide -> compare decision / reason code / outputs.
 fn run_case(engine: &Engine, pkg: &RulePackage, tc: &TestCase) -> Result<(), TestFailure> {
     let ruleset_id = resolve_ruleset(pkg, tc)?;
 
@@ -153,8 +153,8 @@ fn run_case(engine: &Engine, pkg: &RulePackage, tc: &TestCase) -> Result<(), Tes
             ),
         });
     }
-    // 期望输出是**子集**语义：用例只关心它写出来的那几个字段，
-    // 规则新增的输出字段不该让老用例失败。
+    // Expected outputs use **subset** semantics: a case only cares about the fields it spells out,
+    // so output fields added by later rules must not break older cases.
     let mut bad: Vec<String> = Vec::new();
     for (k, want) in &tc.expect.outputs {
         match r.outputs.get(k) {
@@ -175,13 +175,13 @@ fn run_case(engine: &Engine, pkg: &RulePackage, tc: &TestCase) -> Result<(), Tes
     Ok(())
 }
 
-/// 解析用例针对哪个规则集。
+/// Resolve which ruleset the test case targets.
 ///
-/// 规则：场景只挂一个规则集 → 就是它；挂多个 → 用例必须写明 `rulesetId`。
+/// Rule: if the scene mounts exactly one ruleset -> that is the one; if it mounts several -> the case must specify `rulesetId`.
 ///
-/// 为什么不在多挂时「挑一个跑」：P0 不做多规则集编排，运行期遇到这种场景是直接报
-/// `VERSION_SELECTION_CONFLICT` 的。门禁若替它挑一个跑通，就会给出一个线上永远不会
-/// 出现的「通过」——比不放行更危险。
+/// Why not "pick one and run it" when several are mounted: P0 does not do multi-ruleset orchestration, and at runtime such a scene is an
+/// immediate `VERSION_SELECTION_CONFLICT`. If the gate picked one and passed it, it would report a "pass" that can never
+/// occur in production -- more dangerous than blocking.
 fn resolve_ruleset(pkg: &RulePackage, tc: &TestCase) -> Result<Option<String>, TestFailure> {
     let mounted: Vec<&str> = pkg
         .rulesets
@@ -192,7 +192,7 @@ fn resolve_ruleset(pkg: &RulePackage, tc: &TestCase) -> Result<Option<String>, T
 
     match mounted.len() {
         0 => {
-            // 交给引擎报错：错误码与线上一致，便于对上日志。
+            // Let the engine raise the error: the error code matches production, which makes log correlation easier.
             Ok(tc.ruleset_id.clone())
         }
         1 => Ok(Some(mounted[0].to_string())),
@@ -231,10 +231,10 @@ fn value_text(v: &Value) -> String {
         .unwrap_or_else(|_| "<unserializable>".to_string())
 }
 
-/// 把用例输入转成快照字段（供调用方做「用例输入是否覆盖了必填事实」这类前置检查）。
+/// Turn the test-case input into snapshot facts (for callers doing upfront checks such as "does the case input cover the required facts").
 ///
-/// 单独抽出来是因为它是唯一一处「用例字段名 = 快照字段名」的假设，
-/// 将来若引入用例入参映射，只需要改这里。
+/// Extracted separately because it is the only place assuming "test-case field name = snapshot field name";
+/// if case input mapping is ever introduced, only this function needs to change.
 pub fn case_facts(tc: &TestCase) -> BTreeMap<String, serde_json::Value> {
     tc.input.clone()
 }

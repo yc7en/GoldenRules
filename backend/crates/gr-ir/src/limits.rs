@@ -1,7 +1,7 @@
-//! 加载期资源上限（`contracts/01` §4.5 / `contracts/02` §3.4）
+//! Load-time resource limits (`contracts/01` §4.5 / `contracts/02` §3.4)
 //!
-//! B11 会把这些上限做成运行期可配 + 执行隔离；B1 先在**加载期**把明显越界的包挡在门外，
-//! 这样 VM 永远不会拿到一个「必然拖垮共享服务」的包。
+//! B11 will make these limits runtime-configurable + execution-isolated; B1 first keeps obviously out-of-bounds packages outside the door at **load time**,
+//! so the VM never receives a package that would "inevitably drag down the shared service".
 
 #[derive(Clone, Debug)]
 pub struct LoadLimits {
@@ -23,7 +23,7 @@ impl Default for LoadLimits {
 }
 
 impl LoadLimits {
-    /// 测试/压测用：放宽规则数上限（仍保留表达式上限）。
+    /// For tests/benchmarks: loosen the rule count limit (expression limits still apply).
     pub fn for_bench() -> Self {
         Self { max_rules_per_package: 100_000, ..Self::default() }
     }

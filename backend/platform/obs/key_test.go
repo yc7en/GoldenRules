@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// 轮换后老密文必须还能读：这是轮换的**正确性底线**。
-// 只改变「新写入用哪把钥匙」，不删旧钥——删了就是不可逆的数据损失。
+// After rotation the old ciphertext must still be readable: this is the **correctness bottom line** of rotation.
+// It only changes "which key new writes use" and never deletes the old key — deleting it is irreversible data loss.
 func TestRotateKeepsOldCiphertextReadable(t *testing.T) {
 	svc, _ := newSvc(t, true)
 	oldKeyID := svc.KeyInfo().KeyID
@@ -38,7 +38,7 @@ func TestRotateKeepsOldCiphertextReadable(t *testing.T) {
 		t.Fatalf("旧钥应进入保留集: %+v", info.Retained)
 	}
 
-	// 关键断言：轮换前写入的密文（keyID=oldKeyID）仍能解出原文。
+	// Key assertion: ciphertext written before rotation (keyID=oldKeyID) still decrypts to the original.
 	raw, oerr := svc.RawSnapshot("LOG-20261030-0001")
 	if oerr != nil {
 		t.Fatalf("轮换后旧密文应可解密，实际 %v", oerr)
@@ -48,7 +48,7 @@ func TestRotateKeepsOldCiphertextReadable(t *testing.T) {
 	}
 }
 
-// 新写入的密文必须带新 keyID：否则「轮换」只是改了个标签，实际还在用旧钥。
+// Ciphertext written after rotation must carry the new keyID: otherwise "rotation" only changed a label while still using the old key.
 func TestRotateTagsNewCiphertextWithNewKeyID(t *testing.T) {
 	svc, rawStore := newSvc(t, true)
 	const newKey = "aa00000000000000000000000000000000000000000000000000000000000001"
@@ -72,7 +72,7 @@ func TestRotateTagsNewCiphertextWithNewKeyID(t *testing.T) {
 	}
 }
 
-// 未知 keyID 不能静默回退当前钥：否则「轮换后读不了」会被伪装成「数据损坏」。
+// An unknown keyID must not silently fall back to the current key: otherwise "unreadable after rotation" is disguised as "corrupted data".
 func TestUnknownKeyIDFailsLoudly(t *testing.T) {
 	svc, rawStore := newSvc(t, true)
 	if _, err := svc.Ingest([]IngestItem{{
@@ -81,7 +81,7 @@ func TestUnknownKeyIDFailsLoudly(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("ingest: %v", err)
 	}
-	// 把密文标记成一把根本不存在的钥匙。
+	// Mark the ciphertext as belonging to a key that does not exist at all.
 	rawStore.Update(func(d *RawDoc) error {
 		b := d.Blobs["LOG-20261030-0001"]
 		b.KeyID = "k-deadbeef"
@@ -97,7 +97,7 @@ func TestUnknownKeyIDFailsLoudly(t *testing.T) {
 	}
 }
 
-// 重加密后旧钥不再是必需：这是「下线旧钥」的前置动作。
+// After re-encryption the old key is no longer required: this is the prerequisite for retiring an old key.
 func TestRewrapMovesCiphertextToCurrentKey(t *testing.T) {
 	svc, rawStore := newSvc(t, true)
 	for i, id := range []string{"snap-a", "snap-b"} {
@@ -127,18 +127,18 @@ func TestRewrapMovesCiphertextToCurrentKey(t *testing.T) {
 			}
 		}
 	})
-	// 重加密后原文仍可读（换钥不能改内容）。
+	// After re-encryption the original is still readable (swapping keys must not change the content).
 	if _, oerr := svc.RawSnapshot("LOG-20261030-0001"); oerr != nil {
 		t.Fatalf("重加密后应可解密: %v", oerr)
 	}
-	// 幂等：再跑一次没有可做的事。
+	// Idempotent: running it again has nothing to do.
 	again, rerr := svc.RewrapRaw()
 	if rerr != nil || again != 0 {
 		t.Fatalf("重复重加密应为 0 条，实际 %d / %v", again, rerr)
 	}
 }
 
-// 托管源：本地没有的历史钥按需从 KMS 取一次，取到后落进保留集（不重复往返）。
+// Managed source: a historical key missing locally is fetched from KMS on demand, then stored into the retained set (no repeated round-trips).
 func TestProviderAdoptsMissingKeyOnce(t *testing.T) {
 	box, err := NewBox(testKey)
 	if err != nil {
@@ -148,7 +148,7 @@ func TestProviderAdoptsMissingKeyOnce(t *testing.T) {
 	for i := range oldKey {
 		oldKey[i] = byte(0x10 + i)
 	}
-	// 先用旧钥造一段密文（模拟历史数据）。
+	// First create some ciphertext with the old key (simulating historical data).
 	oldBox, _ := newBoxFromKey(oldKey, "static")
 	nonce, ct, err := oldBox.Seal([]byte(`{"legacy":true}`), "LOG-1")
 	if err != nil {
@@ -170,7 +170,7 @@ func TestProviderAdoptsMissingKeyOnce(t *testing.T) {
 	if ids := box.RetainedKeyIDs(); len(ids) != 1 || ids[0] != oldBox.KeyID() {
 		t.Fatalf("取回的钥匙应落入保留集: %+v", ids)
 	}
-	// 第二次解密不应再打托管源。
+	// The second decryption must not hit the managed source again.
 	if _, oerr := box.OpenWithKeyID(nonce, ct, "LOG-1", oldBox.KeyID()); oerr != nil {
 		t.Fatalf("第二次解密失败: %v", oerr)
 	}
@@ -179,7 +179,7 @@ func TestProviderAdoptsMissingKeyOnce(t *testing.T) {
 	}
 }
 
-// RotateFromProvider：KMS 给出新钥 → 轮换；给出同一把 → 空操作。
+// RotateFromProvider: KMS returns a new key → rotate; returns the same key → no-op.
 func TestRotateFromProvider(t *testing.T) {
 	box, err := NewBox(testKey)
 	if err != nil {
@@ -211,8 +211,8 @@ func TestRotateFromProvider(t *testing.T) {
 	}
 }
 
-// 托管源返回的钥匙与请求的 keyID 不一致时必须拒绝：拿错钥匙去试只会得到
-// 一句 GCM 校验失败，把「取错钥」伪装成「数据损坏」。
+// When the managed source returns a key that does not match the requested keyID it must be rejected: trying the wrong key only yields
+// a GCM verification failure and disguises "wrong key fetched" as "corrupted data".
 func TestProviderMismatchIsRejected(t *testing.T) {
 	box, _ := NewBox(testKey)
 	box.WithKeyProvider(&countingProvider{encoded: testKey})
@@ -226,7 +226,7 @@ func TestProviderMismatchIsRejected(t *testing.T) {
 	}
 }
 
-// 未配密钥时 KeyInfo 必须明确返回 nil，而不是给个空壳让人以为「有钥但坏了」。
+// With no key configured, KeyInfo must explicitly return nil rather than an empty shell that suggests "there is a key but it is broken".
 func TestKeyInfoNilWithoutKey(t *testing.T) {
 	svc, _ := newSvc(t, false)
 	if svc.KeyInfo() != nil {
@@ -240,7 +240,7 @@ func TestKeyInfoNilWithoutKey(t *testing.T) {
 	}
 }
 
-// 轮换到非法密钥不许把内存里的钥匙搞坏（先校验后换）。
+// Rotating to an invalid key must not corrupt the key in memory (validate first, then swap).
 func TestRotateRejectsBadKeyAndKeepsCurrent(t *testing.T) {
 	svc, _ := newSvc(t, true)
 	before := svc.KeyInfo().KeyID

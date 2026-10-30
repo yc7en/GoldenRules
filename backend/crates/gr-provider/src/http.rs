@@ -1,16 +1,16 @@
-//! HTTP 拉取 Provider（名单服务、风险评分、聚合指标这类外部事实）。
+//! HTTP fetch Provider (external facts such as list services, risk scores, aggregate metrics).
 //!
-//! ## 传输层是可注入的
+//! ## The transport layer is injectable
 //!
-//! `Transport` trait 把「怎么发请求」与「事实怎么映射」分开：
-//! 单测注入 `MockTransport` 就能覆盖超时、5xx、坏 body 全部路径，不需要真起服务。
+//! The `Transport` trait separates "how to send the request" from "how facts are mapped":
+//! injecting a `MockTransport` in unit tests covers the timeout, 5xx and bad-body paths without starting a real server.
 //!
-//! ## P0 只支持 `http://`，且必须显式声明映射
+//! ## P0 supports only `http://`, and the mapping must be declared explicitly
 //!
-//! - 不支持 `https://`：手写 TLS 不可接受，引 TLS crate 又违背「决策服务依赖最小」。
-//!   生产上应让 Provider 走内网 http 或本地 sidecar（该限制已记入文档开放项）。
-//! - 映射必须显式：**不做「响应字段名撞事实名就自动认」的猜测**。事实名带命名空间
-//!   （`customer.riskScore`），响应字段通常不带，靠猜迟早错配，而错配是资损级的。
+//! - No `https://`: hand-rolling TLS is unacceptable, and pulling in a TLS crate violates "minimal dependencies for the decision service".
+//!   In production the Provider should go through an intranet http endpoint or a local sidecar (this restriction is recorded as an open item in the docs).
+//! - The mapping must be explicit: **no guessing along the lines of "if a response field name collides with a fact name, accept it"**. Fact names are namespaced
+//!   (`customer.riskScore`) while response fields usually are not; guessing will mismatch eventually, and a mismatch costs money.
 
 use crate::sample::{FactSample, FactMeta, Provider, ProviderCtx};
 use gr_contract::{DegradeReason, MissingReason};
@@ -22,20 +22,20 @@ use std::time::Duration;
 #[derive(Clone, Debug, PartialEq)]
 pub enum TransportError {
     Timeout,
-    /// 连不上 / DNS 失败 / 连接被重置
+    /// Cannot connect / DNS failure / connection reset
     Unavailable(String),
-    /// 非 2xx
+    /// Non-2xx
     Status(u16),
-    /// 响应不是合法 JSON
+    /// The response is not valid JSON
     Body(String),
 }
 
-/// 取数传输层（可注入，便于无网络单测）。
+/// Fetch transport layer (injectable, which makes network-free unit tests possible).
 pub trait Transport: Send + Sync {
     fn get(&self, url: &str, timeout: Duration) -> Result<String, TransportError>;
 }
 
-/// 默认传输层：手写 HTTP/1.1 GET，仅 `http://`。
+/// Default transport: a hand-written HTTP/1.1 GET, `http://` only.
 pub struct StdTransport;
 
 impl Transport for StdTransport {
@@ -101,7 +101,7 @@ impl Transport for StdTransport {
 pub struct HttpProvider {
     name: String,
     url: String,
-    /// 事实名 → 响应体里的取值路径（`""` / `"$"` 表示「响应体本身是 事实名→值 的对象」）
+    /// Fact name -> value path in the response body (`""` / `"$"` means "the body itself is an object of fact name -> value")
     mapping: Vec<(String, String)>,
     provides: Vec<String>,
     transport: std::sync::Arc<dyn Transport>,
@@ -127,7 +127,7 @@ impl HttpProvider {
         }
     }
 
-    /// 全部事实统一标记降级（例如上游返回 `degraded: true`）。
+    /// Mark every fact as degraded at once (e.g. the upstream returned `degraded: true`).
     fn degrade_all(
         &self,
         body: &serde_json::Value,
@@ -152,8 +152,8 @@ impl Provider for HttpProvider {
     fn fetch(&self, _ctx: &ProviderCtx<'_>) -> Vec<(String, FactSample)> {
         let raw = match self.transport.get(&self.url, self.timeout) {
             Ok(body) => body,
-            // 超时与其它失败在契约里是**不同**的 reason 码（`contracts/02` §3.2），
-            // 别合并成 PROVIDER_ERROR —— 排障时「慢」和「坏」要能分开。
+            // In the contract a timeout and any other failure are **different** reason codes (`contracts/02` §3.2);
+            // never merge them into PROVIDER_ERROR -- when troubleshooting, "slow" and "broken" must stay distinguishable.
             Err(TransportError::Timeout) => {
                 return self
                     .mapping
@@ -181,7 +181,7 @@ impl Provider for HttpProvider {
             }
         };
 
-        // 上游自报降级：值照用，但打标记（`contracts/02` §3.2 degraded 语义）
+        // Upstream self-reported degradation: use the values anyway, but flag them (`contracts/02` §3.2 degraded semantics)
         if body.get("degraded").and_then(|v| v.as_bool()).unwrap_or(false) {
             let reason = body
                 .get("degradeReason")
@@ -204,7 +204,7 @@ impl Provider for HttpProvider {
                     let meta = event_time_meta(&body, fact);
                     out.push((fact.clone(), FactSample::Value { value: v.clone(), meta }));
                 }
-                // 上游没这个字段 = 没提供，不是错误
+                // The upstream lacks this field = not provided, not an error
                 None => out.push((fact.clone(), FactSample::missing(MissingReason::NotProvided))),
             }
         }
@@ -212,7 +212,7 @@ impl Provider for HttpProvider {
     }
 }
 
-/// 从响应里按路径取值：`""`/`"$"` 取整个对象，`a.b` 走点分路径。
+/// Pick a value from the response by path: `""`/`"$"` takes the whole object, `a.b` walks the dot-separated path.
 fn pick<'a>(body: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
     if path.is_empty() || path == "$" {
         return Some(body);
@@ -224,7 +224,7 @@ fn pick<'a>(body: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::V
     Some(cur)
 }
 
-/// `factMeta` 里给时效计算留的原料（`contracts/02` §5）。上游给了就带上。
+/// The raw material kept in `factMeta` for freshness computation (`contracts/02` §5). Carry it along when the upstream provides it.
 fn event_time_meta(body: &serde_json::Value, fact: &str) -> Option<FactMeta> {
     let per_fact = body.get("meta")?.get(fact)?;
     if !per_fact.is_object() {

@@ -1,13 +1,13 @@
-//! IR 表达式节点（`contracts/01` §4.2）
+//! IR expression nodes (`contracts/01` §4.2)
 //!
-//! 三种输入形态都收敛到这里：
+//! All three input shapes converge here:
 //! - `{ "type": "decimal", "value": "1000" }` → [`Expr::Literal`]
-//! - `{ "slot": 3 }` → [`Expr::Slot`]（编译后 IR，运行时只认 slot）
-//! - `{ "fact": "request.amount" }` → [`Expr::Fact`]（DSL 形态，加载期解析为 slot）
+//! - `{ "slot": 3 }` -> [`Expr::Slot`] (compiled IR; at runtime only slots are recognized)
+//! - `{ "fact": "request.amount" }` -> [`Expr::Fact`] (DSL shape, resolved to a slot at load time)
 //! - `{ "op": "gt", "args": [..] }` → [`Expr::Op`]
 //!
-//! 运算符是**白名单字符串**，由 `gr-vm` 编译期校验（`DSL_OP_NOT_ALLOWED`），
-//! 这里不拒绝未知 op，保证契约类型只表达结构、不表达策略。
+//! Operators are a **whitelist of strings**, checked by `gr-vm` at compile time (`DSL_OP_NOT_ALLOWED`);
+//! this layer does not reject unknown ops, so the contract type expresses structure only, never policy.
 
 use crate::ty::Literal;
 use serde::{Deserialize, Serialize};
@@ -36,10 +36,10 @@ pub struct OpExpr {
     pub op: String,
     #[serde(default)]
     pub args: Vec<Expr>,
-    /// 仅 `isNull` 使用；其余 op 忽略。
+    /// Used by `isNull` only; ignored by every other op.
     #[serde(default, skip_serializing_if = "is_false")]
     pub negated: bool,
-    /// 仅 `op=call` 使用。
+    /// Used only when `op=call`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub func: Option<String>,
 }
@@ -85,7 +85,7 @@ impl Expr {
         }
     }
 
-    /// 收集本表达式引用的槽位（升序、去重）。
+    /// Collect the slots referenced by this expression (ascending, deduplicated).
     pub fn collect_slots(&self, out: &mut Vec<u32>) {
         match self {
             Expr::Slot(s) => out.push(s.slot),
@@ -108,7 +108,7 @@ impl Expr {
     }
 }
 
-/// 白名单运算符（编译期唯一判定处）。
+/// Whitelisted operators (the single place they are decided, at compile time).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
     And,
@@ -161,7 +161,7 @@ impl Op {
     }
 }
 
-/// 白名单函数（`contracts/01` §3.6 / 附录 B）。
+/// Whitelisted functions (`contracts/01` §3.6 / appendix B).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Func {
     Now,
@@ -217,7 +217,7 @@ impl Func {
         }
     }
 
-    /// 参数个数的合法区间（含端点）。
+    /// Legal arity range (both ends inclusive).
     pub fn arity(&self) -> (usize, usize) {
         match self {
             Func::Now => (0, 0),
@@ -229,7 +229,7 @@ impl Func {
             Func::StringLen | Func::ToUpper | Func::ToLower => (1, 1),
             Func::Substr => (2, 3),
             Func::IsNull => (1, 1),
-            // coalesce(a, b, ..)：兜底
+            // coalesce(a, b, ..): fallback
             Func::Coalesce => (1, usize::MAX),
         }
     }

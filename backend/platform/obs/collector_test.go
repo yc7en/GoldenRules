@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-// fakeClient 可控的推送端：记录收到的批次，按脚本返回错误。
+// fakeClient is a controllable push endpoint: it records the batches it receives and returns errors by script.
 type fakeClient struct {
 	batches  [][]IngestItem
-	errs     []error // 依次消费；空了就成功
+	errs     []error // consumed in order; empty means success
 	calls    int
 	describe string
 }
@@ -39,7 +39,7 @@ func (f *fakeClient) total() int {
 	return n
 }
 
-// 引擎 stdout 里既有启动横幅也有决策日志：侧车必须只收后者。
+// Engine stdout carries both the startup banner and decision logs: the sidecar must take only the latter.
 func TestCollectorSkipsNoiseAndKeepsDecisionLogs(t *testing.T) {
 	f := &fakeClient{}
 	c := NewCollector(DefaultCollectorConfig(), f)
@@ -63,7 +63,7 @@ func TestCollectorSkipsNoiseAndKeepsDecisionLogs(t *testing.T) {
 	}
 }
 
-// 凑够一批就推，不攒着——否则日志延迟取决于流量。
+// Push as soon as a batch is full, do not keep accumulating — otherwise log latency depends on traffic.
 func TestCollectorFlushesAtBatchSize(t *testing.T) {
 	f := &fakeClient{}
 	cfg := DefaultCollectorConfig()
@@ -81,7 +81,7 @@ func TestCollectorFlushesAtBatchSize(t *testing.T) {
 	}
 }
 
-// 平台暂时不可用 → 重试后成功，日志不丢。
+// Platform temporarily unavailable → succeeds after retries, no logs are lost.
 func TestCollectorRetriesTransientFailure(t *testing.T) {
 	f := &fakeClient{errs: []error{errors.New("connection refused"), errors.New("connection refused")}}
 	cfg := DefaultCollectorConfig()
@@ -100,7 +100,7 @@ func TestCollectorRetriesTransientFailure(t *testing.T) {
 	}
 }
 
-// 4xx（这批数据本身有问题）不重试：重试只会把同一个错误再撞一遍。
+// 4xx (the batch itself is bad) is not retried: retrying would only hit the same error again.
 func TestCollectorDoesNotRetryPermanentFailure(t *testing.T) {
 	f := &fakeClient{errs: []error{&permanentError{msg: "平台拒绝（HTTP 422）"}}}
 	c := NewCollector(DefaultCollectorConfig(), f)
@@ -116,7 +116,7 @@ func TestCollectorDoesNotRetryPermanentFailure(t *testing.T) {
 	}
 }
 
-// 缓冲满 → 丢弃并计数，绝不阻塞（阻塞会把引擎的 stdout 管道堵死）。
+// Buffer full → drop and count, never block (blocking would wedge the engine's stdout pipe).
 func TestCollectorDropsWhenBufferFull(t *testing.T) {
 	f := &fakeClient{}
 	cfg := DefaultCollectorConfig()
@@ -135,7 +135,7 @@ func TestCollectorDropsWhenBufferFull(t *testing.T) {
 	}
 }
 
-// 重试用尽 → 整批记失败并继续前进（不无限吃内存）。
+// Retries exhausted → the whole batch is recorded as failed and we move on (no unbounded memory growth).
 func TestCollectorGivesUpAfterRetries(t *testing.T) {
 	f := &fakeClient{errs: []error{
 		errors.New("e1"), errors.New("e2"), errors.New("e3"), errors.New("e4"), errors.New("e5"), errors.New("e6"),
@@ -156,11 +156,11 @@ func TestCollectorGivesUpAfterRetries(t *testing.T) {
 	}
 }
 
-// Run 读到 EOF 自动刷出剩余日志（管道关闭时最后一批不能留在内存里）。
+// Run flushes the remaining logs on EOF (when the pipe closes the last batch must not stay in memory).
 func TestCollectorFlushesOnEOF(t *testing.T) {
 	f := &fakeClient{}
 	cfg := DefaultCollectorConfig()
-	cfg.Batch = 100 // 不让批量触发，只能靠 EOF 刷
+	cfg.Batch = 100 // keep the batch from triggering, so only EOF flushes
 	c := NewCollector(cfg, f)
 
 	line := string(mustJSON(t, sampleLog("snap", "trace", "PASS"))) + "\n"
@@ -176,7 +176,7 @@ func TestCollectorFlushesOnEOF(t *testing.T) {
 	}
 }
 
-// 超过 500 条的批次会被平台整批拒收：采集器必须自行截断到上限。
+// Batches over 500 entries are rejected wholesale by the platform: the collector must truncate to the cap itself.
 func TestCollectorClampsBatchToPlatformLimit(t *testing.T) {
 	cfg := DefaultCollectorConfig()
 	cfg.Batch = 9999

@@ -2,9 +2,9 @@ package gov
 
 import "time"
 
-// 变更单状态。注意它与规则包版本状态（`draft/approved/published/retired`）**不是同一个状态机**：
-// 变更单描述「这次改动被批了吗」，版本描述「这个包能不能被加载」。二者通过 `approved` 对齐：
-// 变更单全票通过 → 平台把对应版本从 draft 推到 approved（`contracts/04` §6）。
+// Change request states. Note that this is **not the same state machine** as the rule package version states (`draft/approved/published/retired`):
+// a change request describes "has this change been approved", a version describes "can this package be loaded". The two align through `approved`:
+// all slots of the change request pass → the platform moves the corresponding version from draft to approved (`contracts/04` §6).
 const (
 	ChangeSubmitted = "submitted"
 	ChangeApproved  = "approved"
@@ -12,7 +12,7 @@ const (
 	ChangePublished = "published"
 )
 
-// 变更类型（`contracts/04` §11.A 模板）。
+// Change types (`contracts/04` §11.A template).
 const (
 	ChangeTypeAdd       = "add"
 	ChangeTypeThreshold = "threshold"
@@ -20,14 +20,14 @@ const (
 	ChangeTypeDelete    = "delete"
 )
 
-// 灰度形态（`contracts/06` §5.1）。
+// Canary modes (`contracts/06` §5.1).
 const (
 	GrayShadow      = "shadow"
 	GrayPercentage  = "percentage"
 	GrayConditional = "conditional"
 )
 
-// 错误码。统一 `GOV_` 前缀，写进 `contracts/04` 附录 D。
+// Error codes. All share the `GOV_` prefix and are documented in `contracts/04` appendix D.
 const (
 	CodeMatrixRejected     = "GOV_MATRIX_REJECTED"
 	CodeChangeNotFound     = "GOV_CHANGE_NOT_FOUND"
@@ -48,9 +48,9 @@ const (
 	CodeRollbackFailed     = "GOV_ROLLBACK_FAILED"
 )
 
-// Approval 一次审批动作。
+// Approval is one approval action.
 //
-// `Self` 单独记：自审是被矩阵允许的例外，审计时必须一眼看出来是本人给自己批的。
+// `Self` is recorded separately: self-approval is an exception the matrix allows, so an audit must make it obvious at a glance that someone approved their own change.
 type Approval struct {
 	Actor     string `json:"actor"`
 	Role      string `json:"role"`
@@ -61,7 +61,7 @@ type Approval struct {
 	RiskLevel string `json:"riskLevel"`
 }
 
-// Rejection 否决记录（否决后变更单终态，不能再批）。
+// Rejection is the record of a refusal (after a refusal the change request is final and can no longer be approved).
 type Rejection struct {
 	Actor   string `json:"actor"`
 	Role    string `json:"role"`
@@ -69,7 +69,7 @@ type Rejection struct {
 	Comment string `json:"comment,omitempty"`
 }
 
-// Change 变更单（`contracts/04` §11.A 的机器形态）。
+// Change is a change request (the machine form of `contracts/04` §11.A).
 type Change struct {
 	ChangeID       string `json:"changeId"`
 	PackageID      string `json:"packageId"`
@@ -84,7 +84,7 @@ type Change struct {
 	SubmitterType string `json:"submitterType"`
 	Status        string `json:"status"`
 
-	// 审批要求由矩阵算出并**固化在变更单里**：事后改矩阵不能追溯改变一张已提交的单子要几个人批。
+	// The approval requirement is computed from the matrix and **frozen into the change request**: changing the matrix later must not retroactively alter how many approvers an already-submitted request needs.
 	Slots        []Slot     `json:"slots"`
 	SelfApproval bool       `json:"selfApproval"`
 	Approvals    []Approval `json:"approvals"`
@@ -97,21 +97,21 @@ type Change struct {
 	PublishedAt string `json:"publishedAt,omitempty"`
 	PublishedBy string `json:"publishedBy,omitempty"`
 
-	// --- 紧急通道（`contracts/04` §7）---
+	// --- emergency channel (`contracts/04` §7) ---
 	//
-	// 紧急发布是**例外路径**，所以它的证据必须比正常路径更厚：谁按的、谁共同授权、
-	// 什么时候必须补审、补了没有。少一项，例外就会变成常态。
+	// Emergency publish is an **exception path**, so its evidence must be thicker than the normal path's: who triggered it, who co-authorized it,
+	// when the makeup review is due, and whether it happened. Drop one item and the exception becomes the norm.
 	Emergency         bool   `json:"emergency,omitempty"`
 	EmergencyBy       string `json:"emergencyBy,omitempty"`
 	EmergencySecondBy string `json:"emergencySecondBy,omitempty"`
 	EmergencyAt       string `json:"emergencyAt,omitempty"`
 	EmergencyReason   string `json:"emergencyReason,omitempty"`
-	// MakeupReviewDueAt 补审截止（紧急发布后 24h，`contracts/04` §7）
+	// MakeupReviewDueAt is the makeup review deadline (24h after the emergency publish, `contracts/04` §7)
 	MakeupReviewDueAt string         `json:"makeupReviewDueAt,omitempty"`
 	MakeupReviews     []MakeupReview `json:"makeupReviews,omitempty"`
 }
 
-// MakeupReview 事后补审记录。`Late` 单独记：超期补审与按时补审的合规含义不同。
+// MakeupReview is a post-hoc review record. `Late` is recorded separately: an overdue makeup review and an on-time one carry different compliance meaning.
 type MakeupReview struct {
 	Actor     string `json:"actor"`
 	ActorType string `json:"actorType"`
@@ -121,12 +121,12 @@ type MakeupReview struct {
 	Comment   string `json:"comment,omitempty"`
 }
 
-// MakeupReviewMissing 紧急发布后是否还没补审。
+// MakeupReviewMissing reports whether an emergency publish has not been makeup-reviewed yet.
 func (c Change) MakeupReviewMissing() bool {
 	return c.Emergency && len(c.MakeupReviews) == 0
 }
 
-// Remaining 还没有人占的审批位。
+// Remaining returns the approval slots nobody has taken yet.
 func (c Change) Remaining() []Slot {
 	out := make([]Slot, 0, len(c.Slots))
 	used := make([]bool, len(c.Slots))
@@ -143,22 +143,22 @@ func (c Change) Remaining() []Slot {
 	return out
 }
 
-// Gray 灰度配置：运行时「哪个版本吃多少流量」（`contracts/06` §5）。
+// Gray is the canary configuration: at runtime, "which version takes how much traffic" (`contracts/06` §5).
 type Gray struct {
 	PackageID string `json:"packageId"`
 	Version   string `json:"version"`
 	Mode      string `json:"mode"`
-	// Percentage 仅 percentage 模式有意义；shadow 恒为 0（不影响线上决策）。
+	// Percentage is meaningful only in percentage mode; shadow is always 0 (it does not affect online decisions).
 	Percentage int      `json:"percentage"`
 	GrayTags   []string `json:"grayTags,omitempty"`
-	// PeakPercentage 历史最高放量：判「L4 禁止一步到 100%」需要它。
+	// PeakPercentage is the historic peak rollout: needed to enforce "L4 must not jump straight to 100%".
 	PeakPercentage int        `json:"peakPercentage"`
 	UpdatedAt      string     `json:"updatedAt"`
 	UpdatedBy      string     `json:"updatedBy"`
 	History        []GrayStep `json:"history,omitempty"`
 }
 
-// GrayStep 一次放量调整（放量本身也是可审计的配置变更，`contracts/06` §5.2）。
+// GrayStep is one rollout adjustment (the rollout itself is an auditable configuration change, `contracts/06` §5.2).
 type GrayStep struct {
 	At         string `json:"at"`
 	By         string `json:"by"`
@@ -167,7 +167,7 @@ type GrayStep struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
-// AuditEvent 审计事件（`contracts/04` §9）。B9 只落「治理动作」，决策日志是 B10。
+// AuditEvent is an audit event (`contracts/04` §9). B9 records only "governance actions"; decision logs belong to B10.
 type AuditEvent struct {
 	EventID        string `json:"eventId"`
 	At             string `json:"at"`
@@ -184,7 +184,7 @@ type AuditEvent struct {
 	Detail         string `json:"detail,omitempty"`
 }
 
-// 审计动作名。
+// Audit action names.
 const (
 	ActionChangeSubmitted   = "CHANGE_SUBMITTED"
 	ActionChangeApproved    = "CHANGE_APPROVED"
@@ -192,28 +192,28 @@ const (
 	ActionPackagePublished  = "PACKAGE_PUBLISHED"
 	ActionPackageRolledBack = "PACKAGE_ROLLED_BACK"
 	ActionGrayUpdated       = "GRAY_UPDATED"
-	// 紧急通道（`contracts/04` §7）：紧急发布与事后补审各留一条独立事件，
-	// 便于「本月紧急发布了几次、有没有没补审的」这类问题一次查出来。
+	// Emergency channel (`contracts/04` §7): emergency publish and post-hoc makeup review each get their own event,
+	// so questions like "how many emergency publishes this month, and are any of them left unreviewed" can be answered in one query.
 	ActionChangeEmergency      = "CHANGE_EMERGENCY_PUBLISHED"
 	ActionChangeMakeupReviewed = "CHANGE_MAKEUP_REVIEWED"
-	// B10：日志原文访问与回放也要留痕（谁在什么时候看了谁的原始快照）。
+	// B10: raw log access and replay must also be audited (who looked at whose raw snapshot, and when).
 	ActionLogRawAccessed = "LOG_RAW_ACCESSED"
 	ActionReplayExecuted = "REPLAY_EXECUTED"
-	// 密钥轮换与重加密：轮换会改变「谁能读历史原始快照」的前提，必须留痕。
+	// Key rotation and rewrap: rotation changes the premise of "who can read historic raw snapshots", so it must be audited.
 	ActionLogKeyRotated = "LOG_KEY_ROTATED"
 	ActionLogKeyRewrapped = "LOG_KEY_REWRAPPED"
 )
 
-// Doc 治理仓库文档（一份 JSON：变更单 + 灰度配置 + 审计事件）。
+// Doc is the governance repository document (a single JSON: change requests + canary configuration + audit events).
 type Doc struct {
 	Changes []Change        `json:"changes"`
 	Grays   map[string]Gray `json:"grays"` // key = packageId
 	Audits  []AuditEvent    `json:"audits"`
-	// Seq 每日流水号：CHG-YYYYMMDD-0001。
+	// Seq is the per-day serial number: CHG-YYYYMMDD-0001.
 	Seq map[string]int `json:"seq"`
 }
 
-// Error 治理侧领域错误。HTTP 映射集中在 httpapi，本包只说「哪个规则被违反」。
+// Error is a governance-side domain error. The HTTP mapping lives in httpapi; this package only states "which rule was violated".
 type Error struct {
 	Code    string
 	Message string
@@ -223,7 +223,7 @@ func (e *Error) Error() string { return e.Message }
 
 func errf(code, msg string) *Error { return &Error{Code: code, Message: msg} }
 
-// NotFoundError 变更单/灰度配置不存在。
+// NotFoundError means the change request / canary configuration does not exist.
 type NotFoundError struct {
 	ChangeID  string
 	PackageID string

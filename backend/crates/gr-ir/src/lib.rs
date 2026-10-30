@@ -1,12 +1,12 @@
-//! B1 · IR 加载与 slot 表
+//! B1 - IR loading and the slot table
 //!
-//! 职责只有三件（`PLAN.md` B1）：
-//! 1. 把规则包解析成运行期结构（`LoadedPackage`）；
-//! 2. 把字段引用 `{"fact": "a.b"}` **一次性**解析成 `{"slot": 3}`（编译期已经做过一次，
-//!    这里做的是「加载期复核」：IR 若仍带 fact 名就补解析，若带 slot 就校验下标）；
-//! 3. 按 scene 选规则集 + 按「前置事实」门控规则，避免千条全扫。
+//! Only three responsibilities (`PLAN.md` B1):
+//! 1. Parse the rule package into runtime structures (`LoadedPackage`);
+//! 2. Resolve field references `{"fact": "a.b"}` into `{"slot": 3}` **once** (compile time already did it once,
+//!    what happens here is a "load-time re-check": if the IR still carries a fact name, resolve it; if it carries a slot, validate the index);
+//! 3. Pick the ruleset by scene + gate rules by "gating fact", so a thousand rules are not all scanned.
 //!
-//! 明确不做：不求值（B2）、不取数（A-2）、不校验业务语义（B7）。
+//! Explicitly not doing: no evaluation (B2), no data fetching (A-2), no business semantics validation (B7).
 
 use gr_contract::{
     Decision, ErrorCode, ErrorContract, Expr, HitStrategy, OutputSchema, PackageMetadata, Rule,
@@ -19,7 +19,7 @@ pub mod limits;
 
 pub use limits::LoadLimits;
 
-/// 加载失败：把契约级问题聚合成一个错误响应（`contracts/05` §3.2）。
+/// Load failure: aggregates contract-level problems into a single error response (`contracts/05` §3.2).
 #[derive(Debug)]
 pub struct LoadError {
     pub issues: Vec<gr_contract::ContractIssue>,
@@ -66,17 +66,17 @@ impl std::error::Error for LoadError {}
 
 pub type LoadResult<T> = Result<T, LoadError>;
 
-/// 加载后的一条规则。`rule` 中的字段引用已全部是 slot 下标。
+/// One rule after loading. All field references inside `rule` are already slot indices.
 #[derive(Clone, Debug)]
 pub struct LoadedRule {
     pub rule: Rule,
-    /// 排序后的位置（0 = 优先级最高）
+    /// Sort position (0 = highest priority)
     pub index: u32,
-    /// 「前置事实」：`when` 中最左侧引用的 slot。
-    /// 该事实缺失时这条规则一定不可能命中 → 直接跳过（剪枝）。
+    /// "Gating fact": the leftmost referenced slot in `when`.
+    /// When that fact is missing this rule can never hit -> skip it directly (pruning).
     pub gating_slot: Option<u32>,
     pub referenced_slots: Vec<u32>,
-    /// 是否包含 assign（有输出变量）
+    /// Whether it carries assigns (output variables)
     pub has_assign: bool,
 }
 
@@ -89,11 +89,11 @@ pub struct LoadedRuleSet {
     pub default_decision: Decision,
     pub fallback_decision: Option<Decision>,
     pub slot_table: SlotTable,
-    /// 字段名 → slot（加载期建一次，运行期只碰下标）
+    /// Field name -> slot (built once at load time; at runtime only indices are touched)
     pub slot_index: BTreeMap<String, u32>,
-    /// 按 (priority desc, ruleId asc) 排序后的规则
+    /// Rules sorted by (priority desc, ruleId asc)
     pub rules: Vec<Arc<LoadedRule>>,
-    /// 前置事实 → 规则下标。用于统计「本场景实际扫了多少条」与按事实批量跳过。
+    /// Gating fact -> rule indices. Used to count "how many rules this scene actually scanned" and to skip in bulk by fact.
     pub gate_groups: BTreeMap<u32, Vec<u32>>,
     pub output_schema_id: Option<String>,
     pub output_schema_version: Option<String>,
@@ -101,10 +101,10 @@ pub struct LoadedRuleSet {
 }
 
 impl LoadedRuleSet {
-    /// 本次决策需要求值的规则下标（保持优先级顺序）。
+    /// Rule indices to evaluate for this decision (priority order preserved).
     ///
-    /// 剪枝规则：某规则的「前置事实」缺失 → 该规则必然不命中，跳过。
-    /// 注意不能重排：`FIRST` 策略的语义就是「优先级序首条命中即停」，重排会改语义。
+    /// Pruning rule: when the "gating fact" of a rule is missing -> that rule certainly does not hit, skip it.
+    /// Note that reordering is not allowed: the semantics of `FIRST` is "stop at the first hit in priority order", reordering would change semantics.
     pub fn plan(&self, missing_slots: &BTreeSet<u32>) -> Vec<u32> {
         self.rules
             .iter()
@@ -116,10 +116,10 @@ impl LoadedRuleSet {
             .collect()
     }
 
-    /// 带「跳过字段」的求值计划（`onMissing: SKIP`）。
+    /// Evaluation plan with "skipped fields" (`onMissing: SKIP`).
     ///
-    /// 与 `plan` 的差别：`plan` 只看前置事实（不命中即可剪），这里还要看
-    /// **规则引用的任意字段**——SKIP 语义是「这条规则整体不参与本次计算」。
+    /// Difference from `plan`: `plan` only looks at the gating fact (prune once it cannot hit), here we also look at
+    /// **any field the rule references** - the SKIP semantics is "this rule does not take part in this computation at all".
     pub fn plan_skipping(&self, missing_slots: &BTreeSet<u32>, skip_slots: &BTreeSet<u32>) -> Vec<u32> {
         self.rules
             .iter()
@@ -137,7 +137,7 @@ impl LoadedRuleSet {
     }
 }
 
-/// 加载后的规则包（不可变，可被多线程共享）。
+/// A loaded rule package (immutable, shareable across threads).
 #[derive(Clone, Debug)]
 pub struct LoadedPackage {
     pub package_id: String,
@@ -148,7 +148,7 @@ pub struct LoadedPackage {
     pub signature: Option<String>,
     pub metadata: PackageMetadata,
     pub rulesets: BTreeMap<String, Arc<LoadedRuleSet>>,
-    /// scene → 该场景挂载的 ruleset（顺序稳定）
+    /// scene -> rulesets attached to that scene (stable order)
     pub scene_index: BTreeMap<String, Vec<String>>,
     pub tests: Vec<TestCase>,
     pub output_schemas: BTreeMap<(String, String), OutputSchema>,
@@ -160,7 +160,7 @@ impl LoadedPackage {
         self.rulesets.get(id)
     }
 
-    /// 场景下的规则集（顺序 = 该包里出现顺序）。单次决策只在这里面的规则集里选一个。
+    /// Rulesets of a scene (order = order of appearance in the package). A single decision picks only one of them.
     pub fn scene_rulesets(&self, scene: &str) -> Vec<&Arc<LoadedRuleSet>> {
         self.scene_index
             .get(scene)
@@ -168,7 +168,7 @@ impl LoadedPackage {
             .unwrap_or_default()
     }
 
-    /// 场景 + 规则集版本，或场景下唯一规则集。用于 `decide` 的目标选择。
+    /// Scene + ruleset version, or the only ruleset under the scene. Used for target selection in `decide`.
     pub fn select_ruleset(
         &self,
         scene: &str,
@@ -227,7 +227,7 @@ impl LoadedPackage {
     }
 }
 
-/// 加载器：`RulePackage`（JSON 结构）→ `LoadedPackage`（运行期结构）。
+/// Loader: `RulePackage` (JSON structures) -> `LoadedPackage` (runtime structures).
 pub fn load(pkg: &RulePackage, limits: &LoadLimits) -> LoadResult<LoadedPackage> {
     let mut errors = LoadError { issues: Vec::new() };
 
@@ -390,7 +390,7 @@ fn load_ruleset(
         });
     }
 
-    // 排序：priority 降序，同优先级按 ruleId 升序（`contracts/05` §8.2，保证可复现）
+    // Sort: priority descending, equal priority by ruleId ascending (`contracts/05` §8.2, guarantees reproducibility)
     loaded_rules.sort_by(|a, b| {
         b.rule
             .priority
@@ -429,7 +429,7 @@ fn load_ruleset(
     })
 }
 
-/// `Fact` → `Slot`；`Slot` 校验下标；其余递归。
+/// `Fact` -> `Slot`; validate the index of a `Slot`; recurse for everything else.
 fn resolve_expr(
     expr: &mut Expr,
     slot_index: &BTreeMap<String, u32>,
@@ -471,7 +471,7 @@ fn resolve_expr(
     }
 }
 
-/// 最左侧引用的 slot（求值顺序上的第一个事实）= 前置事实。
+/// The leftmost referenced slot (the first fact in evaluation order) = the gating fact.
 fn first_slot(expr: &Expr) -> Option<u32> {
     match expr {
         Expr::Slot(s) => Some(s.slot),
@@ -480,7 +480,7 @@ fn first_slot(expr: &Expr) -> Option<u32> {
     }
 }
 
-/// 便捷：从 JSON 文本加载。
+/// Convenience: load from JSON text.
 pub fn load_from_json(raw: &str, limits: &LoadLimits) -> LoadResult<LoadedPackage> {
     let pkg: RulePackage = serde_json::from_str(raw).map_err(|e| {
         LoadError::one(ErrorCode::IrInvalid, format!("规则包 JSON 解析失败: {e}"))

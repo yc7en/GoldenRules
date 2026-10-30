@@ -60,7 +60,7 @@ func newSvc(t *testing.T, withKey bool) (*Service, *persist.Store[RawDoc]) {
 	return svc, raw
 }
 
-// 入库幂等：同一 snapshotId+traceId 重复推送只记一次。
+// Ingest is idempotent: pushing the same snapshotId+traceId again is recorded only once.
 func TestIngestIsIdempotent(t *testing.T) {
 	svc, _ := newSvc(t, true)
 	item := IngestItem{Log: sampleLog("snap-1", "trace-1", "REVIEW")}
@@ -88,10 +88,10 @@ func TestIngestIsIdempotent(t *testing.T) {
 	}
 }
 
-// A-4 必填字段缺失直接拒收。
+// Missing A-4 required fields are rejected outright.
 func TestIngestValidatesRequiredFields(t *testing.T) {
 	svc, _ := newSvc(t, true)
-	bad := sampleLog("snap-x", "", "REVIEW") // 缺 traceId
+	bad := sampleLog("snap-x", "", "REVIEW") // missing traceId
 	_, err := svc.Ingest([]IngestItem{{Log: bad}})
 	var oe *Error
 	if !errors.As(err, &oe) || oe.Code != CodeInvalidLog {
@@ -108,7 +108,7 @@ func TestIngestValidatesRequiredFields(t *testing.T) {
 	}
 }
 
-// 原始快照加密存储，且 logs 文档里不留密文。
+// The raw snapshot is stored encrypted, and no ciphertext remains in the logs document.
 func TestRawSnapshotEncryptedAndSeparated(t *testing.T) {
 	svc, rawStore := newSvc(t, true)
 	raw := json.RawMessage(`{"snapshotId":"snap-1","facts":{"customer.idCardNo":"110101199001011234"}}`)
@@ -121,7 +121,7 @@ func TestRawSnapshotEncryptedAndSeparated(t *testing.T) {
 	}
 	logID := res.LogIDs[0]
 
-	// logs 文档里只有引用元数据，没有密文
+	// the logs document holds only reference metadata, no ciphertext
 	rec, _ := svc.Get(logID)
 	if rec.Raw == nil || rec.Raw.Ciphertext != "" {
 		t.Fatalf("日志视图不应包含密文: %+v", rec.Raw)
@@ -129,10 +129,10 @@ func TestRawSnapshotEncryptedAndSeparated(t *testing.T) {
 	if rec.Raw.Algo != "AES-256-GCM" || rec.Raw.KeyID == "" {
 		t.Fatalf("密文元数据不全: %+v", rec.Raw)
 	}
-	if rec.Raw.ExpiresAt != "2027-01-28T12:00:00Z" { // 90 天后
+	if rec.Raw.ExpiresAt != "2027-01-28T12:00:00Z" { // 90 days later
 		t.Fatalf("保留期计算异常: %s", rec.Raw.ExpiresAt)
 	}
-	// raw 文档里是密文，不含明文
+	// the raw document holds ciphertext, no plaintext
 	var blob RawSnapshotRef
 	rawStore.View(func(d *RawDoc) { blob = d.Blobs[logID] })
 	if blob.Ciphertext == "" {
@@ -142,7 +142,7 @@ func TestRawSnapshotEncryptedAndSeparated(t *testing.T) {
 		t.Fatalf("密文与明文相同")
 	}
 
-	// 能解回原文
+	// it decrypts back to the original
 	got, rerr := svc.RawSnapshot(logID)
 	if rerr != nil {
 		t.Fatalf("解密失败: %v", rerr)
@@ -152,7 +152,7 @@ func TestRawSnapshotEncryptedAndSeparated(t *testing.T) {
 	}
 }
 
-// 没有密钥时只存脱敏视图，并明确告知回放不可用。
+// With no key only the redacted view is stored, and the caller is explicitly told that replay is unavailable.
 func TestIngestWithoutKeyKeepsMaskedViewOnly(t *testing.T) {
 	svc, _ := newSvc(t, false)
 	if svc.RawEnabled() {
@@ -177,7 +177,7 @@ func TestIngestWithoutKeyKeepsMaskedViewOnly(t *testing.T) {
 	}
 }
 
-// 保留期到期后原始快照被清理，脱敏日志仍在。
+// Once retention expires the raw snapshot is purged while the redacted log remains.
 func TestRetentionPurgesRawOnly(t *testing.T) {
 	svc, rawStore := newSvc(t, true)
 	svc.WithRetention(1)
@@ -190,7 +190,7 @@ func TestRetentionPurgesRawOnly(t *testing.T) {
 	}
 	logID := res.LogIDs[0]
 
-	// 时钟推到保留期之后
+	// push the clock past the retention period
 	svc.WithClock(func() time.Time { return time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC) })
 	purged, err := svc.PurgeExpired()
 	if err != nil {
@@ -212,7 +212,7 @@ func TestRetentionPurgesRawOnly(t *testing.T) {
 	}
 }
 
-// 查询条件与分页。
+// Query conditions and paging.
 func TestQueryFiltersAndPaginates(t *testing.T) {
 	svc, _ := newSvc(t, true)
 	var items []IngestItem
@@ -228,16 +228,16 @@ func TestQueryFiltersAndPaginates(t *testing.T) {
 	if got, total := svc.Query(Query{Decision: "REVIEW"}); total != 2 || len(got) != 2 {
 		t.Fatalf("按决策过滤应 2 条，实际 %d", total)
 	}
-	// 时间倒序
+	// time descending
 	got, _ := svc.Query(Query{})
 	if got[0].Entry.ExecutedAt != "2026-10-30T12:00:00Z" {
 		t.Fatalf("应按时间倒序，首条 %s", got[0].Entry.ExecutedAt)
 	}
-	// 时间窗
+	// time window
 	if _, total := svc.Query(Query{From: "2026-10-30T10:30:00Z"}); total != 2 {
 		t.Fatalf("时间窗过滤应 2 条，实际 %d", total)
 	}
-	// 分页
+	// paging
 	page, total := svc.Query(Query{Limit: 1, Offset: 1})
 	if total != 3 || len(page) != 1 {
 		t.Fatalf("分页异常 total=%d len=%d", total, len(page))
@@ -249,7 +249,7 @@ func TestQueryFiltersAndPaginates(t *testing.T) {
 	}
 }
 
-// 内容摘要：改动任一字段即变。
+// Content digest: changing any field changes it.
 func TestContentHashDetectsTamper(t *testing.T) {
 	e := sampleLog("snap-h", "trace-h", "REVIEW")
 	h1 := e.Hash()
@@ -261,7 +261,7 @@ func TestContentHashDetectsTamper(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 
-// fakeReplayer 按固定结论回放，用来验证比对逻辑而不起引擎进程。
+// fakeReplayer replays a fixed conclusion, so the comparison logic can be verified without spawning an engine process.
 type fakeReplayer struct {
 	decision string
 	reason   string
@@ -295,7 +295,7 @@ func TestReplayComparesDecisionAndPinsVersions(t *testing.T) {
 	}
 	logID := res.LogIDs[0]
 
-	// 一致
+	// identical
 	fp := &fakeReplayer{decision: "REVIEW", reason: "AMOUNT_REVIEW", outputs: map[string]json.RawMessage{"riskLevel": json.RawMessage(`"MEDIUM"`)}}
 	out, err := svc.Replay(logID, fp)
 	if err != nil {
@@ -304,7 +304,7 @@ func TestReplayComparesDecisionAndPinsVersions(t *testing.T) {
 	if !out.Match || len(out.Diff) != 0 {
 		t.Fatalf("应判定一致: %+v", out)
 	}
-	// 版本必须钉死在日志记录的那一版
+	// the version must be pinned to the one recorded in the log
 	var ctx map[string]any
 	_ = json.Unmarshal(fp.seenCtx, &ctx)
 	if ctx["packageVersion"] != "v1" || ctx["rulesetVersion"] != "rs-1" {
@@ -314,7 +314,7 @@ func TestReplayComparesDecisionAndPinsVersions(t *testing.T) {
 		t.Fatalf("回放应使用日志时间作为时间基准: %v", ctx["requestTime"])
 	}
 
-	// 决策变了
+	// decision changed
 	fp2 := &fakeReplayer{decision: "REJECT", reason: "AMOUNT_REVIEW", outputs: map[string]json.RawMessage{"riskLevel": json.RawMessage(`"MEDIUM"`)}}
 	out, err = svc.Replay(logID, fp2)
 	if err != nil {
@@ -324,7 +324,7 @@ func TestReplayComparesDecisionAndPinsVersions(t *testing.T) {
 		t.Fatalf("决策变化应判不一致: %+v", out)
 	}
 
-	// 输出变了
+	// outputs changed
 	fp3 := &fakeReplayer{decision: "REVIEW", reason: "AMOUNT_REVIEW", outputs: map[string]json.RawMessage{"riskLevel": json.RawMessage(`"HIGH"`)}}
 	out, _ = svc.Replay(logID, fp3)
 	if out.Match || len(out.Diff) != 1 {
@@ -337,18 +337,18 @@ func TestReplayUnavailableAndRawMissing(t *testing.T) {
 	res, _ := svc.Ingest([]IngestItem{{Log: sampleLog("snap-n", "trace-n", "REVIEW")}})
 	logID := res.LogIDs[0]
 
-	// 没配回放后端
+	// no replay backend configured
 	_, err := svc.Replay(logID, nil)
 	var oe *Error
 	if !errors.As(err, &oe) || oe.Code != CodeReplayUnavailable {
 		t.Fatalf("未配回放应 %s，实际 %v", CodeReplayUnavailable, err)
 	}
-	// 没存原始快照
+	// no raw snapshot stored
 	_, err = svc.Replay(logID, &fakeReplayer{decision: "REVIEW", reason: "AMOUNT_REVIEW"})
 	if !errors.As(err, &oe) || oe.Code != CodeRawUnavailable {
 		t.Fatalf("无原始快照应 %s，实际 %v", CodeRawUnavailable, err)
 	}
-	// 日志不存在
+	// log does not exist
 	_, err = svc.Replay("LOG-NOPE", &fakeReplayer{})
 	if !errors.As(err, &oe) || oe.Code != CodeLogNotFound {
 		t.Fatalf("日志不存在应 %s，实际 %v", CodeLogNotFound, err)

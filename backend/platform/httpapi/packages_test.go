@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// 带一条 AI 生成、尚未确认的用例：用来验证「发布时提示未确认用例」（`contracts/01` §6.1）。
+// Ships one AI-generated, not-yet-confirmed test case: used to verify "publish warns about unconfirmed test cases" (`contracts/01` §6.1).
 const rulesetWithPendingTest = `{
   "rulesetId": "rs-amount-limit",
   "scene": "withdraw-risk-check",
@@ -40,13 +40,13 @@ const pkgDraftBody = `{
   "changelog": "首版：提款金额上限"
 }`
 
-// 走一遍「编译草稿 → 批准 → 发布 → 取代 → 回滚」的完整生命周期，
-// 断言版本数只增不减、产物可交付、验签有效。
+// Walks the full lifecycle "compile draft → approve → publish → supersede → roll back",
+// asserting that the version count never shrinks, the artifact is deliverable, and the signature verifies.
 func TestPackageLifecycleOverHTTP(t *testing.T) {
 	h := newTestServer(t)
 	seedAmountRuleset(t, h)
 
-	// 1 编译草稿：版本号未指定时自动分配 v1
+	// 1 compile draft: v1 is allocated automatically when no version is specified
 	rec, body := do(t, h, "POST", "/api/v1/packages", pkgDraftBody)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create package = %d %s", rec.Code, rec.Body)
@@ -65,19 +65,19 @@ func TestPackageLifecycleOverHTTP(t *testing.T) {
 		t.Fatalf("signature = %v", v["signature"])
 	}
 
-	// 2 未批准不能发布
+	// 2 an unapproved version cannot be published
 	rec, body = do(t, h, "POST", "/api/v1/packages/pkg-withdraw/versions/v1/publish", "")
 	if rec.Code != http.StatusConflict || body["errorCode"] != "PKG_NOT_APPROVED" {
 		t.Fatalf("未批准发布应 409 PKG_NOT_APPROVED，实际 %d %s", rec.Code, rec.Body)
 	}
 
-	// 3 还没有生效版本
+	// 3 there is no active version yet
 	rec, body = do(t, h, "GET", "/api/v1/packages/pkg-withdraw/active", "")
 	if rec.Code != http.StatusNotFound || body["errorCode"] != "PKG_NOT_FOUND" {
 		t.Fatalf("active 应 404，实际 %d %s", rec.Code, rec.Body)
 	}
 
-	// 4 批准 → 发布
+	// 4 approve → publish
 	if rec, _ = do(t, h, "POST", "/api/v1/packages/pkg-withdraw/versions/v1/approve", ""); rec.Code != http.StatusOK {
 		t.Fatalf("approve = %d %s", rec.Code, rec.Body)
 	}
@@ -93,13 +93,13 @@ func TestPackageLifecycleOverHTTP(t *testing.T) {
 		t.Fatalf("发布应提示未确认用例: %s", rec.Body)
 	}
 
-	// 5 生效版本可查
+	// 5 the active version is queryable
 	rec, body = do(t, h, "GET", "/api/v1/packages/pkg-withdraw/active", "")
 	if rec.Code != http.StatusOK || body["packageVersion"] != "v1" {
 		t.Fatalf("active = %d %s", rec.Code, rec.Body)
 	}
 
-	// 6 产物：IR 形态 + 签名头
+	// 6 artifact: IR shape + signature header
 	rec = doRaw(t, h, "GET", "/api/v1/packages/pkg-withdraw/versions/v1/artifact")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("artifact = %d %s", rec.Code, rec.Body)
@@ -111,13 +111,13 @@ func TestPackageLifecycleOverHTTP(t *testing.T) {
 		t.Fatalf("产物不像规则包: %s", rec.Body)
 	}
 
-	// 7 验签
+	// 7 signature verification
 	rec, body = do(t, h, "GET", "/api/v1/packages/pkg-withdraw/versions/v1/verify", "")
 	if rec.Code != http.StatusOK || body["valid"] != true {
 		t.Fatalf("verify = %d %s", rec.Code, rec.Body)
 	}
 
-	// 8 发布第二版：旧版自动退役，版本数变 2
+	// 8 publish the second version: the old one retires automatically, version count becomes 2
 	rec, body = do(t, h, "POST", "/api/v1/packages", pkgDraftBody)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create v2 = %d %s", rec.Code, rec.Body)
@@ -138,13 +138,13 @@ func TestPackageLifecycleOverHTTP(t *testing.T) {
 		t.Fatalf("v1 应被取代: %d %s", rec.Code, rec.Body)
 	}
 
-	// 9 已发布版本不可改内容：同名再建草稿应 409
+	// 9 a published version's content is immutable: drafting the same version again must be 409
 	rec, body = do(t, h, "POST", "/api/v1/packages", strings.Replace(pkgDraftBody, `"packageId"`, `"version": "v2", "packageId"`, 1))
 	if rec.Code != http.StatusConflict || body["errorCode"] != "PKG_VERSION_EXISTS" {
 		t.Fatalf("重写已发布版本应 409，实际 %d %s", rec.Code, rec.Body)
 	}
 
-	// 10 回滚：切回 v1，不产生新版本号
+	// 10 rollback: switch back to v1 without producing a new version number
 	rec, body = do(t, h, "POST", "/api/v1/packages/pkg-withdraw/rollback", `{"toVersion":"v1","reason":"线上误拒率升高"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("rollback = %d %s", rec.Code, rec.Body)
@@ -157,28 +157,28 @@ func TestPackageLifecycleOverHTTP(t *testing.T) {
 		t.Fatalf("回滚不应新增版本，实际 %s", rec.Body)
 	}
 
-	// 11 回滚后的 v2 记为被回滚，指向 v1
+	// 11 after rollback v2 is recorded as rolled back and points at v1
 	rec, body = do(t, h, "GET", "/api/v1/packages/pkg-withdraw/versions/v2", "")
 	if body["retiredCause"] != "ROLLED_BACK" || body["supersededBy"] != "v1" {
 		t.Fatalf("v2 应记为被回滚: %s", rec.Body)
 	}
 
-	// 12 不存在的版本
+	// 12 a version that does not exist
 	rec, body = do(t, h, "GET", "/api/v1/packages/pkg-withdraw/versions/v9", "")
 	if rec.Code != http.StatusNotFound || body["errorCode"] != "PKG_NOT_FOUND" {
 		t.Fatalf("未知版本应 404，实际 %d %s", rec.Code, rec.Body)
 	}
 }
 
-// 编译失败是 422 + 逐条诊断，且整包不落库（`contracts/01` §5.1 全量或全不）。
+// A compile failure is 422 + per-item diagnostics, and the whole package is not persisted (`contracts/01` §5.1 all-or-nothing).
 func TestPackageCompileFailureIsAllOrNothing(t *testing.T) {
 	h := newTestServer(t)
 	if rec, _ := do(t, h, "POST", "/api/v1/facts", factForRule); rec.Code != http.StatusCreated {
 		t.Fatalf("create fact = %d %s", rec.Code, rec.Body)
 	}
 
-	// 规则集本身写得进去（引用 request.amount 合法），但包里另一个规则集引用不存在字段——
-	// 这里用「引用已废弃事实」之外的路径：直接让包引用不存在的规则集。
+	// The ruleset itself is accepted (referencing request.amount is valid), but another ruleset in the package references a missing field —
+	// here we take a path other than "referencing a deprecated fact": let the package reference a ruleset that does not exist.
 	rec, body := do(t, h, "POST", "/api/v1/packages",
 		`{"packageId":"pkg-x","rulesetIds":["rs-amount-limit"],"changelog":"x"}`)
 	if rec.Code != http.StatusNotFound {
@@ -188,20 +188,20 @@ func TestPackageCompileFailureIsAllOrNothing(t *testing.T) {
 		t.Fatalf("errorCode = %v", body["errorCode"])
 	}
 
-	// 空规则集列表是请求错误
+	// an empty ruleset list is a request error
 	rec, body = do(t, h, "POST", "/api/v1/packages", `{"packageId":"pkg-x","rulesetIds":[]}`)
 	if rec.Code != http.StatusBadRequest || body["errorCode"] != "PKG_EMPTY" {
 		t.Fatalf("空包应 400 PKG_EMPTY，实际 %d %s", rec.Code, rec.Body)
 	}
 
-	// 没落库
+	// nothing was persisted
 	rec, body = do(t, h, "GET", "/api/v1/packages", "")
 	if rec.Code != http.StatusOK || int(body["total"].(float64)) != 0 {
 		t.Fatalf("失败不应落库: %s", rec.Body)
 	}
 }
 
-// 定时发布：validFrom 在未来的包是 published 但尚未生效。
+// Scheduled publish: a package with a future validFrom is published but not yet in effect.
 func TestPackageScheduledPublishOverHTTP(t *testing.T) {
 	h := newTestServer(t)
 	seedAmountRuleset(t, h)
@@ -228,7 +228,7 @@ func TestPackageScheduledPublishOverHTTP(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 
-// versionOf 取 publish 响应里的版本摘要（外层是 {version, warnings}）。
+// versionOf extracts the version summary from the publish response (the outer object is {version, warnings}).
 func versionOf(t *testing.T, body map[string]any) map[string]any {
 	t.Helper()
 	v, ok := body["version"].(map[string]any)
@@ -238,7 +238,7 @@ func versionOf(t *testing.T, body map[string]any) map[string]any {
 	return v
 }
 
-// seedAmountRuleset 建一个事实 + 一个规则集，作为编译输入。
+// seedAmountRuleset creates one fact + one ruleset as compile input.
 func seedAmountRuleset(t *testing.T, h http.Handler) {
 	t.Helper()
 	if rec, _ := do(t, h, "POST", "/api/v1/facts", factForRule); rec.Code != http.StatusCreated {
@@ -249,9 +249,9 @@ func seedAmountRuleset(t *testing.T, h http.Handler) {
 	}
 }
 
-// ---------------------------------------------------------------- 用例门禁（F-PKG06）
+// ---------------------------------------------------------------- test case gate (F-PKG06)
 
-// 带一条已确认用例的规则集：门禁必须真跑（或明确报告「没人能跑」）。
+// A ruleset carrying one approved test case: the gate must actually run it (or explicitly report "nobody can run it").
 const rulesetWithApprovedTest = `{
   "rulesetId": "rs-amount-limit",
   "scene": "withdraw-risk-check",
@@ -289,7 +289,7 @@ func seedApprovedCase(t *testing.T, h http.Handler) {
 	}
 }
 
-// 没有门禁执行器时，带 approved 用例的包必须发不出去（fail-closed）。
+// Without a gate executor, a package carrying approved test cases must not be publishable (fail-closed).
 func TestPublishBlockedWhenGateUnavailable(t *testing.T) {
 	h := newTestServer(t)
 	seedApprovedCase(t, h)
@@ -306,14 +306,14 @@ func TestPublishBlockedWhenGateUnavailable(t *testing.T) {
 	if msg, _ := body["message"].(string); !strings.Contains(msg, "engine-url") {
 		t.Fatalf("诊断应指出缺什么配置: %s", msg)
 	}
-	// 状态没动
+	// the state did not move
 	rec, body = do(t, h, "GET", "/api/v1/packages/pkg-withdraw/versions/v1", "")
 	if rec.Code != http.StatusOK || body["status"] != "approved" {
 		t.Fatalf("被拦下后应仍是 approved，实际 %d %s", rec.Code, rec.Body)
 	}
 }
 
-// 预演入口：无执行器时同样 503，且不改状态。
+// Rehearsal entry point: also 503 when there is no executor, and it does not change state.
 func TestTestcasePreviewWithoutVerifier(t *testing.T) {
 	h := newTestServer(t)
 	seedApprovedCase(t, h)
@@ -326,7 +326,7 @@ func TestTestcasePreviewWithoutVerifier(t *testing.T) {
 	}
 }
 
-// 只有未确认用例时，预演返回「无需执行」而不是报错——两种情形不能长得一样。
+// With only unconfirmed test cases, rehearsal returns "nothing to run" rather than an error — the two situations must not look alike.
 func TestTestcasePreviewWithOnlyPendingCases(t *testing.T) {
 	h := newTestServer(t)
 	seedAmountRuleset(t, h)
@@ -347,7 +347,7 @@ func TestTestcasePreviewWithOnlyPendingCases(t *testing.T) {
 	}
 }
 
-// 未知版本预演 → 404。
+// Rehearsing an unknown version → 404.
 func TestTestcasePreviewUnknownVersion(t *testing.T) {
 	h := newTestServer(t)
 	rec, body := do(t, h, "GET", "/api/v1/packages/pkg-nope/versions/v1/testcases", "")

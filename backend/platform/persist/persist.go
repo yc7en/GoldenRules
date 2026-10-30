@@ -1,16 +1,16 @@
-// Package persist 是管理平台（Go）的最小持久化层。
+// Package persist is the minimal persistence layer of the management platform (Go).
 //
-// P0 只做一件事：把**一份 JSON 文档**整体放在内存，改动时整体原子落盘
-// （同目录临时文件 + rename）。选它的理由：
+// P0 does one thing only: keep **one JSON document** entirely in memory and write the whole thing to disk atomically on every change
+// (temp file in the same directory + rename). Reasons for choosing it:
 //
-//   - 平台是治理侧、低 QPS，不需要数据库的并发能力；
-//   - 规则包 / 事实目录 / 审计日志在契约里都是「文档 + 只追加」的形状，
-//     整体落盘天然满足「原子 + 不可变」；
-//   - 换真 DB 时只需替换本包，业务代码只依赖 View/Update 两个语义。
+//   - the platform is on the governance side with low QPS and does not need a database's concurrency;
+//   - rule packages / fact catalogs / audit trails are all shaped as "document + append-only" in the contracts,
+//     so whole-document writes naturally satisfy "atomic + immutable";
+//   - switching to a real DB requires replacing only this package, since business code depends only on the View/Update semantics.
 //
-// 两条纪律：
-//  1. `View` 拿到的指针**只读**，不允许在回调里改（否则写入不可控）。
-//  2. `Update` 的回调返回错误时**整份文档回滚**，不留半截状态。
+// Two disciplines:
+//  1. the pointer obtained by `View` is **read-only**; mutating it inside the callback is forbidden (otherwise writes become uncontrollable).
+//  2. when the `Update` callback returns an error the **whole document is rolled back**, leaving no half-written state.
 package persist
 
 import (
@@ -21,17 +21,17 @@ import (
 	"sync"
 )
 
-// Store 是单个 JSON 文档的存储。
+// Store is the storage of a single JSON document.
 type Store[T any] struct {
 	path string
 	mu   sync.RWMutex
 	doc  T
-	// writes 是落盘次数，测试用来断言「幂等读不写盘」。
+	// writes is the number of disk writes, used by tests to assert "idempotent reads do not write to disk".
 	writes int
 }
 
-// Open 打开（或初始化）一个文档。文件不存在时用 init 造初值并落盘。
-// 文件存在但内容损坏时返回错误——**不静默重建**，否则一次解析失败就会把线上数据清零。
+// Open opens (or initialises) a document. When the file does not exist, init builds the initial value and it is written to disk.
+// When the file exists but its content is corrupt an error is returned — it is **never silently rebuilt**, otherwise one parse failure would wipe production data.
 func Open[T any](path string, init func() T) (*Store[T], error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("persist: 创建目录失败: %w", err)
@@ -55,14 +55,14 @@ func Open[T any](path string, init func() T) (*Store[T], error) {
 	}
 }
 
-// View 以只读方式访问文档。
+// View accesses the document read-only.
 func (s *Store[T]) View(fn func(*T)) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	fn(&s.doc)
 }
 
-// Update 以写方式访问文档；回调返回错误则回滚内存到调用前状态。
+// Update accesses the document for writing; if the callback returns an error, memory is rolled back to the state before the call.
 func (s *Store[T]) Update(fn func(*T) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -82,14 +82,14 @@ func (s *Store[T]) Update(fn func(*T) error) error {
 	return nil
 }
 
-// Writes 返回落盘次数（测试用）。
+// Writes returns the number of disk writes (for tests).
 func (s *Store[T]) Writes() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.writes
 }
 
-// flush 必须在持有写锁时调用。
+// flush must be called while holding the write lock.
 func (s *Store[T]) flush() error {
 	raw, err := json.MarshalIndent(s.doc, "", "  ")
 	if err != nil {
@@ -103,7 +103,7 @@ func (s *Store[T]) flush() error {
 	}
 	tmpName := tmp.Name()
 	defer func() {
-		// rename 成功后该文件已不存在，这里的删除只兜底失败路径。
+		// after a successful rename the file no longer exists; this removal only covers the failure path.
 		_ = os.Remove(tmpName)
 	}()
 

@@ -1,9 +1,10 @@
-// 后端契约的前端镜像 —— 字段名逐个对齐 `platform/contracts` 与 `crates/gr-contract`。
+// Frontend mirror of the backend contract - field names align one by one with `platform/contracts` and `crates/gr-contract`.
 //
-// 为什么单独一份而不是复用 `types.ts`：`types.ts` 是 DSL 编辑器的数据模型
-// （照 contracts/01 手写的形状），后端返回的规则包/日志/变更单字段更多、
-// 且有 `{type, value}` 形态的类型化字面量。两套混在一起会让「谁该有什么字段」
-// 变得说不清，宁可多一个文件也要把「线上返回什么」和「编辑器怎么表示」分开。
+// Why a separate file instead of reusing `types.ts`: `types.ts` is the data model of the DSL editor
+// (shaped by hand after contracts/01), while what the backend returns for rulesets / logs / change
+// requests has more fields and carries `{type, value}` typed literals. Mixing the two makes "who should
+// have which field" impossible to state clearly, so an extra file is preferable to blurring "what the
+// wire returns" and "how the editor represents it".
 
 export type RiskLevel = "L1" | "L2" | "L3" | "L4"
 export type ActorType =
@@ -16,14 +17,14 @@ export type ActorType =
   | "agent"
   | "user"
 
-// ---------------------------------------------------------------- 事实目录
+// ---------------------------------------------------------------- Fact catalog
 
 export interface FactRecord {
   fact: string
   displayName?: string
   type: string
   unit?: string
-  /** 业务语义说明（后端字段名是 semantics，不是 description） */
+  /** Business semantics note (the backend field is named semantics, not description) */
   semantics?: string
   required: boolean
   nullable?: boolean
@@ -46,9 +47,9 @@ export interface FactCatalogResponse {
   items: FactRecord[]
 }
 
-// ---------------------------------------------------------------- 规则集
+// ---------------------------------------------------------------- Rulesets
 
-/** `{type: "decimal", value: "1000"}` 这种带类型的字面量，后端 IR 里常见 */
+/** Typed literals like `{type: "decimal", value: "1000"}`, common in the backend IR */
 export interface TypedLiteral {
   type: string
   value: string | number | boolean | null
@@ -88,7 +89,7 @@ export interface Rule {
 export interface TestCaseRecord {
   testId: string
   scene: string
-  /** 场景挂多个规则集时必填，否则门禁报 AMBIGUOUS_SCENE */
+  /** Required when a scene has more than one ruleset attached, otherwise the gate reports AMBIGUOUS_SCENE */
   rulesetId?: string
   input: Record<string, unknown>
   expect: { decision: string; reasonCode?: string }
@@ -96,7 +97,7 @@ export interface TestCaseRecord {
   status: "pending_review" | "approved" | "rejected"
 }
 
-/** 决策表（`contracts/01` §3.2.4）：行即规则，行序即优先级；`*` 表示该维度通配 */
+/** Decision table (`contracts/01` §3.2.4): a row is a rule, row order is priority; `*` means wildcard for that dimension */
 export interface DecisionTableDef {
   tableId: string
   columns: { fact: string; type?: string }[]
@@ -106,7 +107,7 @@ export interface DecisionTableDef {
 
 export interface RulesetDefinition {
   rulesetId: string
-  /** 人读名称，可空 */
+  /** Human-readable name, optional */
   name?: string
   scene: string
   version: string
@@ -116,7 +117,7 @@ export interface RulesetDefinition {
   outputSchemaVersion?: string
   outputSchema?: unknown
   rules?: Rule[]
-  /** 决策表写法（与 rules 二选一；注意字段名是 table，不是 decisionTable） */
+  /** Decision table form (either this or rules; note the field is named table, not decisionTable) */
   table?: DecisionTableDef
   tests?: TestCaseRecord[]
   updatedAt?: string
@@ -129,7 +130,7 @@ export interface RulesetListResponse {
   items: RulesetDefinition[]
 }
 
-// ---------------------------------------------------------------- dry-run 校验
+// ---------------------------------------------------------------- dry-run validation
 
 export interface ValidationIssue {
   code: string
@@ -156,7 +157,7 @@ export interface ValidationReport {
   ir?: unknown
 }
 
-// ---------------------------------------------------------------- 规则包
+// ---------------------------------------------------------------- Ruleset packages
 
 export type PackageStatus =
   | "draft"
@@ -192,7 +193,7 @@ export interface PackageListResponse {
   items: PackageVersionSummary[]
 }
 
-/** 门禁预演：`GET /packages/{pkg}/versions/{v}/testcases` */
+/** Gate preview: `GET /packages/{pkg}/versions/{v}/testcases` */
 export interface GatePreviewResponse {
   gate: {
     approvedCases: number
@@ -213,7 +214,7 @@ export interface GatePreviewResponse {
   }
 }
 
-// ---------------------------------------------------------------- 变更单 / 审批
+// ---------------------------------------------------------------- Change requests / approval
 
 export interface SlaInfo {
   riskLevel: RiskLevel
@@ -292,7 +293,7 @@ export interface ApprovalMatrixResponse {
   cells: MatrixCell[]
 }
 
-// ---------------------------------------------------------------- 决策日志 / 审计
+// ---------------------------------------------------------------- Decision logs / audit
 
 export interface DecisionLogEntry {
   snapshotId: string
@@ -376,9 +377,9 @@ export interface AuditListResponse {
   items: AuditEvent[]
 }
 
-// ---------------------------------------------------------------- 引擎（决策服务）
+// ---------------------------------------------------------------- Engine (decision service)
 
-/** `POST /v1/trial` 的返回：注意它给出了实际执行的包与版本 */
+/** Return of `POST /v1/trial`: note that it reports the package and version actually executed */
 export interface TrialResult {
   resultVersion?: string
   snapshotId: string
@@ -403,7 +404,7 @@ export interface TrialResult {
   executionTimeMs: number
   executedAt?: string
   engineVersion?: string
-  /** 试跑用的是引擎里**已装载**的包，不是编辑器草稿 —— UI 必须把这个说出来 */
+  /** A trial run uses the package **already loaded** in the engine, not the editor draft - the UI must say so */
   packageId: string
   packageVersion: string
 }
@@ -419,13 +420,13 @@ export interface EnginePackagesResponse {
   }[]
 }
 
-/** `GET /api/v1/engine`：平台转述引擎的现状（界面不直连引擎） */
+/** `GET /api/v1/engine`: the platform relays the engine's current state (the UI never talks to the engine directly) */
 export interface EngineInfo {
   healthy: boolean
   baseUrl: string
   health?: unknown
   packages?: EnginePackagesResponse
-  /** 活着但拿不到包清单时才有 */
+  /** Only present when it is alive but the package list cannot be fetched */
   error?: string
 }
 

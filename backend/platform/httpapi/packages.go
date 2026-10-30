@@ -10,7 +10,7 @@ import (
 	"goldenrules/platform/packages"
 )
 
-// POST /api/v1/packages —— 组装 + 编译一个草稿版本（不发布）。
+// POST /api/v1/packages —— assemble + compile one draft version (no publish).
 func (s *Server) createPackage(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PackageID  string   `json:"packageId"`
@@ -63,7 +63,7 @@ func (s *Server) createPackage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"version": summarize(v), "reports": reports})
 }
 
-// GET /api/v1/packages?packageId= —— 列版本（不含包体，避免响应过大）。
+// GET /api/v1/packages?packageId= —— list versions (without the package body, to keep the response small).
 func (s *Server) listPackages(w http.ResponseWriter, r *http.Request) {
 	list := s.deps.Packages.List(r.URL.Query().Get("packageId"))
 	out := make([]map[string]any, 0, len(list))
@@ -85,8 +85,8 @@ func (s *Server) getPackageVersion(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/v1/packages/{pkg}/versions/{version}/approve
 //
-// 治理接线后（`Deps.Gov != nil`）此接口**关闭**：审批是变更单的动作（`contracts/04` §3），
-// 直接批版本等于绕过审批矩阵。保留分支只为单包测试与演练场景。
+// Once governance is wired in (`Deps.Gov != nil`) this endpoint is **closed**: approval is an action of the change request (`contracts/04` §3),
+// and approving a version directly amounts to bypassing the approval matrix. The branch is kept only for single-package test and drill scenarios.
 func (s *Server) approvePackage(w http.ResponseWriter, r *http.Request) {
 	if s.deps.Gov != nil {
 		writeError(w, r, http.StatusConflict, gov.CodeChangeRequired,
@@ -133,14 +133,14 @@ func (s *Server) publishPackage(w http.ResponseWriter, r *http.Request) {
 	if s.deps.Gov != nil {
 		s.deps.Gov.MarkPublished(req.ChangeID, v, actor(r), actorType(r), prev.PackageVersion, req.ValidFrom, req.ValidUntil)
 	}
-	// `contracts/01` §6.1：pending_review 的用例不阻断发布，但发布时必须显式提示。
+	// `contracts/01` §6.1: pending_review test cases do not block publish, but publish must warn about them explicitly.
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":  summarize(v),
 		"warnings": publishWarnings(v),
 	})
 }
 
-// publishWarnings 发布时对前端/调用方的显式提示集合。
+// publishWarnings is the set of explicit warnings shown to the frontend/caller on publish.
 func publishWarnings(v packages.Version) []string {
 	out := []string{}
 	if v.UnconfirmedTC > 0 {
@@ -189,7 +189,7 @@ func (s *Server) activePackage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, summarize(v))
 }
 
-// GET /api/v1/packages/{pkg}/versions/{version}/artifact —— 交付给决策服务的规则包 JSON
+// GET /api/v1/packages/{pkg}/versions/{version}/artifact —— the rule package JSON handed to the decision service
 func (s *Server) packageArtifact(w http.ResponseWriter, r *http.Request) {
 	v, ok := s.deps.Packages.Get(r.PathValue("pkg"), r.PathValue("version"))
 	if !ok {
@@ -207,7 +207,7 @@ func (s *Server) packageArtifact(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
-// GET /api/v1/packages/{pkg}/versions/{version}/verify —— 验签（防篡改）
+// GET /api/v1/packages/{pkg}/versions/{version}/verify —— signature verification (tamper detection)
 func (s *Server) verifyPackage(w http.ResponseWriter, r *http.Request) {
 	v, ok := s.deps.Packages.Get(r.PathValue("pkg"), r.PathValue("version"))
 	if !ok {
@@ -226,11 +226,11 @@ func (s *Server) verifyPackage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /api/v1/packages/{pkg}/versions/{version}/testcases —— 预演发布门禁。
+// GET /api/v1/packages/{pkg}/versions/{version}/testcases —— rehearsal of the publish gate.
 //
-// 只读：跑（或按配置判定）包内 approved 用例，把结果摆出来。真正阻断发生在 publish。
-// 单独提供一个「预演」入口的价值在于：发布人可以在按下发布键之前先看到哪条用例红了，
-// 而不是在发布动作里收到一句「被拦下了」。
+// Read-only: runs (or evaluates per configuration) the approved test cases in the package and lays the results out. The actual blocking happens on publish.
+// The value of a separate "rehearsal" entry point is that the releaser sees which test case is red before pressing publish,
+// instead of receiving a bare "it was blocked" from the publish action.
 func (s *Server) packageTestcases(w http.ResponseWriter, r *http.Request) {
 	pkgID, version := r.PathValue("pkg"), r.PathValue("version")
 	rep, err := s.deps.Packages.Verify(pkgID, version)
@@ -253,7 +253,7 @@ func (s *Server) packageTestcases(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// summarize 列表/摘要视图：去掉包体（IR 可能很大），保留生命周期字段。
+// summarize builds the list/summary view: drops the package body (the IR can be large) but keeps the lifecycle fields.
 func summarize(v packages.Version) map[string]any {
 	return map[string]any{
 		"packageId":            v.PackageID,

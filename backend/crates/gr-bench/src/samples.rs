@@ -1,29 +1,29 @@
-//! B12 样本生成：确定性地产出百条 / 千条规则包与配套快照。
+//! B12 sample generation: deterministically produce the 100-rule / 1000-rule rule package plus its snapshot.
 //!
-//! 为什么用生成器而不是提交两个大 JSON：
-//! - 千条规则包几百 KB，进仓库后每次改一行都要 diff 一个巨型文件；
-//! - 生成器把「样本长什么样」写成可读代码，审阅者看 20 行就知道压的是什么；
-//! - 种子固定 → 每次生成的包字节一致，基线数字可比。
+//! Why a generator instead of committing two big JSON files:
+//! - A 1000-rule package is several hundred KB; once in the repo, every one-line change dirties a giant file in the diff;
+//! - The generator writes "what the sample looks like" as readable code, so a reviewer sees 20 lines and knows what is being exercised;
+//! - Fixed seed -> byte-identical package on every run, so baseline numbers stay comparable.
 
 use serde_json::{json, Value};
 
-/// 压测场景名（与 catalog 里的字段配套）
+/// Load-test scenario name (pairs with the field in the fact catalog)
 pub const BENCH_SCENE: &str = "bench";
 
 pub fn ruleset_id(rules: usize) -> String {
     format!("rs-bench-{rules}")
 }
 
-/// 造一个含 `rules` 条规则的规则包。
+/// Build a rule package containing `rules` rules.
 ///
-/// 每条规则都是「金额阈值 × 次数阈值」的两段 `and`，刻意让一半规则命中：
-/// 全不命中只能压到「扫描 + 比较」，全命中会把输出合并也压进去，混合更接近真实流量。
+/// Each rule is an `and` of two segments, "amount threshold x count threshold", deliberately tuned so half of them hit:
+/// hitting none only stresses "scan + compare", hitting all also brings output merging in; a mix is closer to real traffic.
 pub fn bench_package(rules: usize) -> Value {
     let mut items = Vec::with_capacity(rules);
     for i in 0..rules {
         let amount = 1000 + i as u64;
         let count = (i % 20) as u64 + 1;
-        // 每两条规则里有一条的金额阈值低于快照金额（1500），因此会命中
+        // One of every two rules has an amount threshold below the snapshot amount (1500), so it hits
         let decision = if i % 2 == 0 { "REVIEW" } else { "APPROVE" };
         items.push(json!({
             "ruleId": format!("B{i:04}"),
@@ -71,7 +71,7 @@ pub fn bench_package(rules: usize) -> Value {
     })
 }
 
-/// 压测用事实目录：只保留样本规则引用到的 4 个事实（其余与压测无关）。
+/// Fact catalog for the load test: keep only the 4 facts the sample rules reference (the rest are irrelevant to the bench).
 pub fn bench_catalog() -> Value {
     json!({
         "catalogVersion": "catalog-bench-v1",
@@ -84,7 +84,7 @@ pub fn bench_catalog() -> Value {
     })
 }
 
-/// 压测用快照（金额 1500、24h 次数 2 → 约一半规则命中）。
+/// Snapshot for the load test (amount 1500, 24h count 2 -> roughly half of the rules hit).
 pub fn bench_snapshot() -> Value {
     json!({
         "snapshotId": "fs-bench-000001",

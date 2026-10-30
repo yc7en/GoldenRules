@@ -1,7 +1,7 @@
-//! 类型系统与字面量（`contracts/01` §3.3）
+//! Type system and literals (`contracts/01` §3.3)
 //!
-//! `FactKind` 是事实/字面量的类型标签；字面量在 IR 中形如
-//! `{ "type": "decimal", "value": "1000" }`（`contracts/01` §7.3）。
+//! `FactKind` is the type tag of a fact/literal; in IR a literal looks like
+//! `{ "type": "decimal", "value": "1000" }` (`contracts/01` §7.3).
 
 use crate::value::{serialize_tagged, Value};
 use rust_decimal::Decimal;
@@ -53,8 +53,8 @@ impl FactKind {
         matches!(self, FactKind::Integer | FactKind::Decimal)
     }
 
-    /// 按类型把 JSON 值转成引擎值（入口校验/快照装载用）。
-    /// 不做跨类型隐式转换：类型不符即报错，由 B4 落成 `CONTRACT_TYPE_ERROR`。
+    /// Convert a JSON value into an engine value by type (used by entry validation / snapshot loading).
+    /// No cross-type implicit conversion: a type mismatch is an error, which B4 lands as `CONTRACT_TYPE_ERROR`.
     pub fn coerce(&self, json: &serde_json::Value) -> Result<Value, CoerceError> {
         use serde_json::Value as J;
         match self {
@@ -121,7 +121,7 @@ impl fmt::Display for CoerceError {
 
 impl std::error::Error for CoerceError {}
 
-/// IR 字面量：`{ "type": <kind>, "value": <value> }`
+/// IR literal: `{ "type": <kind>, "value": <value> }`
 #[derive(Clone, Debug, PartialEq)]
 pub struct Literal {
     pub ty: FactKind,

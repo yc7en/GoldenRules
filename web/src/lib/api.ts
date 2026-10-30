@@ -18,8 +18,9 @@ import type {
 } from "@/lib/api-types"
 
 /**
- * 界面只跟平台（Go）说话。引擎（Rust）由平台转发 ——
- * 引擎不开跨源，它是无认证的内部服务，浏览器不该能直接喊它。
+ * The UI only talks to the platform (Go). The engine (Rust) is reached through the platform -
+ * the engine has no CORS enabled; it is an unauthenticated internal service and the browser should
+ * never be able to call it directly.
  */
 export const PLATFORM_BASE = trimBase(
   import.meta.env.VITE_PLATFORM_BASE ?? "http://127.0.0.1:18081"
@@ -42,13 +43,13 @@ export class ApiError extends Error {
     this.detail = detail
   }
 
-  /** 请求根本没打到后端（服务没起、跨源被拦、DNS 错）——排查方向完全不同 */
+  /** The request never reached the backend at all (service down, CORS blocked, DNS failure) - the troubleshooting direction is completely different */
   get isUnreachable(): boolean {
     return this.status === 0
   }
 }
 
-// ---------------------------------------------------------------- 操作者
+// ---------------------------------------------------------------- Actor
 
 export interface Actor {
   id: string
@@ -59,8 +60,9 @@ const ACTOR_KEY = "gr.actor"
 const DEFAULT_ACTOR: Actor = { id: "engineer.web", type: "engineer" }
 
 /**
- * 操作者是谁，决定审批单上记谁的名字，也决定「自审」是否被拒。
- * 放在 localStorage 而不是写死：审批矩阵本来就要求换人操作，写死就测不出职责分离。
+ * Who the actor is determines whose name goes on the approval record, and whether "self-approval" is
+ * rejected. Kept in localStorage rather than hard-coded: the approval matrix by design requires a
+ * different person to act, and a hard-coded actor makes separation of duties untestable.
  */
 export function getActor(): Actor {
   try {
@@ -70,7 +72,7 @@ export function getActor(): Actor {
       if (parsed.id && parsed.type) return { id: parsed.id, type: parsed.type }
     }
   } catch {
-    // localStorage 被禁用时按默认操作者走，不要让整个页面挂掉
+    // When localStorage is disabled, fall back to the default actor instead of taking the whole page down
   }
   return DEFAULT_ACTOR
 }
@@ -79,10 +81,10 @@ export function setActor(actor: Actor): void {
   localStorage.setItem(ACTOR_KEY, JSON.stringify(actor))
 }
 
-// ---------------------------------------------------------------- 请求骨架
+// ---------------------------------------------------------------- Request skeleton
 
 interface RequestOptions {
-  /** 这些状态码不抛异常，交由调用方读 body（422 的校验诊断属于「有内容的失败」） */
+  /** These status codes do not throw; the caller reads the body instead (a 422 validation diagnosis is a "failure with content") */
   accept?: number[]
   timeoutMs?: number
   signal?: AbortSignal
@@ -104,8 +106,8 @@ async function request<T>(
   headers.set("X-Actor", actor.id)
   headers.set("X-Actor-Type", actor.type)
 
-  // AbortSignal.timeout 与调用方自带的 signal 需要合并：只保留一个会让「用户切页取消」
-  // 或「超时保护」其中之一失效。
+  // AbortSignal.timeout and the caller's own signal must be merged: keeping only one would disable
+  // either "cancel when the user leaves the page" or "timeout protection".
   const timeout = AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_TIMEOUT)
   const signal = opts.signal
     ? AbortSignal.any([opts.signal, timeout])
@@ -162,7 +164,7 @@ const json = (v: unknown): RequestInit => ({
   body: JSON.stringify(v),
 })
 
-// ---------------------------------------------------------------- 业务端点
+// ---------------------------------------------------------------- Business endpoints
 
 export const api = {
   facts: {
@@ -173,18 +175,18 @@ export const api = {
     list: () => platform<RulesetListResponse>("/api/v1/rulesets"),
     get: (id: string) =>
       platform<RulesetDefinition>(`/api/v1/rulesets/${encodeURIComponent(id)}`),
-    /** dry-run：definition 不传则校验库里那份 */
+    /** dry-run: if definition is omitted, the one stored in the library is validated */
     validate: (id: string, definition?: RulesetDefinition) =>
       platform<ValidationReport>(
         `/api/v1/rulesets/${encodeURIComponent(id)}/validate`,
         json(definition ? { definition } : {})
       ),
     /**
-     * 保存草稿：后端会先跑一遍 dry-run，不过就 422 回诊断。
+     * Save draft: the backend first runs a dry-run and replies 422 with diagnostics if it fails.
      *
-     * 成功与失败返回的**不是一个形状**：200 是 `{report, ruleset}`，
-     * 422 是裸 report。这里统一收敛成 report，调用方只需要看 `valid`——
-     * 否则界面会把「已保存」误判成失败。
+     * Success and failure do **not** return the same shape: 200 is `{report, ruleset}`,
+     * 422 is a bare report. Here both are normalized to a report so the caller only has to look at
+     * `valid` - otherwise the UI would misread "saved" as a failure.
      */
     save: async (id: string, definition: RulesetDefinition) => {
       const res = await platform<
@@ -246,10 +248,11 @@ export const api = {
   },
 
   /**
-   * 引擎相关一律经平台转发（`/api/v1/engine`、`/api/v1/trial`）。
+   * Everything engine-related goes through the platform (`/api/v1/engine`, `/api/v1/trial`).
    *
-   * 浏览器不直连引擎：引擎是无认证的内部服务，给它开跨源等于把决策能力
-   * 挂到任意网页上。平台只有一个显式 CORS 开关，管住它就够了。
+   * The browser never connects to the engine directly: the engine is an unauthenticated internal
+   * service, and enabling CORS on it would expose decision-making to any web page. The platform has
+   * exactly one explicit CORS switch, and controlling that one is enough.
    */
   engine: {
     info: () => platform<EngineInfo>("/api/v1/engine", undefined, { timeoutMs: 5000 }),

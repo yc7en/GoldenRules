@@ -11,14 +11,14 @@ import (
 	"goldenrules/platform/contracts"
 )
 
-// VerifyFailure 单条用例的失败原因（与引擎侧 `TestFailure` 同构）。
+// VerifyFailure is the failure reason of a single test case (isomorphic to the engine-side `TestFailure`).
 type VerifyFailure struct {
 	TestID  string `json:"testId"`
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
-// VerifyReport 门禁执行结果。
+// VerifyReport is the gate execution result.
 type VerifyReport struct {
 	Passed      bool            `json:"passed"`
 	Summary     string          `json:"summary"`
@@ -28,29 +28,29 @@ type VerifyReport struct {
 	FailedCount int             `json:"failedCount"`
 	Skipped     int             `json:"skipped"`
 	Failures    []VerifyFailure `json:"failures"`
-	// Backend 自述「谁跑的」（引擎地址/版本），审计里要能对上。
+	// Backend self-describes "who ran it" (engine address/version), so the audit can be reconciled.
 	Backend string `json:"backend"`
 }
 
-// TestCaseVerifier 执行规则包内已批准用例。
+// TestCaseVerifier runs the approved test cases inside a rule package.
 //
-// 为什么是接口而不是平台内实现：VM 只有引擎那一份。平台侧再写一个「近似执行器」，
-// 迟早与线上行为漂移——用漂移的执行器当发布门禁，比没有门禁更危险。
+// Why an interface rather than an in-platform implementation: the VM exists only inside the engine. A second, "approximate executor" on the platform side
+// would drift from online behavior sooner or later — using a drifted executor as the publish gate is more dangerous than having no gate at all.
 type TestCaseVerifier interface {
 	VerifyPackage(pkg contracts.RulePackage) (VerifyReport, error)
 	Describe() string
 }
 
-// HTTPTestCaseVerifier 调引擎的 `/v1/admin/verify`（同机部署时的默认实现）。
+// HTTPTestCaseVerifier calls the engine's `/v1/admin/verify` (the default implementation for co-located deployments).
 type HTTPTestCaseVerifier struct {
 	baseURL string
 	token   string
 	client  *http.Client
 }
 
-// NewHTTPTestCaseVerifier 构造引擎门禁客户端。
+// NewHTTPTestCaseVerifier builds the engine gate client.
 //
-// 门禁是同步阻断动作，超时要短：卡住发布比报错更糟——发布人会以为「卡死了」然后强推。
+// The gate is a synchronous blocking step, so the timeout must be short: hanging the publish is worse than an error — the releaser would assume it is "stuck" and force it through.
 func NewHTTPTestCaseVerifier(baseURL, token string) *HTTPTestCaseVerifier {
 	return &HTTPTestCaseVerifier{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -59,7 +59,7 @@ func NewHTTPTestCaseVerifier(baseURL, token string) *HTTPTestCaseVerifier {
 	}
 }
 
-// Describe 自述后端（写进审计与发布记录）。
+// Describe self-describes the backend (written into the audit and the publish record).
 func (v *HTTPTestCaseVerifier) Describe() string {
 	if v == nil || v.baseURL == "" {
 		return ""
@@ -67,7 +67,7 @@ func (v *HTTPTestCaseVerifier) Describe() string {
 	return "engine:" + v.baseURL + " /v1/admin/verify"
 }
 
-// VerifyPackage 把候选包发给引擎跑一遍。
+// VerifyPackage sends the candidate package to the engine for one run.
 func (v *HTTPTestCaseVerifier) VerifyPackage(pkg contracts.RulePackage) (VerifyReport, error) {
 	var out VerifyReport
 	if v.baseURL == "" {
@@ -87,7 +87,7 @@ func (v *HTTPTestCaseVerifier) VerifyPackage(pkg contracts.RulePackage) (VerifyR
 	}
 	resp, err := v.client.Do(req)
 	if err != nil {
-		// 连不上引擎 = 无法证明用例通过。这条必须往上抛，让调用方 fail-closed。
+		// No connection to the engine = cannot prove the test cases pass. This must be propagated so the caller can fail-closed.
 		return out, fmt.Errorf("调用决策服务门禁失败: %w", err)
 	}
 	defer resp.Body.Close()
@@ -106,12 +106,12 @@ func (v *HTTPTestCaseVerifier) VerifyPackage(pkg contracts.RulePackage) (VerifyR
 }
 
 // ---------------------------------------------------------------------------
-// 发布门禁接线（F-PKG06 / `contracts/01` §6.1）
+// Publish gate wiring (F-PKG06 / `contracts/01` §6.1)
 
-// Verify 预演某版本的 approved 用例（只读，不改状态）。
+// Verify rehearses the approved test cases of a version (read-only, no state change).
 //
-// 用途：发布人在真正点「发布」前先跑一次，把失败用例摆在面前；
-// 也让 CI 能在流程早期拦下坏包，而不是等到发布动作那一刻才发现。
+// Purpose: the releaser runs it once before actually pressing "publish", so failing cases are laid out in front of them;
+// it also lets CI stop a bad package early in the pipeline instead of discovering it at the moment of the publish action.
 func (s *Service) Verify(packageID, version string) (VerifyReport, error) {
 	v, ok := s.Get(packageID, version)
 	if !ok {
@@ -120,12 +120,12 @@ func (s *Service) Verify(packageID, version string) (VerifyReport, error) {
 	return s.verifyVersion(v)
 }
 
-// runPublishGate 发布前置门禁：任一 approved 用例失败 → 阻断。
+// runPublishGate is the pre-publish gate: any failing approved test case → block.
 //
-// 三种「不阻断」的情形要分清（混淆它们会造成误放行）：
-//   - 包里没有 approved 用例：没东西可验，放行但报告 skipped；
-//   - 版本不存在或状态不对：交给 Publish 的状态机报错，这里不抢答；
-//   - 版本已发布且已生效（重复发布幂等）：不必重跑。
+// Three "do not block" cases must be told apart (confusing them would let things through by mistake):
+//   - the package has no approved test cases: nothing to verify, so let it pass but report skipped;
+//   - the version does not exist or is in the wrong state: leave the error to Publish's state machine, do not jump the gun here;
+//   - the version is already published and effective (idempotent re-publish): no need to rerun.
 func (s *Service) runPublishGate(packageID, version string) error {
 	v, ok := s.Get(packageID, version)
 	if !ok || v.Status != StatusApproved {
@@ -141,7 +141,7 @@ func (s *Service) runPublishGate(packageID, version string) error {
 	return nil
 }
 
-// verifyVersion 找出 approved 用例并交给执行器。
+// verifyVersion finds the approved test cases and hands them to the executor.
 func (s *Service) verifyVersion(v Version) (VerifyReport, error) {
 	total := len(v.Package.Tests)
 	approved := 0
@@ -159,7 +159,7 @@ func (s *Service) verifyVersion(v Version) (VerifyReport, error) {
 		}, nil
 	}
 	if s.verifier == nil {
-		// fail-closed：声称有已批准用例，却没有任何东西能证明它们通过 → 不放行。
+		// fail-closed: approved test cases are claimed, yet nothing can prove they pass → do not let it through.
 		return VerifyReport{}, &StateError{
 			Code: CodeVerifyUnavailable,
 			Message: fmt.Sprintf("包内有 %d 条 approved 用例待执行，但平台未配置门禁执行器（--engine-url）",
@@ -176,7 +176,7 @@ func (s *Service) verifyVersion(v Version) (VerifyReport, error) {
 	return rep, nil
 }
 
-// gateMessage 把失败清单压成一句可读的阻断原因（最多列 3 条，避免日志爆炸）。
+// gateMessage condenses the failure list into one readable blocking reason (at most 3 items, to avoid a log explosion).
 func gateMessage(rep VerifyReport) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d 条 approved 用例未通过：", rep.FailedCount)

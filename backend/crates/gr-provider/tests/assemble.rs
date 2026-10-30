@@ -1,4 +1,4 @@
-//! B5 验收：Provider 可独立自测 + Assemble 模式传业务入参能组装快照并出决策。
+//! B5 acceptance: Providers can be self-tested in isolation + Assemble mode takes business inputs, assembles a snapshot and produces a decision.
 
 use gr_contract::{
     DegradeReason, ErrorCode, ExecutionContext, FactCatalog, FactKind, MissingReason,
@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-// ---------------------------------------------------------------- 测试脚手架
+// ---------------------------------------------------------------- test scaffolding
 
 fn fixtures() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures")
@@ -36,7 +36,7 @@ fn inputs(pairs: &[(&str, serde_json::Value)]) -> BTreeMap<String, serde_json::V
     pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
 }
 
-/// 可控传输层：不联网就能覆盖超时 / 5xx / 坏 body 全部路径。
+/// Controllable transport: covers the timeout / 5xx / bad-body paths with no network at all.
 struct MockTransport {
     body: Result<String, TransportError>,
     calls: AtomicUsize,
@@ -69,7 +69,7 @@ fn spec(json: &str) -> AssemblerSpec {
     serde_json::from_str(json).expect("Provider 配置应可解析")
 }
 
-// ---------------------------------------------------------------- 静态常量
+// ---------------------------------------------------------------- static constants
 
 #[test]
 fn constant_provider_supplies_all_declared_facts() {
@@ -95,11 +95,11 @@ fn constant_provider_supplies_all_declared_facts() {
     assert_eq!(p.provides(), ["config.withdrawDailyLimit".to_string()]);
 }
 
-// ---------------------------------------------------------------- 派生表达式
+// ---------------------------------------------------------------- derived expressions
 
 #[test]
 fn derived_provider_computes_from_dependencies() {
-    // riskScore = min(1000, max(0, count*10 + 500))：复用 VM 白名单算子，不另写算术
+    // riskScore = min(1000, max(0, count*10 + 500)): reuses the VM whitelisted operators instead of writing separate arithmetic
     let expr: gr_contract::Expr = serde_json::from_value(serde_json::json!({
         "op": "add",
         "args": [
@@ -147,7 +147,7 @@ fn derived_provider_separates_absent_from_broken_dependency() {
     let p = make();
     let empty = BTreeMap::new();
 
-    // 依赖没提供 → NOT_PROVIDED（上游没给）
+    // Dependency not provided -> NOT_PROVIDED (upstream simply did not supply it)
     let out = p.fetch(&ProviderCtx {
         tenant_id: "pay-cn",
         scene: "s",
@@ -157,7 +157,7 @@ fn derived_provider_separates_absent_from_broken_dependency() {
     });
     assert_eq!(out[0].1, FactSample::missing(MissingReason::NotProvided));
 
-    // 依赖给了但类型不对 → PROVIDER_ERROR（上游给错了，性质不同）
+    // Dependency provided but with the wrong type -> PROVIDER_ERROR (upstream supplied it wrongly; a different nature)
     let broken = inputs(&[("customer.withdrawCount24h", serde_json::json!("不是整数"))]);
     let out = p.fetch(&ProviderCtx {
         tenant_id: "pay-cn",
@@ -193,7 +193,7 @@ fn derived_provider_rejects_bare_slot_reference() {
     assert_eq!(err.error_code, ErrorCode::IrInvalid);
 }
 
-// ---------------------------------------------------------------- HTTP 拉取
+// ---------------------------------------------------------------- HTTP fetch
 
 fn http_provider(mapping: &[(&str, &str)], t: Arc<dyn Transport>) -> HttpProvider {
     HttpProvider::new(
@@ -288,7 +288,7 @@ fn std_transport_refuses_https_and_reports_unreachable() {
         .expect_err("P0 只支持 http://");
     assert!(matches!(err, TransportError::Unavailable(_)));
 
-    // 本地未监听端口：必须返回可分类的错误（不是 panic、不是 hang）
+    // A local port nobody listens on: must return a classifiable error (not a panic, not a hang)
     let err = StdTransport
         .get("http://127.0.0.1:1/facts", Duration::from_millis(50))
         .expect_err("端口 1 不可用");
@@ -298,7 +298,7 @@ fn std_transport_refuses_https_and_reports_unreachable() {
     ));
 }
 
-// ---------------------------------------------------------------- Assemble 组装
+// ---------------------------------------------------------------- Assemble assembly
 
 #[test]
 fn assembler_rejects_unknown_scene() {
@@ -413,9 +413,9 @@ fn snapshot_id_is_unique_and_carries_request_time() {
     assert_eq!(s1.assembled_at.as_deref(), Some("2026-10-30T10:00:00Z"));
 }
 
-// ---------------------------------------------------------------- 端到端
+// ---------------------------------------------------------------- end-to-end
 
-/// 验收主场景：传业务入参 → 组装快照 → 出决策，且与 Snapshot 模式**结论一致**。
+/// Main acceptance scenario: pass business inputs -> assemble the snapshot -> produce a decision, and it must **agree** with Snapshot mode.
 #[test]
 fn assemble_then_decide_matches_snapshot_mode() {
     let a = Assembler::from_spec(&catalog(), &spec(&read("providers.json"))).unwrap();
@@ -439,10 +439,10 @@ fn assemble_then_decide_matches_snapshot_mode() {
     ]);
 
     let snap = a.assemble(&c, business_inputs).unwrap();
-    // 静态与派生 Provider 都生效了
+    // Both the static and the derived Provider took effect
     assert_eq!(snap.facts["config.withdrawDailyLimit"], serde_json::json!("100000"));
     assert_eq!(snap.facts["customer.riskScore"], serde_json::json!(520), "2*10+500");
-    // 未配置的上游（名单服务）不阻塞：入参已提供，缺的字段才进 missingFacts
+    // An unconfigured upstream (list service) does not block: the inputs already supply it, and only truly missing fields land in missingFacts
     assert!(snap.missing_facts.iter().all(|m| m.fact != "sanctions.hit"));
 
     let out = engine.decide(&snap, &c).expect("组装结果应可决策");
@@ -451,7 +451,7 @@ fn assemble_then_decide_matches_snapshot_mode() {
     assert_eq!(out.result.snapshot_id, snap.snapshot_id);
     assert_eq!(out.result.outputs["riskLevel"], gr_contract::Value::Str("MEDIUM".into()));
 
-    // 与 Snapshot 模式对照：同一批事实走完整快照，结论必须一致
+    // Cross-check against Snapshot mode: the same facts through a full snapshot must reach the same conclusion
     let snapshot: gr_contract::FactSnapshot =
         serde_json::from_str(&read("snapshot.json")).unwrap();
     let direct = engine.decide(&snapshot, &c).expect("快照应可决策");
@@ -459,11 +459,11 @@ fn assemble_then_decide_matches_snapshot_mode() {
     assert_eq!(direct.result.reason_code, out.result.reason_code);
 }
 
-/// 必填事实没人供给时，**不是 500**：由 B4 的 onMissing=ERROR 落 REJECT 决策。
+/// When nobody supplies a required fact, it is **not a 500**: B4's onMissing=ERROR lands a REJECT decision.
 ///
-/// 注意这里没有断言 `missingFacts` 里有该字段——「没人声明供给」与「声明了但取不到」
-/// 是两件事：前者由引擎按 `slot 缺失` 判定，后者才由组装器登记。两条路都通向同一个
-/// fail-closed 出口，测试断言的是出口而不是过程。
+/// Note that this test does not assert the field is in `missingFacts` -- "nobody declared supplying it" and "declared but could not be fetched"
+/// are two different things: the former is judged by the engine as `slot missing`, only the latter is registered by the assembler. Both paths lead to the same
+/// fail-closed exit, and the test asserts the exit rather than the process.
 #[test]
 fn missing_required_fact_lands_reject_not_error() {
     let a = Assembler::from_spec(

@@ -9,15 +9,15 @@ import (
 	"goldenrules/platform/contracts"
 )
 
-// compile 生成 IR：字段引用 → slot 索引，同时产出 slot 表与两个摘要。
+// compile builds the IR: fact references → slot indices, and also produces the slot table and two digests.
 //
-// 确定性来源（`contracts/01` §5.1「相同 DSL + 相同 Fact Catalog 版本 → 字节一致的 IR」）：
-//  1. 规则先按 `(priority desc, ruleId asc)` 排序（与引擎加载顺序一致），排序结果与作者书写顺序无关；
-//  2. slot 编号按**排序后**的规则顺序、先 when 后 assign、深度优先首次出现分配；
-//  3. 所有 JSON 由 map/结构体编码，键序固定。
+// Determinism sources (`contracts/01` §5.1 "same DSL + same Fact Catalog version → byte-identical IR"):
+//  1. rules are first sorted by `(priority desc, ruleId asc)` (matching engine load order), independent of authoring order;
+//  2. slot indices are assigned in the **sorted** rule order, when before assign, on first appearance in depth-first order;
+//  3. every JSON payload is encoded from a map/struct, so key order is fixed.
 //
-// 所以「只调换了规则的书写顺序」不会改变 IR 字节，但「改了优先级」会——这是有意的：
-// 优先级影响语义，产物就该变。
+// Hence "merely reordering the rules" does not change the IR bytes, but "changing a priority" does — this is intentional:
+// priority affects semantics, so the artifact should change.
 func compile(def Definition, asts []ruleAST, cat map[string]contracts.FactSchema) (
 	*contracts.RuleSet, []contracts.SlotDef, string, string,
 ) {
@@ -101,8 +101,8 @@ func compile(def Definition, asts []ruleAST, cat map[string]contracts.FactSchema
 	return ir, slots, sourceHash(def, asts), hashOf(slots)
 }
 
-// dslDoc 是「作者写了什么」的规范形态——摘要基于它，而不是基于 IR。
-// 这样「DSL 没改但产物变了」能立刻被发现（发布期比对 sourceHash）。
+// dslDoc is the canonical form of "what the author wrote" — the digest is based on it, not on the IR.
+// That way "DSL unchanged but artifact changed" is detected immediately (sourceHash is compared at publish time).
 type dslDoc struct {
 	RulesetID       string          `json:"rulesetId"`
 	Scene           string          `json:"scene"`

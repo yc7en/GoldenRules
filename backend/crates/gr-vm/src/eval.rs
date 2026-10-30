@@ -1,30 +1,30 @@
-//! 命中策略与结论选取（`contracts/01` §3.4.1 / `contracts/05` §8）。
+//! Hit strategy and conclusion selection (`contracts/01` §3.4.1 / `contracts/05` §8).
 
 use crate::compile::RuleSetProgram;
 use crate::vm::{run, Budget, VmError};
 use gr_contract::{Decision, ErrorContract, HitStrategy, Value};
 
-/// 执行结果（不含 `DecisionResult` 的组装与输出变量合并——那是 B3 的活）。
+/// Execution result (excluding `DecisionResult` assembly and output variable merging - that is the job of B3).
 #[derive(Clone, Debug)]
 pub struct EvalOutcome {
-    /// 命中规则下标，顺序 = 求值顺序（优先级序）
+    /// Hit rule indices, order = evaluation order (priority order)
     pub hits: Vec<u32>,
-    /// 实际求值条数（剪枝跳过的规则不计入）
+    /// Number of rules actually evaluated (rules skipped by pruning are not counted)
     pub evaluated: usize,
     pub decision: Decision,
     pub reason_code: String,
     pub reason_message: Option<String>,
-    /// 是否走了 `defaultDecision` 兜底
+    /// Whether the `defaultDecision` fallback was used
     pub default_used: bool,
     pub steps_used: u64,
 }
 
 pub const DEFAULT_REASON_CODE: &str = "DEFAULT_NO_RULE_MATCHED";
 
-/// 按命中策略求值。
+/// Evaluate according to the hit strategy.
 ///
-/// - `FIRST`：按优先级序，首条命中即停（后续规则不执行，`evaluated` 如实反映）；
-/// - `ALL` / `PRIORITY`：全部求值，命中集合相同，差别只在结论选取方式（这里两者等价）。
+/// - `FIRST`: in priority order, stop at the first hit (later rules are not executed, `evaluated` reflects that honestly);
+/// - `ALL` / `PRIORITY`: evaluate everything, the hit set is identical, they differ only in how the conclusion is selected (equivalent here).
 pub fn evaluate(
     program: &RuleSetProgram,
     slots: &[Value],
@@ -76,9 +76,9 @@ pub fn evaluate(
     })
 }
 
-/// 结论选取：
-/// - 取**最高优先级**命中规则；
-/// - 同优先级按 `reasonCode` 稳定排序取首个（`contracts/01` §3.4.2），再按 ruleId 兜底保证确定性。
+/// Conclusion selection:
+/// - take the hit rule with the **highest priority**;
+/// - for equal priority sort stably by `reasonCode` and take the first (`contracts/01` §3.4.2), then fall back to ruleId for determinism.
 fn select_winner(program: &RuleSetProgram, hits: &[u32]) -> u32 {
     let mut best = hits[0];
     for &idx in &hits[1..] {
@@ -95,7 +95,7 @@ fn select_winner(program: &RuleSetProgram, hits: &[u32]) -> u32 {
     best
 }
 
-/// 求一条命中规则的输出变量（B3 负责合并）。
+/// Compute the output variables of one hit rule (B3 takes care of merging).
 pub fn run_assigns(
     program: &RuleSetProgram,
     rule_index: u32,

@@ -39,8 +39,8 @@ export default function Layout() {
   const [platform, setPlatform] = useState<Health>("checking")
   const [actor, setLocalActor] = useState<Actor>(getActor)
 
-  // 健康状态每 15 秒探一次。侧边栏原来写死「决策服务 · 正常」，
-  // 后端没起时它照样是绿的 —— 这种绿灯比没有指示灯更坏。
+  // Probe health every 15 seconds. The sidebar used to hard-code "decision service - healthy",
+  // which stayed green even with the backend down - a green light like that is worse than no indicator.
   useEffect(() => {
     let alive = true
     const probe = async () => {
@@ -63,13 +63,13 @@ export default function Layout() {
   const applyActor = (next: Actor) => {
     setActor(next)
     setLocalActor(next)
-    // 审批页要靠这口气换人重取：本页的操作者变了，别人批过的单子状态也变了
+    // The approval page depends on this signal to refetch after an actor switch: the actor on this page changed, and the status of tickets approved by others changed with it
     window.dispatchEvent(new Event("gr:actor-changed"))
   }
 
   return (
     <div className="flex h-screen w-full overflow-hidden">
-      {/* 侧边栏 */}
+      {/* Sidebar */}
       <aside className="flex w-56 shrink-0 flex-col border-r bg-card">
         <div className="flex h-14 items-center gap-2 border-b px-4">
           <ScrollText className="size-5 text-primary" />
@@ -132,7 +132,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* 主内容区 */}
+      {/* Main content area */}
       <main className="flex-1 overflow-auto bg-muted/30">
         <Outlet />
       </main>

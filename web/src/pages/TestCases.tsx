@@ -51,8 +51,8 @@ export default function TestCases() {
     setActionError(null)
     setNotice(null)
     try {
-      // 用例状态存在规则集里，只能整份 PUT 回去 —— 后端会顺手再跑一遍 dry-run，
-      // 所以这一步同时也在证明「这份规则集仍然编得过」。
+      // Test case status lives inside the ruleset, so the whole ruleset has to be PUT back - the backend
+      // also runs a dry-run on the way, which means this step doubles as proof that "this ruleset still compiles".
       const fresh = await api.rulesets.get(rs.rulesetId)
       const tests = (fresh.tests ?? []).map((t) =>
         t.testId === testId ? { ...t, status } : t
@@ -229,7 +229,7 @@ function flatten(items: RulesetDefinition[]): Row[] {
     for (const t of rs.tests ?? []) {
       out.push({
         ...t,
-        // 用例自己没写 rulesetId 时，用宿主规则集补上——列表里必须说清它属于哪个规则集
+        // When the test case does not carry its own rulesetId, fill it in from the host ruleset - the list must make clear which ruleset it belongs to
         rulesetId: t.rulesetId ?? rs.rulesetId,
         rulesetVersion: rs.version,
       })

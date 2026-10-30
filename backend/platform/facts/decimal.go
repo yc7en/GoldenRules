@@ -7,12 +7,12 @@ import (
 	"strings"
 )
 
-// parseInt 解析整数字面量。
+// parseInt parses an integer literal.
 func parseInt(s string) (int64, error) {
 	return strconv.ParseInt(strings.TrimSpace(s), 10, 64)
 }
 
-// decimalPattern 与引擎侧 decimal 的落地形态一致（十进制字符串，可选符号与小数）。
+// decimalPattern matches how decimal is materialised on the engine side (decimal string, optional sign and fraction).
 var decimalPattern = func(s string) bool {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -21,11 +21,11 @@ var decimalPattern = func(s string) bool {
 	if _, ok := new(big.Rat).SetString(s); !ok {
 		return false
 	}
-	// big.Rat 也接受 "1/3" 这类写法，契约只允许十进制。
+	// big.Rat also accepts forms like "1/3"; the contract only allows decimal.
 	return !strings.Contains(s, "/")
 }
 
-// parseDecimal 校验十进制字符串（不引入浮点，A-5）。
+// parseDecimal validates a decimal string (no floats involved, A-5).
 func parseDecimal(s string) (*big.Rat, error) {
 	if !decimalPattern(s) {
 		return nil, fmt.Errorf("非法十进制: %q", s)

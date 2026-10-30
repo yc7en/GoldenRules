@@ -6,19 +6,19 @@ import (
 	"testing"
 )
 
-// 治理环境：发布必须挂变更单，直接 approve 版本被关闭。
+// Governed environment: publish must be attached to a change request, and approving a version directly is closed off.
 func TestChangeGovernanceOverHTTP(t *testing.T) {
 	h := newGovTestServer(t)
 	seedAmountRuleset(t, h)
 	createDraft(t, h, "v1", "L3")
 
-	// 1 直接批版本被关闭（绕过审批矩阵）
+	// 1 approving a version directly is closed off (bypasses the approval matrix)
 	rec, body := do(t, h, "POST", "/api/v1/packages/pkg-withdraw/versions/v1/approve", "")
 	if rec.Code != http.StatusConflict || body["errorCode"] != "GOV_CHANGE_REQUIRED" {
 		t.Fatalf("直接批版本应 409 GOV_CHANGE_REQUIRED，实际 %d %s", rec.Code, rec.Body)
 	}
 
-	// 2 agent 提 L4 被拒（A-8 硬规则）
+	// 2 an agent submitting L4 is rejected (A-8 hard rule)
 	createDraft(t, h, "v9", "L4")
 	rec, body = doAs(t, h, "POST", "/api/v1/changes",
 		`{"packageId":"pkg-withdraw","packageVersion":"v9","riskLevel":"L4","reason":"制裁名单","submitterType":"agent"}`,
@@ -27,7 +27,7 @@ func TestChangeGovernanceOverHTTP(t *testing.T) {
 		t.Fatalf("agent 提 L4 应 403，实际 %d %s", rec.Code, rec.Body)
 	}
 
-	// 3 工程师提 L3：需要 2 人
+	// 3 an engineer submits L3: two approvers required
 	rec, body = doAs(t, h, "POST", "/api/v1/changes",
 		`{"packageId":"pkg-withdraw","packageVersion":"v1","riskLevel":"L3","changeType":"threshold","reason":"调整限额"}`,
 		"engineer.A", "engineer")
@@ -39,21 +39,21 @@ func TestChangeGovernanceOverHTTP(t *testing.T) {
 		t.Fatalf("L3 应有 2 个审批位: %s", rec.Body)
 	}
 
-	// 4 提交者自审被拒（L3 不允许）
+	// 4 self-approval by the submitter is rejected (not allowed for L3)
 	rec, body = doAs(t, h, "POST", "/api/v1/changes/"+changeID+"/approve",
 		`{"role":"engineer","comment":"自己批"}`, "engineer.A", "engineer")
 	if rec.Code != http.StatusForbidden || body["errorCode"] != "GOV_SELF_APPROVAL" {
 		t.Fatalf("自审应 403，实际 %d %s", rec.Code, rec.Body)
 	}
 
-	// 5 角色不在待批位
+	// 5 the role is not one of the pending approval slots
 	rec, body = doAs(t, h, "POST", "/api/v1/changes/"+changeID+"/approve",
 		`{"role":"owner","comment":"越位"}`, "owner.U", "engineer")
 	if rec.Code != http.StatusConflict || body["errorCode"] != "GOV_ROLE_NOT_REQUIRED" {
 		t.Fatalf("越位审批应 409，实际 %d %s", rec.Code, rec.Body)
 	}
 
-	// 6 两位审批人批满 → 版本推进到 approved
+	// 6 both approvers sign off → the version advances to approved
 	if rec, _ = doAs(t, h, "POST", "/api/v1/changes/"+changeID+"/approve",
 		`{"role":"engineer","comment":"ok"}`, "engineer.Z", "engineer"); rec.Code != http.StatusOK {
 		t.Fatalf("工程师审批 = %d %s", rec.Code, rec.Body)
@@ -71,27 +71,27 @@ func TestChangeGovernanceOverHTTP(t *testing.T) {
 		t.Fatalf("版本应推进到 approved: %s", rec.Body)
 	}
 
-	// 7 不挂变更单发布 → 409
+	// 7 publishing without a change request → 409
 	rec, body = doAs(t, h, "POST", "/api/v1/packages/pkg-withdraw/versions/v1/publish", "", "release.R", "engineer")
 	if rec.Code != http.StatusConflict || body["errorCode"] != "GOV_CHANGE_REQUIRED" {
 		t.Fatalf("无变更单发布应 409，实际 %d %s", rec.Code, rec.Body)
 	}
 
-	// 8 审批人不能发布（职责分离）
+	// 8 an approver cannot publish (segregation of duties)
 	rec, body = doAs(t, h, "POST", "/api/v1/packages/pkg-withdraw/versions/v1/publish",
 		`{"changeId":"`+changeID+`"}`, "engineer.Z", "engineer")
 	if rec.Code != http.StatusForbidden || body["errorCode"] != "GOV_SOD_APPROVE_PUBLISH" {
 		t.Fatalf("审批人发布应 403，实际 %d %s", rec.Code, rec.Body)
 	}
 
-	// 9 提交者不能发布
+	// 9 the submitter cannot publish
 	rec, body = doAs(t, h, "POST", "/api/v1/packages/pkg-withdraw/versions/v1/publish",
 		`{"changeId":"`+changeID+`"}`, "engineer.A", "engineer")
 	if rec.Code != http.StatusForbidden || body["errorCode"] != "GOV_SOD_SUBMIT_PUBLISH" {
 		t.Fatalf("提交者发布应 403，实际 %d %s", rec.Code, rec.Body)
 	}
 
-	// 10 发布人发布成功，变更单收尾为 published，且留痕
+	// 10 the releaser publishes successfully, the change request closes as published, and the action is audited
 	rec, body = doAs(t, h, "POST", "/api/v1/packages/pkg-withdraw/versions/v1/publish",
 		`{"changeId":"`+changeID+`"}`, "release.R", "engineer")
 	if rec.Code != http.StatusOK {
@@ -118,7 +118,7 @@ func TestChangeGovernanceOverHTTP(t *testing.T) {
 	}
 }
 
-// 灰度放量可调；L4 不许一步到 100%。
+// Canary rollout percentage is adjustable; L4 is not allowed to jump straight to 100%.
 func TestGrayReleaseOverHTTP(t *testing.T) {
 	h := newGovTestServer(t)
 	seedAmountRuleset(t, h)
@@ -161,7 +161,7 @@ func TestGrayReleaseOverHTTP(t *testing.T) {
 		t.Fatalf("放量历史应有 3 步，实际 %d", n)
 	}
 
-	// 形态约束：shadow 不能带比例
+	// Shape constraint: shadow mode must not carry a percentage
 	rec, body = doAs(t, h, "PUT", "/api/v1/packages/pkg-withdraw/gray",
 		`{"version":"v1","mode":"shadow","percentage":30}`, "release.R", "engineer")
 	if rec.Code != http.StatusUnprocessableEntity || body["errorCode"] != "GOV_GRAY_INVALID" {
@@ -169,7 +169,7 @@ func TestGrayReleaseOverHTTP(t *testing.T) {
 	}
 }
 
-// 扁平回滚入口：原因必填、agent 不得回滚、全过程留痕（PLAN B9 验收）。
+// Flat rollback entry point: the reason is mandatory, an agent must not roll back, and the whole flow is audited (PLAN B9 acceptance).
 func TestRollbackOverHTTP(t *testing.T) {
 	h := newGovTestServer(t)
 	seedAmountRuleset(t, h)
@@ -189,12 +189,12 @@ func TestRollbackOverHTTP(t *testing.T) {
 		t.Fatalf("发布 v2 = %d %s", rec.Code, rec.Body)
 	}
 
-	// 原因必填
+	// reason is mandatory
 	rec, body := doAs(t, h, "POST", "/api/v1/rollback", `{"packageId":"pkg-withdraw","toVersion":"v1"}`, "release.R", "engineer")
 	if rec.Code != http.StatusBadRequest || body["errorCode"] != "GOV_INVALID_ARGUMENT" {
 		t.Fatalf("无原因回滚应 400，实际 %d %s", rec.Code, rec.Body)
 	}
-	// agent 不能回滚
+	// an agent cannot roll back
 	rec, body = doAs(t, h, "POST", "/api/v1/rollback",
 		`{"packageId":"pkg-withdraw","toVersion":"v1","reason":"机器自己回滚"}`,
 		"agent:ops", "agent")
@@ -212,7 +212,7 @@ func TestRollbackOverHTTP(t *testing.T) {
 		t.Fatalf("回滚后应有 v1 生效: %s", rec.Body)
 	}
 
-	// 版本数不变 + 审计留痕
+	// version count unchanged + audit trail recorded
 	rec, body = do(t, h, "GET", "/api/v1/packages?packageId=pkg-withdraw", "")
 	if int(body["total"].(float64)) != 2 {
 		t.Fatalf("回滚不应新增版本: %s", rec.Body)
@@ -233,7 +233,7 @@ func TestRollbackOverHTTP(t *testing.T) {
 	}
 }
 
-// 矩阵导出 12 格，agent×L4 为禁止格。
+// The matrix exports 12 cells, and agent×L4 is a forbidden cell.
 func TestApprovalMatrixOverHTTP(t *testing.T) {
 	h := newGovTestServer(t)
 	rec, body := do(t, h, "GET", "/api/v1/approval-matrix", "")
@@ -254,7 +254,7 @@ func TestApprovalMatrixOverHTTP(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 
-// createDraft 建一个草稿版本。
+// createDraft builds one draft version.
 func createDraft(t *testing.T, h http.Handler, version, risk string) {
 	t.Helper()
 	body := `{"packageId":"pkg-withdraw","rulesetIds":["rs-amount-limit"],"riskLevel":"` + risk + `","changelog":"测试"}`
@@ -268,7 +268,7 @@ func createDraft(t *testing.T, h http.Handler, version, risk string) {
 	_ = resp
 }
 
-// submitChange 提交变更单并返回 changeId。
+// submitChange submits a change request and returns the changeId.
 func submitChange(t *testing.T, h http.Handler, version, risk, actor, actorType string) string {
 	t.Helper()
 	body := `{"packageId":"pkg-withdraw","packageVersion":"` + version + `","riskLevel":"` + risk +
@@ -280,7 +280,7 @@ func submitChange(t *testing.T, h http.Handler, version, risk, actor, actorType 
 	return resp["changeId"].(string)
 }
 
-// approveAs 以某角色审批一次。
+// approveAs approves once under the given role.
 func approveAs(t *testing.T, h http.Handler, changeID, role, actor string) {
 	t.Helper()
 	rec, _ := doAs(t, h, "POST", "/api/v1/changes/"+changeID+"/approve",

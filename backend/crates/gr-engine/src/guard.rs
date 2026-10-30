@@ -1,12 +1,12 @@
-//! B4 · 错误与降级（fail-closed）
+//! B4 · errors and degradation (fail-closed)
 //!
-//! 最高优先级边界（`contracts/05` §1）：
-//! - **契约违规**（类型错、必填缺失、快照不一致）→ 落成 **REJECT 决策**（`CONTRACT_VIOLATION`），
-//!   带 `degraded=true` 与具体原因，**不返回 HTTP 500**；
-//! - **服务级故障**（超时、过载、内部 bug）→ 真错误，调用方 fail-closed。
+//! Highest-priority boundary (`contracts/05` §1):
+//! - **Contract violation** (wrong type, missing required field, snapshot mismatch) -> becomes a **REJECT decision** (`CONTRACT_VIOLATION`),
+//!   carrying `degraded=true` and the concrete reason, and **never returns an HTTP 500**;
+//! - **Service-level failure** (timeout, overload, internal bug) -> a real error, and the caller fails closed.
 //!
-//! 校验按阶段分（`contracts/05` §6.1）：入口只校验**本次规则集消费的字段**（等价于「预生成校验器」），
-//! 不做全量 JSON Schema 反射校验——万级 QPS 下那是性能自杀。
+//! Validation is staged (`contracts/05` §6.1): the entry validates only **the fields this ruleset consumes** (equivalent to a "pre-generated validator");
+//! it does not do a full reflective JSON Schema validation -- at tens of thousands of QPS that is performance suicide.
 
 use gr_contract::{
     Decision, DegradedReason, ErrorCode, ErrorContract, ExecutionContext, FactCatalog, FactSnapshot,
@@ -17,21 +17,21 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::slots::{self, SlotFill};
 
-/// 入口准备的产物：要么可以继续求值，要么已被判定为「必须落 REJECT」。
+/// Product of entry preparation: either evaluation may continue, or it has already been judged as "must become REJECT".
 #[derive(Debug)]
 pub struct Prepared {
     pub fill: SlotFill,
-    /// 契约违规（非空 → 直接落 CONTRACT_VIOLATION 决策）
+    /// Contract violations (non-empty -> go straight to a CONTRACT_VIOLATION decision)
     pub violations: Vec<DegradedReason>,
-    /// `onMissing: SKIP` 的 slot
+    /// Slots with `onMissing: SKIP`
     pub skip_slots: BTreeSet<u32>,
-    /// `onMissing: FALLBACK_DECISION` 的场景兜底
+    /// Scene fallback for `onMissing: FALLBACK_DECISION`
     pub fallback: Option<Decision>,
 }
 
 pub const CONTRACT_VIOLATION_REASON: &str = "CONTRACT_VIOLATION";
 
-/// 运行期入口校验 + 缺失策略（`contracts/05` §4.1 / §6.2）。
+/// Runtime entry validation + missing-value strategy (`contracts/05` §4.1 / §6.2).
 pub fn prepare(
     snapshot: &FactSnapshot,
     ctx: &ExecutionContext,
@@ -43,7 +43,7 @@ pub fn prepare(
     let mut skip_slots = BTreeSet::new();
     let mut fallback: Option<Decision> = None;
 
-    // ① 上下文与快照一致性（`contracts/02` §6.1）：运行期以 EC 为准
+    // (1) Context / snapshot consistency (`contracts/02` §6.1): the EC wins at runtime
     if snapshot.tenant_id != ctx.tenant_id {
         violations.push(violation(
             "tenantId",
@@ -59,7 +59,7 @@ pub fn prepare(
         ));
     }
 
-    // ② 快照大小（`contracts/02` §3.4）
+    // (2) Snapshot size (`contracts/02` §3.4)
     let size = serde_json::to_vec(snapshot).map(|v| v.len()).unwrap_or(0);
     if size > config.max_snapshot_bytes {
         violations.push(violation(
@@ -69,7 +69,7 @@ pub fn prepare(
         ));
     }
 
-    // ③ 未知字段（严格模式拒绝、宽松模式忽略）
+    // (3) Unknown fields (strict mode rejects, lenient mode ignores)
     if config.strict_unknown_fields {
         for fact in snapshot.facts.keys() {
             if !rs.slot_index.contains_key(fact) && catalog.get(fact).is_none() {
@@ -82,7 +82,7 @@ pub fn prepare(
         }
     }
 
-    // ④ 类型校验 + 缺失策略
+    // (4) Type validation + missing-value strategy
     let mut fill = slots::fill(rs, snapshot, catalog);
     for (slot, fact, err) in fill.type_errors.clone() {
         violations.push(violation(
@@ -110,7 +110,7 @@ pub fn prepare(
             OnMissing::Default => match default_for(schema) {
                 Some(raw) => {
                     if slots::apply_default(&mut fill, rs, slot, raw) {
-                        // degraded 原因由上层统一汇总
+                        // The degraded reason is aggregated by the caller
                     } else {
                         violations.push(violation(
                             &fact,
@@ -160,7 +160,7 @@ fn violation(fact: &str, code: ErrorCode, detail: String) -> DegradedReason {
     }
 }
 
-/// 因缺失/降级被用默认值填充的事实（进 `degradedReasons`，reason=PARTIAL，`contracts/02` §3.2）
+/// Facts filled with a default because they were missing / degraded (go into `degradedReasons`, reason=PARTIAL, `contracts/02` §3.2)
 pub fn defaulted_reasons(fill: &SlotFill, rs: &LoadedRuleSet) -> Vec<DegradedReason> {
     fill.defaulted
         .keys()
@@ -174,9 +174,9 @@ pub fn defaulted_reasons(fill: &SlotFill, rs: &LoadedRuleSet) -> Vec<DegradedRea
         .collect()
 }
 
-/// 出口校验（`contracts/05` §7）：交叉约束 + outputs 按场景 schema。
+/// Exit validation (`contracts/05` §7): cross constraints + outputs against the scene schema.
 ///
-/// 返回的问题清单非空 → 上层把结果替换成 `CONTRACT_VIOLATION` 决策，**不静默返回**。
+/// A non-empty issue list means the caller swaps the result for a `CONTRACT_VIOLATION` decision, **never returning silently**.
 pub fn validate_exit(
     decision: &Decision,
     reason_code: &str,
@@ -190,7 +190,7 @@ pub fn validate_exit(
 ) -> Vec<String> {
     let mut issues = Vec::new();
 
-    // 交叉约束：degraded ⇔ degradedReasons 非空
+    // Cross constraint: degraded <=> degradedReasons non-empty
     if degraded != (degraded_reasons_len > 0) {
         issues.push(format!(
             "degraded={degraded} 与 degradedReasons 长度 {degraded_reasons_len} 不一致"
@@ -205,13 +205,13 @@ pub fn validate_exit(
             hit_rule_ids.len()
         ));
     }
-    // 命中规则必须真实存在
+    // Every hit rule must actually exist
     for id in hit_rule_ids {
         if !program.programs.iter().any(|p| &p.rule_id == id) {
             issues.push(format!("hitRules 中的规则 {id} 不在规则集内"));
         }
     }
-    // decision 必须在「内置枚举 ∪ 本规则集声明的 decision」内（= 已登记）
+    // decision must be inside "built-in enum ∪ decisions declared by this ruleset" (= registered)
     let declared = program
         .programs
         .iter()
@@ -220,7 +220,7 @@ pub fn validate_exit(
         issues.push(format!("decision {decision} 未在规则集内声明（未登记）"));
     }
 
-    // outputs 按场景 schema 校验（严格：未登记变量即失败）
+    // Validate outputs against the scene schema (strict: an unregistered variable is a failure)
     match schema {
         Some(schema) => {
             for (var, value) in outputs {
@@ -235,7 +235,7 @@ pub fn validate_exit(
                 }
             }
             if issues.is_empty() {
-                // 全部命中，继续
+                // Everything matches, continue
             }
         }
         None => {
@@ -278,13 +278,13 @@ fn check_output_type(
     }
 }
 
-/// 契约违规落成决策：`REJECT` + `CONTRACT_VIOLATION` + degraded（`contracts/05` §1）。
+/// Turn a contract violation into a decision: `REJECT` + `CONTRACT_VIOLATION` + degraded (`contracts/05` §1).
 pub fn violation_decision(rs: &LoadedRuleSet, violations: Vec<DegradedReason>) -> (Decision, String, Vec<DegradedReason>) {
     let _ = rs;
     (Decision::Reject, CONTRACT_VIOLATION_REASON.to_string(), violations)
 }
 
-/// 服务级错误：契约违规不该走这里，这里只兜「本不该发生」的内部问题。
+/// Service-level error: contract violations should not take this path; it only catches internal "should never happen" problems.
 pub fn internal_error(msg: impl Into<String>) -> ErrorContract {
     ErrorContract::new(ErrorCode::ExecInternal, msg)
 }

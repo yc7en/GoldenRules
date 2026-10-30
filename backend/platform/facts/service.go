@@ -10,35 +10,35 @@ import (
 	"goldenrules/platform/persist"
 )
 
-// RefChecker 查询「某事实被哪些规则集引用」。由 httpapi 接线到规则集仓库，
-// 这样 facts 包不反向依赖 dsl 包（依赖方向单向，A-1）。
+// RefChecker answers "which rule sets reference a given fact". It is wired by httpapi to the rule set repository,
+// so that the facts package does not depend back on the dsl package (dependencies flow one way, A-1).
 type RefChecker func(fact string) []string
 
-// Service 事实目录服务。
+// Service is the fact catalog service.
 type Service struct {
 	st   *persist.Store[Catalog]
 	refs RefChecker
 	now  func() time.Time
 }
 
-// New 构造服务。
+// New builds the service.
 func New(st *persist.Store[Catalog]) *Service {
 	return &Service{st: st, now: func() time.Time { return time.Now().UTC() }}
 }
 
-// WithRefChecker 挂上引用检查（删除前用）。
+// WithRefChecker attaches the reference check (used before deletion).
 func (s *Service) WithRefChecker(fn RefChecker) *Service {
 	s.refs = fn
 	return s
 }
 
-// WithClock 注入时钟（测试确定性）。
+// WithClock injects the clock (for deterministic tests).
 func (s *Service) WithClock(fn func() time.Time) *Service {
 	s.now = fn
 	return s
 }
 
-// Catalog 返回目录文档的浅拷贝（切片复制，元素值类型不含指针，可安全外传）。
+// Catalog returns a shallow copy of the catalog document (the slice is copied; the element value type holds no pointers, so it is safe to hand out).
 func (s *Service) Catalog() Catalog {
 	var out Catalog
 	s.st.View(func(c *Catalog) {
@@ -48,13 +48,13 @@ func (s *Service) Catalog() Catalog {
 	return out
 }
 
-// Snapshot 返回可用于编译的 `FactCatalog`（`contracts/02` §1）。
+// Snapshot returns a `FactCatalog` usable for compilation (`contracts/02` §1).
 func (s *Service) Snapshot() contracts.FactCatalog {
 	c := s.Catalog()
 	return contracts.FactCatalog{CatalogVersion: c.CatalogVersion, Facts: c.Facts}
 }
 
-// List 按命名空间/关键字过滤（空 = 不过滤），默认不含已废弃字段。
+// List filters by namespace/keyword (empty = no filtering) and excludes deprecated fields by default.
 func (s *Service) List(namespace, q string, includeDeprecated bool) []contracts.FactSchema {
 	c := s.Catalog()
 	out := make([]contracts.FactSchema, 0, len(c.Facts))
@@ -77,7 +77,7 @@ func (s *Service) List(namespace, q string, includeDeprecated bool) []contracts.
 	return out
 }
 
-// Get 取单个事实。
+// Get fetches a single fact.
 func (s *Service) Get(name string) (contracts.FactSchema, bool) {
 	c := s.Catalog()
 	for _, f := range c.Facts {
@@ -88,7 +88,7 @@ func (s *Service) Get(name string) (contracts.FactSchema, bool) {
 	return contracts.FactSchema{}, false
 }
 
-// Create 新增事实。返回落库事实 + 诊断（含 warn）。
+// Create adds a fact. It returns the stored fact + diagnostics (including warnings).
 func (s *Service) Create(actor string, in contracts.FactSchema) (contracts.FactSchema, []Issue, error) {
 	in = Normalize(in)
 	var issues []Issue
@@ -108,8 +108,8 @@ func (s *Service) Create(actor string, in contracts.FactSchema) (contracts.FactS
 	return in, issues, nil
 }
 
-// Update 修改事实。事实名不可改（改名 = 删一个加一个，必须显式走两条路径，
-// 否则消费方会在毫不知情的情况下丢掉字段）。
+// Update modifies a fact. The fact name cannot be changed (a rename = delete one and add one, which must explicitly go through both paths,
+// otherwise consumers would silently lose the field).
 func (s *Service) Update(actor, name string, in contracts.FactSchema) (contracts.FactSchema, []Issue, error) {
 	in = Normalize(in)
 	var issues []Issue
@@ -136,7 +136,7 @@ func (s *Service) Update(actor, name string, in contracts.FactSchema) (contracts
 			}}}
 		}
 
-		// 除自身之外的索引，避免把自己判成重复。
+		// index excluding the fact itself, so it is not flagged as its own duplicate.
 		others := make([]contracts.FactSchema, 0, len(c.Facts)-1)
 		others = append(others, c.Facts[:pos]...)
 		others = append(others, c.Facts[pos+1:]...)
@@ -164,7 +164,7 @@ func (s *Service) Update(actor, name string, in contracts.FactSchema) (contracts
 	return in, issues, nil
 }
 
-// Deprecate 标记废弃并给出替换字段（`contracts/02` §7：废弃期告警、破坏性移除拒绝）。
+// Deprecate marks a fact deprecated and names its replacement (`contracts/02` §7: warn during the deprecation window, refuse breaking removals).
 func (s *Service) Deprecate(actor, name, replacedBy string) (contracts.FactSchema, []Issue, error) {
 	var issues []Issue
 	var out contracts.FactSchema
@@ -194,10 +194,10 @@ func (s *Service) Deprecate(actor, name, replacedBy string) (contracts.FactSchem
 	return out, issues, err
 }
 
-// Delete 删除事实。被规则集引用时拒绝（否则规则包会静默失去字段）。
+// Delete removes a fact. It is refused while rule sets reference it (otherwise rule packages would silently lose the field).
 //
-// 注意：契约的「弃用」优先于「删除」——生产环境应走 Deprecate；Delete 面向
-// 建错字段的清理，所以要求无引用。
+// Note: the contract's "deprecate" takes precedence over "delete" — production should go through Deprecate; Delete targets
+// cleaning up fields created by mistake, hence the no-reference requirement.
 func (s *Service) Delete(actor, name string) error {
 	return s.st.Update(func(c *Catalog) error {
 		pos := -1
@@ -221,7 +221,7 @@ func (s *Service) Delete(actor, name string) error {
 	})
 }
 
-// touch 推进修订号与目录版本。所有变更都必须留下这两笔，否则生成物无法判断是否过期。
+// touch advances the revision number and the catalog version. Every change must record both, otherwise artifacts cannot tell whether they are stale.
 func (s *Service) touch(c *Catalog, actor string) {
 	now := s.now()
 	c.Revision++
@@ -238,7 +238,7 @@ func removeAt(list []contracts.FactSchema, pos int) []contracts.FactSchema {
 	return out
 }
 
-// breakingChange 判定两次版本之间是否发生了破坏性变更（`contracts/02` §7）。
+// breakingChange determines whether a breaking change happened between two versions (`contracts/02` §7).
 func breakingChange(old, updated contracts.FactSchema) bool {
 	if old.Type != updated.Type {
 		return true
@@ -246,7 +246,7 @@ func breakingChange(old, updated contracts.FactSchema) bool {
 	if old.Required && !updated.Required {
 		return true
 	}
-	// 枚举删值 = 破坏性（新增值是兼容的）。
+	// removing an enum value is breaking (adding values is compatible).
 	for _, v := range old.Enum {
 		if !contains(updated.Enum, v) {
 			return true

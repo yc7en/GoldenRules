@@ -26,7 +26,7 @@ func (s *Server) getRuleset(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, def)
 }
 
-// PUT /api/v1/rulesets/{id} —— 保存前必须先过 dry-run，否则 422 并回传诊断。
+// PUT /api/v1/rulesets/{id} —— a save must pass dry-run first, otherwise 422 with the diagnostics.
 func (s *Server) putRuleset(w http.ResponseWriter, r *http.Request) {
 	var def dsl.Definition
 	if err := decode(r, &def); err != nil {
@@ -63,10 +63,10 @@ func (s *Server) deleteRuleset(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": r.PathValue("id")})
 }
 
-// POST /api/v1/rulesets/{id}/validate —— dry-run：不写库、不发布。
+// POST /api/v1/rulesets/{id}/validate —— dry-run: writes nothing, publishes nothing.
 //
-// body 可省略（校验已保存的版本），也可传 `definition` 校验未保存的编辑；
-// `outputSchema` 可覆盖规则集自带的场景输出 schema。
+// The body is optional (validate the saved version), or it may carry `definition` to validate unsaved edits;
+// `outputSchema` can override the scene output schema that ships with the ruleset.
 func (s *Server) validateRuleset(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Definition   *dsl.Definition         `json:"definition"`
@@ -97,7 +97,7 @@ func (s *Server) validateRuleset(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.analyze(def, req.OutputSchema))
 }
 
-// analyze 组装一次 dry-run：事实目录取当前目录快照，输出 schema 按优先级取值。
+// analyze assembles one dry-run: the fact catalog uses the current catalog snapshot, and the output schema is picked by precedence.
 func (s *Server) analyze(def dsl.Definition, override *contracts.OutputSchema) dsl.Report {
 	out := override
 	if out == nil {
@@ -112,7 +112,7 @@ func (s *Server) analyze(def dsl.Definition, override *contracts.OutputSchema) d
 	})
 }
 
-// factsInUse 给 facts 包的删除保护用：某事实被哪些规则集引用。
+// factsInUse backs the facts package's delete protection: which rulesets reference a fact.
 func (s *Server) factsInUse(fact string) []string {
 	if s.deps.Rulesets == nil {
 		return nil

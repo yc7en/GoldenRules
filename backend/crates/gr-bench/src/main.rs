@@ -1,11 +1,11 @@
-//! B12 · 压测与可靠性基线
+//! B12 · load test and reliability baseline
 //!
-//! 两种模式：
-//! - `--mode engine`：进程内直接调 `Engine::decide`，测**纯执行**的延迟分位（不含协议栈）；
-//! - `--mode http`：起 T 个线程走 keep-alive 打真实服务，测吞吐与端到端延迟。
+//! Two modes:
+//! - `--mode engine`: call `Engine::decide` in-process, measuring the latency percentiles of **pure execution** (no protocol stack);
+//! - `--mode http`: spin up T threads over keep-alive against the real server, measuring throughput and end-to-end latency.
 //!
-//! 两种模式必须分开看：`engine` 数字告诉你「引擎本身多快」，`http` 数字告诉你
-//! 「这台机器上一条连接能跑多快」。把两者混在一起谈，得到的都是一个不可归因的数字。
+//! The two modes must be read separately: the `engine` number tells you "how fast the engine itself is", the `http` number
+//! tells you "how fast one connection runs on this machine". Mixing the two only yields a number you cannot attribute.
 
 mod samples;
 
@@ -29,7 +29,7 @@ fn main() {
     let mode = opt("--mode").unwrap_or_else(|| "engine".to_string());
     let rules = num("--rules", 1000) as usize;
 
-    // 生成样本后退出（供服务器加载：`--emit target/bench/rule-package-1000.json`）
+    // Emit the samples and exit (so the server can load them: `--emit target/bench/rule-package-1000.json`)
     if let Some(path) = opt("--emit") {
         let pkg = samples::bench_package(rules);
         if let Some(dir) = std::path::Path::new(&path).parent() {
@@ -59,7 +59,7 @@ fn fail(msg: &str) -> ! {
     std::process::exit(2);
 }
 
-// ---------------------------------------------------------------- 进程内
+// ---------------------------------------------------------------- in-process
 
 fn build_engine(rules: usize) -> (Engine, FactSnapshot, ExecutionContext) {
     let catalog: FactCatalog =
@@ -69,7 +69,7 @@ fn build_engine(rules: usize) -> (Engine, FactSnapshot, ExecutionContext) {
     let snapshot: FactSnapshot =
         serde_json::from_value(samples::bench_snapshot()).expect("snapshot");
 
-    // 压测要的是「引擎能跑多快」，不是「限额拦不拦得住」——把上限放宽到不是瓶颈
+    // The bench wants "how fast the engine runs", not "whether the limits hold" -- widen the caps so they are not the bottleneck
     let config = EngineConfig {
         max_inflight: 1_000_000,
         step_budget: 10_000_000,
@@ -87,7 +87,7 @@ fn engine_mode(rules: usize, iters: usize) {
     let (engine, snapshot, ctx) = build_engine(rules);
     let stats = engine.stats().pop().expect("stats");
 
-    // 预热：编译器/分支预测/页表都要先热起来，否则前几百次全是冷启动噪音
+    // Warmup: compiler / branch predictor / page tables all need to be warm first, otherwise the first few hundred runs are pure cold-start noise
     for _ in 0..1000 {
         engine.decide(&snapshot, &ctx).expect("warmup");
     }
@@ -98,7 +98,7 @@ fn engine_mode(rules: usize, iters: usize) {
         let t = Instant::now();
         let out = engine.decide(&snapshot, &ctx).expect("decide");
         samples_ns.push(t.elapsed().as_nanos() as u64);
-        // 防优化：让结果真的被用一下
+        // Anti-optimization: make sure the result is actually consumed
         std::hint::black_box(out.result.decision);
     }
     let total = started.elapsed();
@@ -122,7 +122,7 @@ fn engine_mode(rules: usize, iters: usize) {
 // ---------------------------------------------------------------- HTTP
 
 fn http_mode(addr: &str, path: &str, rules: usize, threads: usize, seconds: u64) {
-    // 容错：允许 `v1/trial` 与 `/v1/trial` 两种写法（Git Bash 会把以 / 开头的参数转成 Windows 路径）
+    // Tolerant parsing: accept both `v1/trial` and `/v1/trial` (Git Bash rewrites arguments starting with / into Windows paths)
     let path = format!("/{}", path.trim_start_matches('/'));
     let snapshot = samples::bench_snapshot();
     let body = serde_json::json!({
@@ -170,14 +170,14 @@ fn http_mode(addr: &str, path: &str, rules: usize, threads: usize, seconds: u64)
                     failed.fetch_add(1, Ordering::Relaxed);
                     break;
                 }
-                // 读一个完整响应（头部 + Content-Length 指定长度）
+                // Read one complete response (headers + the body length given by Content-Length)
                 match read_response(&mut stream, &mut buf) {
                     Some(200) => {
                         lat.push(t.elapsed().as_nanos() as u64);
                         ok.fetch_add(1, Ordering::Relaxed);
                     }
                     Some(status) => {
-                        // 非 200 绝不算成功：压测把 4xx/5xx 记成吞吐是最常见的自欺
+                        // Never count a non-200 as success: booking 4xx/5xx as throughput is the most common self-deception in load testing
                         eprintln!("收到 HTTP {status}（{path}）");
                         failed.fetch_add(1, Ordering::Relaxed);
                         break;
@@ -235,7 +235,7 @@ fn read_response(stream: &mut TcpStream, buf: &mut [u8]) -> Option<u16> {
             if body_have >= len {
                 return Some(status);
             }
-            // 继续读 body
+            // Keep reading the body
             let mut remaining = len - body_have;
             let mut chunk = vec![0u8; 4096];
             while remaining > 0 {

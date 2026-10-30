@@ -9,20 +9,20 @@ import (
 	"goldenrules/platform/persist"
 )
 
-// DefaultRetentionDays 原始快照默认保留期（`contracts/03` §8.2：默认 90 天）。
+// DefaultRetentionDays is the default retention of raw snapshots (`contracts/03` §8.2: 90 days by default).
 const DefaultRetentionDays = 90
 
-// Service 决策日志服务：入库、查询、保留期清理、回放。
+// Service is the decision log service: ingest, query, retention purging, replay.
 type Service struct {
 	logs *persist.Store[LogDoc]
 	raw  *persist.Store[RawDoc]
 	box  *Box
-	// retentionDays 原始快照保留期；<=0 表示「不留原始快照」（只存脱敏视图）。
+	// retentionDays is the raw snapshot retention; <=0 means "keep no raw snapshots" (store the redacted view only).
 	retentionDays int
 	now           func() time.Time
 }
 
-// New 构造日志服务。`box` 可为 nil：此时拒收原始快照，只保留脱敏视图。
+// New builds the log service. `box` may be nil: raw snapshots are then refused and only the redacted view is kept.
 func New(logStore *persist.Store[LogDoc], rawStore *persist.Store[RawDoc], box *Box) *Service {
 	return &Service{
 		logs:          logStore,
@@ -33,25 +33,25 @@ func New(logStore *persist.Store[LogDoc], rawStore *persist.Store[RawDoc], box *
 	}
 }
 
-// WithClock 注入时钟（测试确定性，也用于验证保留期）。
+// WithClock injects the clock (deterministic tests, also used to verify retention).
 func (s *Service) WithClock(fn func() time.Time) *Service {
 	s.now = fn
 	return s
 }
 
-// WithRetention 设置原始快照保留天数；<=0 表示不留原始快照。
+// WithRetention sets the raw snapshot retention in days; <=0 means keep no raw snapshots.
 func (s *Service) WithRetention(days int) *Service {
 	s.retentionDays = days
 	return s
 }
 
-// RetentionDays 当前保留期。
+// RetentionDays is the current retention.
 func (s *Service) RetentionDays() int { return s.retentionDays }
 
-// RawEnabled 是否接受原始快照（有密钥且保留期 > 0）。
+// RawEnabled reports whether raw snapshots are accepted (a key is configured and retention > 0).
 func (s *Service) RawEnabled() bool { return s.box != nil && s.retentionDays > 0 }
 
-// IngestResult 入库结果。
+// IngestResult is the ingest result.
 type IngestResult struct {
 	Accepted   int      `json:"accepted"`
 	Duplicate  int      `json:"duplicate"`
@@ -62,10 +62,10 @@ type IngestResult struct {
 	LogIDs     []string `json:"logIds"`
 }
 
-// Ingest 批量入库。幂等：同一 snapshotId+traceId 重复推送只记一次。
+// Ingest stores a batch. Idempotent: pushing the same snapshotId+traceId again is recorded only once.
 //
-// 原始快照是可选件：没密钥 / 保留期为 0 时只存脱敏视图，并在响应里说明原因，
-// 让调用方知道「这批日志以后回放不了」——而不是等到真要回放才发现。
+// The raw snapshot is optional: with no key / with retention 0 only the redacted view is stored, and the response says why,
+// so the caller knows "this batch cannot be replayed later" — instead of finding out only when a replay is actually needed.
 func (s *Service) Ingest(items []IngestItem) (IngestResult, error) {
 	out := IngestResult{Warnings: []string{}, LogIDs: []string{}}
 	if len(items) == 0 {
@@ -133,7 +133,7 @@ func (s *Service) Ingest(items []IngestItem) (IngestResult, error) {
 	return out, err
 }
 
-// sealRaw 加密并写入 raw 文档。密文与日志视图分离存放（`contracts/03` §8.2）。
+// sealRaw encrypts and writes into the raw document. Ciphertext and log view are stored separately (`contracts/03` §8.2).
 func (s *Service) sealRaw(logID string, plain []byte, now time.Time) (*RawSnapshotRef, error) {
 	nonce, ct, err := s.box.Seal(plain, logID)
 	if err != nil {
@@ -159,12 +159,12 @@ func (s *Service) sealRaw(logID string, plain []byte, now time.Time) (*RawSnapsh
 	if err != nil {
 		return nil, err
 	}
-	// logs 文档只留引用元数据，密文挪走
+	// the logs document keeps only the reference metadata; the ciphertext is moved away
 	ref.Ciphertext = ""
 	return &ref, nil
 }
 
-// PurgeExpired 清理超过保留期的原始快照（脱敏日志不动）。
+// PurgeExpired purges raw snapshots past their retention (redacted logs are untouched).
 func (s *Service) PurgeExpired() (int, error) {
 	if s.box == nil {
 		return 0, nil
@@ -183,7 +183,7 @@ func (s *Service) PurgeExpired() (int, error) {
 		return nil
 	})
 	if purged > 0 {
-		// 把日志上的引用标成已过期：回放时会给出明确原因，而不是「找不到」。
+		// mark the reference on the log as expired: a replay then gives a clear reason instead of "not found".
 		_ = s.logs.Update(func(d *LogDoc) error {
 			for i := range d.Logs {
 				if d.Logs[i].Raw != nil && d.Logs[i].Raw.ExpiresAt != "" {
@@ -200,7 +200,7 @@ func (s *Service) PurgeExpired() (int, error) {
 	return purged, err
 }
 
-// Query 查询脱敏视图（分页）。返回命中列表与总数。
+// Query queries the redacted view (paged). It returns the matching list and the total count.
 func (s *Service) Query(q Query) ([]StoredLog, int) {
 	var hit []StoredLog
 	s.logs.View(func(d *LogDoc) {
@@ -226,7 +226,7 @@ func (s *Service) Query(q Query) ([]StoredLog, int) {
 	return hit, total
 }
 
-// Get 取一条日志（脱敏视图）。
+// Get fetches one log (redacted view).
 func (s *Service) Get(logID string) (StoredLog, bool) {
 	var out StoredLog
 	var ok bool
@@ -241,7 +241,7 @@ func (s *Service) Get(logID string) (StoredLog, bool) {
 	return out, ok
 }
 
-// Stats 汇总（观测面板用）：按决策分布、降级率、耗时分位。
+// Stats aggregates (for the observability panel): distribution by decision, degrade rate, latency percentiles.
 func (s *Service) Stats(tenantID string) map[string]any {
 	var (
 		total    int
@@ -284,7 +284,7 @@ func (s *Service) Stats(tenantID string) map[string]any {
 	}
 }
 
-// RawSnapshot 解密取原始快照。**只有回放通道可以调用**，调用方需记审计。
+// RawSnapshot decrypts and returns the raw snapshot. **Only the replay channel may call this**; callers must record an audit trail.
 func (s *Service) RawSnapshot(logID string) (json.RawMessage, *Error) {
 	if s.box == nil {
 		return nil, errf(CodeKeyMissing, "未配置加密密钥，原始快照不可读")
@@ -307,8 +307,8 @@ func (s *Service) RawSnapshot(logID string) (json.RawMessage, *Error) {
 	if !found || strings.TrimSpace(blob.Ciphertext) == "" {
 		return nil, errf(CodeRawPurged, "原始快照密文已不存在（可能已过期清理）")
 	}
-	// 按密文自述的 keyID 选钥：轮换后老密文仍用旧钥解，新密文用新钥解。
-	// blob.KeyID 为空是历史数据（轮换前写入），此时 OpenWithKeyID 会依次尝试全部钥。
+	// Pick the key by the keyID the ciphertext declares: after rotation old ciphertext is still decrypted with the old key, new ciphertext with the new key.
+	// An empty blob.KeyID means historical data (written before rotation); OpenWithKeyID then tries every key in turn.
 	plain, err := s.box.OpenWithKeyID(blob.Nonce, blob.Ciphertext, logID, blob.KeyID)
 	if err != nil {
 		return nil, &Error{Code: CodeDecryptFailed, Message: err.Error()}
@@ -317,9 +317,9 @@ func (s *Service) RawSnapshot(logID string) (json.RawMessage, *Error) {
 }
 
 // ---------------------------------------------------------------------------
-// 密钥轮换与 KMS 托管（`contracts/03` §8.2）
+// Key rotation and KMS hosting (`contracts/03` §8.2)
 
-// KeyInfo 密钥自述（运维面板 / 轮换前后核对用）。
+// KeyInfo is the key self-description (for the ops panel / before-and-after rotation checks).
 type KeyInfo struct {
 	KeyID     string   `json:"keyId"`
 	Source    string   `json:"source"`
@@ -329,7 +329,7 @@ type KeyInfo struct {
 	Algo      string   `json:"algo"`
 }
 
-// KeyInfo 当前密钥状态。没配密钥时返回 nil（明确「没有」而不是给个空壳）。
+// KeyInfo returns the current key status. It returns nil when no key is configured (an explicit "none" rather than an empty shell).
 func (s *Service) KeyInfo() *KeyInfo {
 	if s.box == nil {
 		return nil
@@ -344,9 +344,9 @@ func (s *Service) KeyInfo() *KeyInfo {
 	}
 }
 
-// RotateKey 轮换到显式给定的密钥。返回轮换后的 keyID。
+// RotateKey rotates to the explicitly given key. It returns the keyID after rotation.
 //
-// 只影响「此后新写入的密文用哪把钥匙」，历史密文继续用旧钥解密。
+// It only affects "which key later writes use"; historical ciphertext keeps being decrypted with the old key.
 func (s *Service) RotateKey(encoded string) (string, *Error) {
 	if s.box == nil {
 		return "", errf(CodeKeyMissing, "未配置加密密钥，无可轮换对象")
@@ -357,7 +357,7 @@ func (s *Service) RotateKey(encoded string) (string, *Error) {
 	return s.box.KeyID(), nil
 }
 
-// RotateKeyFromProvider 从托管源（KMS）拉当前钥并轮换。
+// RotateKeyFromProvider pulls the current key from the managed source (KMS) and rotates to it.
 func (s *Service) RotateKeyFromProvider() (string, *Error) {
 	if s.box == nil {
 		return "", errf(CodeKeyMissing, "未配置加密密钥，无可轮换对象")
@@ -369,7 +369,7 @@ func (s *Service) RotateKeyFromProvider() (string, *Error) {
 	return id, nil
 }
 
-// WithKeyProvider 挂托管密钥源。
+// WithKeyProvider attaches the managed key source.
 func (s *Service) WithKeyProvider(p KeyProvider) *Service {
 	if s.box != nil {
 		s.box.WithKeyProvider(p)
@@ -377,11 +377,11 @@ func (s *Service) WithKeyProvider(p KeyProvider) *Service {
 	return s
 }
 
-// RewrapRaw 把历史密文重加密到当前钥（下线旧钥的前置动作）。
+// RewrapRaw re-encrypts historical ciphertext under the current key (the prerequisite for retiring an old key).
 //
-// 为什么必须有这个：不重加密就删旧钥 = 历史原始快照永久不可读。
-// 本函数逐条解旧密文、用当前钥重封，任一条失败即止并返回已处理条数——
-// 半途失败时旧密文仍在（我们只在单条成功后覆盖），可安全重跑。
+// Why this is mandatory: deleting the old key without re-encrypting = historical raw snapshots become permanently unreadable.
+// This function decrypts each old ciphertext and re-seals it with the current key; the first failure stops it and it returns the count already processed —
+// a mid-way failure leaves the old ciphertext in place (we only overwrite after a single entry succeeds), so it is safe to re-run.
 func (s *Service) RewrapRaw() (int, *Error) {
 	if s.box == nil {
 		return 0, errf(CodeKeyMissing, "未配置加密密钥，无可重加密对象")

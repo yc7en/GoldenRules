@@ -15,8 +15,9 @@ import { Async, ErrorBox } from "@/components/async"
 import { useAsync } from "@/lib/useAsync"
 import { api, ApiError } from "@/lib/api"
 
-// 契约里登记的枚举与理由码前缀。这两个表不来自接口 —— 它们是 DSL 契约的一部分
-// （contracts/01 §3.6 / §5），改它要走契约变更，不会因为某次决策而变。
+// Enums and reason-code prefixes registered in the contract. These two tables do not come from an
+// endpoint - they are part of the DSL contract (contracts/01 §3.6 / §5), so changing them requires a
+// contract change and they never move because of a single decision.
 const decisionEnums = [
   { value: "APPROVE", domain: "审批域", desc: "通过/放行" },
   { value: "REJECT", domain: "审批域", desc: "拒绝" },
@@ -33,13 +34,15 @@ const reasonCodes = [
   { code: "DEFAULT_", domain: "SYSTEM", desc: "无规则命中兜底" },
 ]
 
-// 白名单而不是直接用查询参数：拼错或手改 URL 时，非法值会让三块面板全部隐藏，
-// 页面看起来像「什么都没有」——比退回第一栏更糟。
+// A whitelist instead of using the query parameter directly: on a typo or a hand-edited URL an invalid
+// value would hide all three panels, making the page look like "there is nothing" - worse than falling
+// back to the first tab.
 const TAB_KEYS = ["logs", "audit", "enums"]
 type TabKey = "logs" | "audit" | "enums"
 
 export default function Observability() {
-  // tab 落进 URL：刷新不会跳回第一栏，也能直接把「审计留痕」这一栏发给别人看。
+  // The tab lives in the URL: a refresh does not jump back to the first tab, and you can send someone
+  // the "audit trail" tab directly.
   const [params, setParams] = useSearchParams()
   const raw = params.get("tab")
   const tab = TAB_KEYS.includes(raw ?? "") ? (raw as TabKey) : "logs"
@@ -400,8 +403,8 @@ export default function Observability() {
 }
 
 function Count({ n, failed }: { n?: number; failed?: boolean }) {
-  // 取数失败时这一栏是隐藏的，错误框看不见 —— 在 tab 上标一个红点，
-  // 否则「没数据」和「读不到」在导航条上长得一样。
+  // When the fetch fails this panel is hidden and the error box is never seen - put a red dot on the tab,
+  // otherwise "no data" and "cannot read" look identical in the navigation bar.
   if (failed) {
     return (
       <span
@@ -420,8 +423,9 @@ function Count({ n, failed }: { n?: number; failed?: boolean }) {
   )
 }
 
-// 每个分区顶部一句「这块回答什么问题 / 数据从哪来 / 怎么读」。
-// 三块内容都长得像表格，不给边界就只剩颜色差别，读者会把人的动作和机器的决策混着看。
+// One line at the top of each section: "what this answers / where the data comes from / how to read it".
+// All three blocks look like tables, and without explicit boundaries only the color differs, so readers
+// end up mixing human actions with machine decisions.
 function SectionIntro({
   question,
   source,

@@ -8,30 +8,30 @@ import (
 	"goldenrules/platform/persist"
 )
 
-// Repo 规则集仓库文档。
+// Repo is the rule set repository document.
 type Repo struct {
 	Items []Definition `json:"items"`
 }
 
-// Store 规则集仓库。P0 不做「草稿/已发布」双态：规则集的编辑是就地编辑，
-// 版本与状态由 B8 的规则包承担（规则包才是原子发布单元）。
+// Store is the rule set repository. P0 does not do a "draft/published" two-state model: rule sets are edited in place,
+// and version and status are owned by the B8 rule package (the rule package is the atomic publish unit).
 type Store struct {
 	st  *persist.Store[Repo]
 	now func() time.Time
 }
 
-// NewStore 打开仓库。
+// NewStore opens the repository.
 func NewStore(st *persist.Store[Repo]) *Store {
 	return &Store{st: st, now: func() time.Time { return time.Now().UTC() }}
 }
 
-// WithClock 注入时钟。
+// WithClock injects the clock.
 func (s *Store) WithClock(fn func() time.Time) *Store {
 	s.now = fn
 	return s
 }
 
-// Get 取单个规则集。
+// Get fetches a single rule set.
 func (s *Store) Get(id string) (Definition, bool) {
 	var out Definition
 	found := false
@@ -46,7 +46,7 @@ func (s *Store) Get(id string) (Definition, bool) {
 	return out, found
 }
 
-// List 按场景过滤（空 = 全部），按 rulesetId 升序。
+// List filters by scene (empty = all) and sorts by rulesetId ascending.
 func (s *Store) List(scene string) []Definition {
 	var out []Definition
 	s.st.View(func(r *Repo) {
@@ -61,8 +61,8 @@ func (s *Store) List(scene string) []Definition {
 	return out
 }
 
-// Put 新增或整体替换一个规则集。调用方必须**先**用 Analyze 校验过；
-// 仓库不做业务校验（它不知道事实目录）。
+// Put inserts or fully replaces a rule set. Callers must have validated with Analyze **first**;
+// the repository performs no business validation (it does not know the fact catalog).
 func (s *Store) Put(actor string, def Definition) (Definition, error) {
 	var saved Definition
 	err := s.st.Update(func(r *Repo) error {
@@ -91,7 +91,7 @@ func (s *Store) Put(actor string, def Definition) (Definition, error) {
 	return saved, err
 }
 
-// Delete 删除规则集。
+// Delete removes a rule set.
 func (s *Store) Delete(id string) error {
 	return s.st.Update(func(r *Repo) error {
 		for i := range r.Items {
@@ -104,10 +104,10 @@ func (s *Store) Delete(id string) error {
 	})
 }
 
-// ReferencingFact 返回引用了某事实的规则集 ID（给事实目录的删除保护用）。
+// ReferencingFact returns the IDs of rule sets that reference a given fact (used by the fact catalog's delete guard).
 //
-// 只做**语法层**扫描：把 when/assign 与决策表列解析成 AST 再取 Facts，
-// 因此拼错的字段名也会被算作引用（宁可多拦，不可漏放）。
+// It only scans at the **syntactic level**: when/assign and decision-table columns are parsed into an AST and then Facts is taken,
+// so even misspelled field names count as references (better to over-block than to let something slip).
 func (s *Store) ReferencingFact(fact string) []string {
 	var out []string
 	for _, def := range s.List("") {
@@ -149,7 +149,7 @@ func definitionUsesFact(def Definition, fact string) bool {
 	return false
 }
 
-// NotExistError 资源不存在。
+// NotExistError means the resource does not exist.
 type NotExistError struct {
 	What string
 	ID   string
@@ -157,7 +157,7 @@ type NotExistError struct {
 
 func (e *NotExistError) Error() string { return e.What + "不存在: " + e.ID }
 
-// OutputSchemas 汇总各规则集携带的输出 schema（B8 组装规则包时用）。
+// OutputSchemas collects the output schemas carried by each rule set (used by B8 when assembling a rule package).
 func (s *Store) OutputSchemas() []contracts.OutputSchema {
 	seen := map[string]bool{}
 	var out []contracts.OutputSchema

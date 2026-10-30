@@ -9,9 +9,9 @@ import (
 	"goldenrules/platform/obs"
 )
 
-// POST /api/v1/logs —— 决策日志入库（引擎把结构化日志推过来，平台负责存与查）
+// POST /api/v1/logs —— ingest decision logs (the engine pushes structured logs; the platform stores and queries them)
 //
-// 入参可单条（`log`）也可批量（`items`）；原始快照可选，不带就只留脱敏视图。
+// The input may be a single entry (`log`) or a batch (`items`); the raw snapshot is optional — without it only the masked view is kept.
 func (s *Server) ingestLogs(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Log         *obs.LogEntry    `json:"log"`
@@ -34,7 +34,7 @@ func (s *Server) ingestLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, res)
 }
 
-// GET /api/v1/logs —— 决策日志查询（脱敏视图）
+// GET /api/v1/logs —— decision log query (masked view)
 func (s *Server) listLogs(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit := atoiDefault(q.Get("limit"), 50)
@@ -69,12 +69,12 @@ func (s *Server) listLogs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /api/v1/logs/stats —— 观测面板汇总
+// GET /api/v1/logs/stats —— observation panel summary
 func (s *Server) logStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.deps.Obs.Stats(r.URL.Query().Get("tenantId")))
 }
 
-// GET /api/v1/logs/{id} —— 单条日志（脱敏视图 + 内容摘要）
+// GET /api/v1/logs/{id} —— a single log (masked view + content digest)
 func (s *Server) getLog(w http.ResponseWriter, r *http.Request) {
 	rec, ok := s.deps.Obs.Get(r.PathValue("id"))
 	if !ok {
@@ -90,10 +90,10 @@ func (s *Server) getLog(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// POST /api/v1/logs/{id}/replay —— 纯快照回放（`contracts/03` §8）
+// POST /api/v1/logs/{id}/replay —— replay from the raw snapshot only (`contracts/03` §8)
 //
-// 安全要点：回放要读原始快照，所以它是**一次受审计的越权行为**——
-// 无论成功失败都记 `REPLAY_EXECUTED` / `LOG_RAW_ACCESSED`，谁解的密必须有据可查。
+// Security note: replay reads the raw snapshot, so it is **an audited privilege escalation** —
+// `REPLAY_EXECUTED` / `LOG_RAW_ACCESSED` are recorded on success and on failure alike, so every decryption has a traceable owner.
 func (s *Server) replayLog(w http.ResponseWriter, r *http.Request) {
 	logID := r.PathValue("id")
 	res, err := s.deps.Obs.Replay(logID, s.deps.Replayer)
@@ -122,10 +122,10 @@ func (s *Server) replayLog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"result": res, "backend": s.deps.Replayer.Describe()})
 }
 
-// GET /api/v1/logs/key —— 密钥自述（当前 keyId / 来源 / 保留钥）
+// GET /api/v1/logs/key —— key self-description (current keyId / source / retained keys)
 //
-// 为什么不返回密钥本身：平台只需要说清「现在用哪把钥匙、还能解哪些老密文」，
-// 密钥值一旦走 HTTP 就会出现在网关日志、浏览器缓存、代理里。
+// Why the key itself is never returned: the platform only needs to say "which key is in use now and which old ciphertexts it can still open";
+// once a key value travels over HTTP it lands in gateway logs, browser caches and proxies.
 func (s *Server) getLogKey(w http.ResponseWriter, r *http.Request) {
 	info := s.deps.Obs.KeyInfo()
 	if info == nil {
@@ -142,13 +142,13 @@ func (s *Server) getLogKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// POST /api/v1/logs/key/rotate —— 轮换原始快照加密密钥（`contracts/03` §8.2）
+// POST /api/v1/logs/key/rotate —— rotate the encryption key for raw snapshots (`contracts/03` §8.2)
 //
-// 语义刻意收窄：**只改变此后新写入用哪把钥匙**，历史密文继续用旧钥解密。
-// 想真正让旧钥下线，必须先 `POST /api/v1/logs/key/rewrap` 把历史密文重加密，
-// 否则删钥 = 历史原始快照永久不可读。
+// The semantics are deliberately narrow: **only the key used for future writes changes**; existing ciphertext keeps decrypting with the old key.
+// To actually retire the old key you must first `POST /api/v1/logs/key/rewrap` and re-encrypt the existing ciphertext,
+// otherwise deleting the key makes the historic raw snapshots permanently unreadable.
 //
-// 入参：`{"key": "<32字节 hex/base64>"}`；`{"fromProvider": true}` 表示向 KMS 要当前钥。
+// Input: `{"key": "<32-byte hex/base64>"}`; `{"fromProvider": true}` means ask the KMS for the current key.
 func (s *Server) rotateLogKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Key          string `json:"key"`
@@ -183,7 +183,7 @@ func (s *Server) rotateLogKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// rotateKeySecurely 轮换并留痕（轮换改变了「谁能读历史原文」的前提）。
+// rotateKeySecurely rotates and leaves an audit trail (rotation changes the premise of "who can read historic plaintext").
 func (s *Server) rotateKeySecurely(r *http.Request, key string, fromProvider bool) (string, *obs.Error) {
 	var (
 		keyID string
@@ -212,10 +212,10 @@ func (s *Server) rotateKeySecurely(r *http.Request, key string, fromProvider boo
 	return keyID, err
 }
 
-// POST /api/v1/logs/key/rewrap —— 把历史密文重加密到当前钥。
+// POST /api/v1/logs/key/rewrap —— re-encrypt the existing ciphertext under the current key.
 //
-// 这是「下线旧钥」的前置动作：不重加密就删旧钥，等于让历史原始快照永久不可读。
-// 返回处理条数；半途失败时已成功的条目已落库，可安全重跑（幂等：同钥跳过）。
+// This is the prerequisite for "retiring the old key": deleting the old key without re-encrypting makes the historic raw snapshots permanently unreadable.
+// Returns the number of entries processed; if it fails midway the already-completed entries are committed, so it is safe to rerun (idempotent: same key is skipped).
 func (s *Server) rewrapLogKey(w http.ResponseWriter, r *http.Request) {
 	done, err := s.deps.Obs.RewrapRaw()
 	if s.deps.Gov != nil {
@@ -242,13 +242,13 @@ func (s *Server) rewrapLogKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// storageInfo 把「日志存到哪、能不能回放」直接放进列表响应：
-// 前端不必猜为什么回放按钮是灰的。
+// storageInfo puts "where logs are stored and whether replay works" straight into the list response:
+// the frontend should not have to guess why the replay button is greyed out.
 func storageInfo(s *Server) map[string]any {
 	replay := false
 	backend := ""
-	// 注意不要只判 `!= nil`：没配 --engine-url 时装配出来的是**类型化 nil**
-	// （接口不为 nil、指针为 nil）。用「能不能自述」当判据，才能如实反映可用性。
+	// Note: do not test only `!= nil` — without --engine-url the assembled value is a **typed nil**
+	// (the interface is not nil, the pointer is). Using "can it describe itself" as the predicate is the only way to reflect availability truthfully.
 	if s.deps.Replayer != nil {
 		if desc := s.deps.Replayer.Describe(); desc != "" {
 			replay = true

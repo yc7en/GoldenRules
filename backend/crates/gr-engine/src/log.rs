@@ -1,12 +1,12 @@
-//! 决策日志的脱敏视图（`contracts/03` §6.2，A-4）。
+//! Masked view of the decision log (`contracts/03` §6.2, A-4).
 //!
-//! 日志只追加、不可篡改；这里产出的是**脱敏后**的快照视图，原始快照另存（P1 加密 + 权限）。
+//! The log is append-only and tamper-evident; what we emit here is the **masked** snapshot view, while the raw snapshot is stored separately (P1: encryption + access control).
 
 use gr_contract::{FactCatalog, FactSnapshot, Sensitivity};
 use std::collections::BTreeMap;
 
-/// PII 掩码：字符串保留前 2 个字符，其余一律 `***`；非字符串整体 `***`。
-/// 目的不是"可还原"，而是"能看出有这个字段、值不外泄"。
+/// PII mask: keep the first 2 characters of a string and replace the rest with `***`; any non-string becomes `***` wholesale.
+/// The goal is not "reversible" but "you can tell the field exists while the value never leaks".
 pub fn mask_value(raw: &serde_json::Value) -> serde_json::Value {
     match raw {
         serde_json::Value::String(s) => {
@@ -18,7 +18,7 @@ pub fn mask_value(raw: &serde_json::Value) -> serde_json::Value {
     }
 }
 
-/// 生成脱敏快照 + 被脱敏字段清单。
+/// Produce the masked snapshot + the list of masked fields.
 pub fn mask_snapshot(
     snapshot: &FactSnapshot,
     catalog: &FactCatalog,

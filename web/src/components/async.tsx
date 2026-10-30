@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import type { ApiError } from "@/lib/api"
 import type { AsyncState } from "@/lib/useAsync"
 
-/** 错误码 → 排查动作。后端给的 message 说「发生了什么」，这里补「该去改什么」。 */
+/** Error code -> troubleshooting action. The backend's message says "what happened"; this adds "what to fix". */
 const HINTS: Record<string, string> = {
   NETWORK_UNREACHABLE:
     "后端没起来，或平台的 --cors-origin 没开。跑 tools/dev-up.sh 拉起引擎与平台。",
@@ -65,10 +65,11 @@ export function Loading({ label = "加载中" }: { label?: string }) {
 }
 
 /**
- * 取数三态的统一出口。
+ * The single exit point for the three states of a fetch.
  *
- * 三态必须分开画：把「加载中」和「空数据」画成同一个空白，会让人以为
- * 后端返回了空列表——这两个结论对排查的指向完全相反。
+ * The three states must be rendered separately: drawing "loading" and "empty data" as the same blank
+ * makes people think the backend returned an empty list - these two conclusions point troubleshooting in
+ * completely opposite directions.
  */
 export function Async<T>({
   state,

@@ -14,10 +14,10 @@ import (
 	"goldenrules/platform/dsl"
 )
 
-// BuildInput 组装一个规则包版本所需的全部输入。
+// BuildInput carries every input needed to assemble one rule package version.
 type BuildInput struct {
 	PackageID string
-	Version   string // 留空 = 由仓库决定下一个版本号
+	Version   string // empty = the store assigns the next version
 	Rulesets  []dsl.Definition
 	Catalog   contracts.FactCatalog
 	Actor     string
@@ -26,10 +26,10 @@ type BuildInput struct {
 	Now       time.Time
 }
 
-// Build 编译并组装规则包（不落库）。
+// Build compiles and assembles the rule package (nothing is persisted).
 //
-// 返回的错误是**聚合**的：任何一个规则集 dry-run 不过，整个包都不成立
-// （`contracts/01` §6「原子性」：一次发布 = 整个包的不可变快照，不能部分上线）。
+// The returned error is **aggregated**: if any single ruleset fails dry-run, the whole package fails
+// (`contracts/01` §6 "atomicity": one publish = an immutable snapshot of the whole package, no partial rollout).
 func Build(in BuildInput) (Version, []dsl.Report, error) {
 	if strings.TrimSpace(in.PackageID) == "" {
 		return Version{}, nil, &StateError{Code: CodeEmptyPackage, Message: "缺少 packageId"}
@@ -108,8 +108,8 @@ func Build(in BuildInput) (Version, []dsl.Report, error) {
 		},
 	}
 
-	// 签名先算（覆盖内容），再写回包体——包体里的 signature 与 Version.Signature 必须同一值，
-	// 否则引擎拿到的产物验签会失败。
+	// The signature is computed first (covering the content) and then written back into the package body — the signature inside the body and Version.Signature must be the same value,
+	// otherwise signature verification of the artifact the engine receives would fail.
 	sig := Sign(pkg)
 	pkg.Signature = sig
 
@@ -134,10 +134,10 @@ func Build(in BuildInput) (Version, []dsl.Report, error) {
 	}, reports, nil
 }
 
-// Sign 计算整包摘要：除签名外的全部内容参与哈希。
+// Sign computes the whole-package digest: everything except the signature is hashed.
 //
-// P0 用 sha256（`contracts/01` §6「P1 前可先 hash，P1 加签名」）。
-// 摘要覆盖 `metadata` —— 发布人与时间也是审计对象，改了就应被发现。
+// P0 uses sha256 (`contracts/01` §6 "hashing is acceptable before P1; signing lands in P1").
+// The digest covers `metadata` — the publisher and the timestamp are audit subjects too, so tampering with them must be detected.
 func Sign(pkg contracts.RulePackage) string {
 	clone := pkg
 	clone.Signature = ""
@@ -149,7 +149,7 @@ func Sign(pkg contracts.RulePackage) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// Verify 校验包内容与签名是否一致（防篡改：改一个字符签名就不匹配）。
+// Verify checks that the package content matches the signature (tamper detection: changing a single character breaks the match).
 func Verify(v Version) bool {
 	if v.Signature == "" {
 		return false
@@ -157,11 +157,11 @@ func Verify(v Version) bool {
 	return Sign(v.Package) == v.Signature
 }
 
-// NextVersion 计算下一个版本号。
+// NextVersion computes the next version number.
 //
-// 兼容两种既有写法：fixture 与 `contracts/06` 附录 B 用 `v12` 这类整数递增，
-// `contracts/06` §2.2 又要求语义化 `MAJOR.MINOR.PATCH`。两者都支持：
-// 全是 `vN` 就 `v(N+1)`，否则按 PATCH 递增。
+// Two existing conventions are supported: fixtures and `contracts/06` appendix B use integer increments like `v12`,
+// while `contracts/06` §2.2 requires semver `MAJOR.MINOR.PATCH`. Both work:
+// if everything is `vN` it returns `v(N+1)`, otherwise it increments PATCH.
 func NextVersion(existing []string) string {
 	if len(existing) == 0 {
 		return "v1"
@@ -182,7 +182,7 @@ func NextVersion(existing []string) string {
 		return "v" + strconv.Itoa(maxN+1)
 	}
 
-	// 语义化：取最大版本再递增 PATCH
+	// semver: take the highest version and increment PATCH
 	var best [3]int
 	var bestRaw string
 	for _, v := range existing {

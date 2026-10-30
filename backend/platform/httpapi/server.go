@@ -1,9 +1,9 @@
-// Package httpapi 是 BRMS 管理平台的 HTTP 入口。
+// Package httpapi is the HTTP entry point of the BRMS management platform.
 //
-// 只做三件事：路由、解码、把领域错误翻译成 `contracts/05` §3.2 的 ErrorContract。
-// 业务语义一律在领域包里（facts / dsl / packages / gov / obs），本包不写规则判断。
+// It does exactly three things: routing, decoding, and translating domain errors into the ErrorContract of `contracts/05` §3.2.
+// All business semantics live in the domain packages (facts / dsl / packages / gov / obs); this package never makes rule decisions.
 //
-// API 形状对齐 `PLAN.md` §9「前端联调接口」：前端只依赖这一层。
+// The API shape follows `PLAN.md` §9 "frontend integration interfaces": the frontend depends only on this layer.
 package httpapi
 
 import (
@@ -20,34 +20,34 @@ import (
 	"goldenrules/platform/packages"
 )
 
-// Deps 是平台依赖的领域服务集合。B6 起逐包填充。
+// Deps is the set of domain services the platform depends on. Filled in package by package since B6.
 type Deps struct {
 	Facts    *facts.Service
 	Rulesets *dsl.Store
 	Packages *packages.Service
-	// Gov 为 nil 时退化为「无治理」模式：审批/发布是裸动作，仅用于单包测试与演练。
-	// platformd 恒接线——生产路径上不存在「跳过变更单直接发布」。
+	// A nil Gov degrades to a "governance-free" mode: approval/publish become bare actions, intended only for single-package tests and drills.
+	// platformd always wires it in — the production path has no "publish directly, skipping the change request".
 	Gov *gov.Service
-	// Obs 决策日志；Replayer 为 nil 表示回放不可用（没配决策服务地址）。
+	// Obs is the decision log; a nil Replayer means replay is unavailable (no decision service address configured).
 	Obs          *obs.Service
 	Replayer     obs.Replayer
 	ArtifactsDir string
-	// CORSOrigin 非空时给响应加跨源头，供本地联调控制台从 file:// 直接调接口。
-	// 默认空（不启用）：平台没有认证，把「谁都能跨源读」做成默认姿态不合适。
+	// A non-empty CORSOrigin adds a cross-origin header to responses, so a local integration console can call the API directly from file://.
+	// Empty by default (disabled): the platform has no authentication, so making "anyone may read cross-origin" the default posture would be wrong.
 	CORSOrigin string
-	// EngineURL/EngineToken 决策服务地址。给了才提供「引擎自述」与「试跑转发」，
-	// 浏览器因此不必直连引擎（引擎不开跨源，它是无认证的内部服务）。
+	// EngineURL/EngineToken are the decision service address. Only when set do we expose "engine self-description" and "trial-run forwarding",
+	// so the browser never has to reach the engine directly (the engine does not enable CORS; it is an unauthenticated internal service).
 	EngineURL   string
 	EngineToken string
 }
 
-// Server 持有依赖与路由表。
+// Server holds the dependencies and the routing table.
 type Server struct {
 	deps Deps
 	mux  *http.ServeMux
 }
 
-// New 构造 HTTP handler。返回 http.Handler 而不是 *Server，避免调用方摸内部。
+// New builds the HTTP handler. It returns http.Handler rather than *Server so callers cannot reach into the internals.
 func New(d Deps) http.Handler {
 	s := &Server{deps: d, mux: http.NewServeMux()}
 	s.routes()
@@ -57,13 +57,13 @@ func New(d Deps) http.Handler {
 	return withCORS(s.mux, d.CORSOrigin)
 }
 
-// withCORS 给所有响应放行指定来源。
+// withCORS allows the given origin on every response.
 //
-// 两条约束：
-//   - 只允许自述的操作者头（X-Actor/X-Actor-Type），不放开任意自定义头——
-//     跨源能带什么头，决定外部页面能冒充谁。
-//   - 预检直接 204，不让 OPTIONS 落到路由表（Go 1.22 的 mux 不注册 OPTIONS 会 405，
-//     浏览器会把 405 当作跨源失败，症状是「按钮点了没反应」）。
+// Two constraints:
+//   - Only the self-reported actor headers (X-Actor/X-Actor-Type) are allowed; arbitrary custom headers are not opened up —
+//     which headers a cross-origin page may send determines who that page can impersonate.
+//   - Preflight returns 204 directly, keeping OPTIONS out of the routing table (Go 1.22's mux answers 405 when OPTIONS is unregistered,
+//     and browsers treat 405 as a cross-origin failure, whose symptom is "clicking the button does nothing").
 func withCORS(next http.Handler, origin string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -80,7 +80,7 @@ func withCORS(next http.Handler, origin string) http.Handler {
 }
 
 func (s *Server) routes() {
-	// 健康检查：只报进程活着，不探决策服务（平台不依赖决策服务运行时，A-1）。
+	// Health check: reports only that the process is alive; it does not probe the decision service (the platform does not depend on the decision service at runtime, A-1).
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status":     "ok",
@@ -89,7 +89,7 @@ func (s *Server) routes() {
 		})
 	})
 
-	// ---- B6 事实目录 ----
+	// ---- B6 fact catalog ----
 	s.mux.HandleFunc("GET /api/v1/facts", s.listFacts)
 	s.mux.HandleFunc("POST /api/v1/facts", s.createFact)
 	s.mux.HandleFunc("GET /api/v1/facts/artifacts", s.getFactArtifacts)
@@ -100,14 +100,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/v1/facts/{name}", s.deleteFact)
 	s.mux.HandleFunc("POST /api/v1/facts/{name}/deprecate", s.deprecateFact)
 
-	// ---- B7 规则集编辑与 dry-run ----
+	// ---- B7 ruleset editing and dry-run ----
 	s.mux.HandleFunc("GET /api/v1/rulesets", s.listRulesets)
 	s.mux.HandleFunc("GET /api/v1/rulesets/{id}", s.getRuleset)
 	s.mux.HandleFunc("PUT /api/v1/rulesets/{id}", s.putRuleset)
 	s.mux.HandleFunc("DELETE /api/v1/rulesets/{id}", s.deleteRuleset)
 	s.mux.HandleFunc("POST /api/v1/rulesets/{id}/validate", s.validateRuleset)
 
-	// ---- B8 编译与规则包发布 ----
+	// ---- B8 compilation and rule package publish ----
 	s.mux.HandleFunc("GET /api/v1/packages", s.listPackages)
 	s.mux.HandleFunc("POST /api/v1/packages", s.createPackage)
 	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/active", s.activePackage)
@@ -115,19 +115,19 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/versions/{version}", s.getPackageVersion)
 	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/versions/{version}/artifact", s.packageArtifact)
 	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/versions/{version}/verify", s.verifyPackage)
-	// F-PKG06：approved 用例门禁预演（发布时自动强制）
+	// F-PKG06: gate rehearsal for approved test cases (enforced automatically on publish)
 	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/versions/{version}/testcases", s.packageTestcases)
 	s.mux.HandleFunc("POST /api/v1/packages/{pkg}/versions/{version}/approve", s.approvePackage)
 	s.mux.HandleFunc("POST /api/v1/packages/{pkg}/versions/{version}/publish", s.publishPackage)
 
-	// ---- B9 审批矩阵与发布治理 ----
+	// ---- B9 approval matrix and publish governance ----
 	s.mux.HandleFunc("GET /api/v1/approval-matrix", s.approvalMatrix)
 	s.mux.HandleFunc("GET /api/v1/changes", s.listChanges)
 	s.mux.HandleFunc("POST /api/v1/changes", s.createChange)
 	s.mux.HandleFunc("GET /api/v1/changes/{id}", s.getChange)
 	s.mux.HandleFunc("POST /api/v1/changes/{id}/approve", s.approveChange)
 	s.mux.HandleFunc("POST /api/v1/changes/{id}/reject", s.rejectChange)
-	// 紧急通道（contracts/04 §7）：紧急发布、事后补审、待补审巡检
+	// Emergency channel (contracts/04 §7): emergency publish, post-hoc makeup review, patrol for pending makeup reviews
 	s.mux.HandleFunc("POST /api/v1/changes/{id}/emergency-publish", s.emergencyPublish)
 	s.mux.HandleFunc("POST /api/v1/changes/{id}/makeup-review", s.makeupReview)
 	s.mux.HandleFunc("GET /api/v1/changes/pending-makeup-review", s.pendingMakeupReview)
@@ -136,24 +136,24 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/rollback", s.rollbackFlat)
 	s.mux.HandleFunc("GET /api/v1/audit", s.listAudit)
 
-	// ---- B10 决策日志与审计 ----
+	// ---- B10 decision log and audit ----
 	s.mux.HandleFunc("POST /api/v1/logs", s.ingestLogs)
 	s.mux.HandleFunc("GET /api/v1/logs", s.listLogs)
 	s.mux.HandleFunc("GET /api/v1/logs/stats", s.logStats)
-	// 密钥自述与轮换（`contracts/03` §8.2）。字面量 key 段优先于 {id}，不会与详情路由打架。
+	// Key self-description and rotation (`contracts/03` §8.2). The literal key segment takes precedence over {id}, so it does not collide with the detail route.
 	s.mux.HandleFunc("GET /api/v1/logs/key", s.getLogKey)
 	s.mux.HandleFunc("POST /api/v1/logs/key/rotate", s.rotateLogKey)
 	s.mux.HandleFunc("POST /api/v1/logs/key/rewrap", s.rewrapLogKey)
 	s.mux.HandleFunc("GET /api/v1/logs/{id}", s.getLog)
 	s.mux.HandleFunc("POST /api/v1/logs/{id}/replay", s.replayLog)
 
-	// ---- 决策服务转发（界面不直连引擎）----
+	// ---- decision service forwarding (the UI never talks to the engine directly) ----
 	s.mux.HandleFunc("GET /api/v1/engine", s.engineInfo)
 	s.mux.HandleFunc("POST /api/v1/trial", s.engineTrial)
 }
 
 // ---------------------------------------------------------------------------
-// 通用工具
+// Shared helpers
 // ---------------------------------------------------------------------------
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
@@ -165,8 +165,8 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = enc.Encode(body)
 }
 
-// writeError 输出真错误（服务级/请求级）。注意契约违规不在这里：
-// 决策侧的契约违规落 REJECT 决策，不走 ErrorContract（`contracts/05` §1）。
+// writeError emits real errors (service-level/request-level). Note that contract violations do not belong here:
+// a contract violation on the decision side becomes a REJECT decision and does not go through ErrorContract (`contracts/05` §1).
 func writeError(w http.ResponseWriter, r *http.Request, status int, code, msg string, details map[string]json.RawMessage) {
 	writeJSON(w, status, contracts.ErrorContract{
 		ErrorCode: code,
@@ -176,7 +176,7 @@ func writeError(w http.ResponseWriter, r *http.Request, status int, code, msg st
 	})
 }
 
-// fail 把领域错误翻译成 HTTP。映射集中在一处，避免每个 handler 各写一套。
+// fail translates domain errors into HTTP. The mapping lives in one place so each handler does not write its own.
 func fail(w http.ResponseWriter, r *http.Request, err error) {
 	var vErr *facts.ValidationError
 	var nErr *facts.NotFoundError
@@ -208,8 +208,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusNotFound, packages.CodeNotFound, pkErr.Error(), nil)
 	case errors.As(err, &stErr):
 		status := http.StatusConflict
-		// 「有 approved 用例但没人能执行」不是状态冲突，是平台能力缺失 → 503：
-		// 让调用方去补配置，而不是去改包。
+		// "Approved test cases exist but nobody can run them" is not a state conflict but a missing platform capability → 503:
+		// the caller should fix the configuration, not the package.
 		if stErr.Code == packages.CodeVerifyUnavailable {
 			status = http.StatusServiceUnavailable
 		}
@@ -230,10 +230,10 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	}
 }
 
-// govStatus 治理错误码 → HTTP 状态。
+// govStatus maps governance reason codes → HTTP status.
 //
-// 分三类看：**声明式拒绝**（矩阵不允许、职责分离、agent 越权）是 403；
-// **状态不对**（已批过、未批就发、版本不符）是 409；**参数本身错**（未知等级/灰度值）是 400/422。
+// Three categories: **declarative refusal** (matrix does not allow, segregation of duties, agent overreach) is 403;
+// **wrong state** (already approved, published without approval, version mismatch) is 409; **bad argument** (unknown level/canary value) is 400/422.
 func govStatus(code string) int {
 	switch code {
 	case gov.CodeMatrixRejected, gov.CodeSelfApproval, gov.CodeAgentCannotApprove,
@@ -248,8 +248,8 @@ func govStatus(code string) int {
 	}
 }
 
-// obsStatus 观测错误码 → HTTP 状态。
-// 「查不到」404；「回放暂时做不到」501（不是服务坏了，是没配能力）；其余按请求错 4xx。
+// obsStatus maps observation reason codes → HTTP status.
+// "Not found" is 404; "replay not possible yet" is 501 (the service is not broken, the capability is unconfigured); the rest are request errors, 4xx.
 func obsStatus(code string) int {
 	switch code {
 	case obs.CodeLogNotFound:
@@ -259,8 +259,8 @@ func obsStatus(code string) int {
 	case obs.CodeKeyInvalid:
 		return http.StatusBadRequest
 	case obs.CodeKeyUnknown:
-		// 钥匙不在手上不是「参数写错」：请求完全合法，只是这把钥没配过来 → 409，
-		// 让调用方去补钥匙而不是去改请求。
+		// Not holding the key is not a "bad argument": the request is perfectly valid, this key simply is not configured here → 409,
+		// so the caller provisions the key instead of changing the request.
 		return http.StatusConflict
 	case obs.CodeReplayUnavailable:
 		return http.StatusNotImplemented
@@ -271,7 +271,7 @@ func obsStatus(code string) int {
 	}
 }
 
-// decode 读 JSON body，拒绝未知字段（契约是封闭的，多写字段通常是拼错的信号）。
+// decode reads the JSON body and rejects unknown fields (the contract is closed; an extra field usually signals a typo).
 func decode(r *http.Request, v any) error {
 	dec := json.NewDecoder(io.LimitReader(r.Body, 4<<20))
 	dec.DisallowUnknownFields()
@@ -291,7 +291,7 @@ func actor(r *http.Request) string {
 	return "anonymous"
 }
 
-// orEmpty 把 nil 诊断规范成空数组：JSON 里 `null` 与 `[]` 对前端是两种分支，统一成后者。
+// orEmpty normalizes nil diagnostics into an empty slice: in JSON, `null` and `[]` are two different branches for the frontend, so both become the latter.
 func orEmpty(issues []facts.Issue) []facts.Issue {
 	if issues == nil {
 		return []facts.Issue{}

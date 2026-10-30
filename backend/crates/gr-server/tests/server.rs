@@ -1,6 +1,6 @@
-//! B12 验收（服务层）：keep-alive、热重载、坏包不断服。
+//! B12 acceptance (service layer): keep-alive, hot reload, and a broken package never takes the service down.
 //!
-//! 这些性质只能在**真实进程**上验证：进程内的 Engine 没有连接复用，也没有「重载失败」这种状态。
+//! These properties can only be verified on a **real process**: an in-process Engine has no connection reuse and no "reload failed" state.
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -8,13 +8,13 @@ use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
-// ---------------------------------------------------------------- 脚手架
+// ---------------------------------------------------------------- scaffolding
 
 fn fixtures() -> PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures")
 }
 
-/// 起一个服务进程；`Drop` 时杀掉，避免测试失败留下野进程。
+/// Start a service process; kills it on `Drop` so a failing test leaves no stray process behind.
 struct Server {
     child: Child,
     port: u16,
@@ -34,7 +34,7 @@ fn free_port() -> u16 {
     l.local_addr().unwrap().port()
 }
 
-/// 复制一份可改写的规则包到临时目录（重载测试需要改文件内容）
+/// Copy an editable rule package into a temp dir (the reload test needs to change the file contents)
 fn start(extra: &[&str]) -> Server {
     let port = free_port();
     let dir = std::env::temp_dir().join(format!("gr-server-test-{port}-{}", std::process::id()));
@@ -57,7 +57,7 @@ fn start(extra: &[&str]) -> Server {
         .expect("spawn gr-server");
 
     let server = Server { child, port, dir };
-    // 等端口就绪（最多 5s）
+    // Wait until the port is ready (at most 5s)
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
         if TcpStream::connect(("127.0.0.1", port)).is_ok() {
@@ -142,13 +142,13 @@ fn connection_close_is_honoured() {
     stream.write_all(decide_raw(false).as_bytes()).expect("write");
     let body = read_one(&mut stream);
     assert!(body.contains("AMOUNT_REVIEW"));
-    // 服务端应主动关连接：再写会失败或读到 EOF
+    // The server should close the connection: a further write fails or reads EOF
     let mut buf = [0u8; 1];
     let n = stream.read(&mut buf).unwrap_or(0);
     assert_eq!(n, 0, "Connection: close 之后应收到 EOF");
 }
 
-// ---------------------------------------------------------------- 热重载
+// ---------------------------------------------------------------- hot reload
 
 #[test]
 fn reload_bumps_generation_and_keeps_serving() {
@@ -165,7 +165,7 @@ fn reload_bumps_generation_and_keeps_serving() {
 
     let after: serde_json::Value = serde_json::from_str(&get(s.port, "/healthz")).unwrap();
     assert_eq!(after["generation"], 2);
-    // 重载后照样能出决策
+    // Decisions are still produced after the reload
     let body = request(s.port, &decide_raw(false));
     assert!(body.contains("AMOUNT_REVIEW"), "{body}");
 }
@@ -173,7 +173,7 @@ fn reload_bumps_generation_and_keeps_serving() {
 #[test]
 fn broken_package_does_not_replace_running_engine() {
     let s = start(&[]);
-    // 把规则包写成坏 JSON，再请求重载
+    // Write the rule package out as broken JSON, then request a reload
     std::fs::write(s.dir.join("rule-package.json"), b"{ this is not json }").expect("write");
 
     let resp = request(
@@ -185,7 +185,7 @@ fn broken_package_does_not_replace_running_engine() {
         "坏包重载应返回错误体，实际: {resp}"
     );
 
-    // 关键：旧引擎还在服务
+    // Key: the old engine is still serving
     let body = request(s.port, &decide_raw(false));
     assert!(
         body.contains("AMOUNT_REVIEW"),
@@ -213,7 +213,7 @@ fn reload_requires_token_when_configured() {
     assert!(ok.contains("\"generation\":2"), "带正确 token 应成功: {ok}");
 }
 
-// ---------------------------------------------------------------- 资源上限自述
+// ---------------------------------------------------------------- resource-cap self-description
 
 #[test]
 fn limits_endpoint_reflects_cli_overrides() {
@@ -229,20 +229,20 @@ fn limits_endpoint_reflects_cli_overrides() {
 
 #[test]
 fn overload_is_reported_as_503() {
-    // max-inflight=0：任何决策请求都应被准入挡掉，且返回可识别的错误码
+    // max-inflight=0: every decision request must be turned away by admission, with a recognizable error code
     let s = start(&["--max-inflight", "0"]);
     let body = request(s.port, &decide_raw(false));
     assert!(body.contains("EXEC_OVERLOAD"), "应返回过载错误，实际: {body}");
 }
 
-// ---------------------------------------------------------------- 发布门禁（F-PKG06）
+// ---------------------------------------------------------------- publish gate (F-PKG06)
 
-/// 取 fixture 包，按需把首条用例改成 approved 并指定规则集。
+/// Take the fixture package and optionally flip its first test case to approved with the ruleset pinned.
 fn candidate_package(approved: bool) -> serde_json::Value {
     let raw = std::fs::read_to_string(fixtures().join("rule-package.json")).expect("read package");
     let mut pkg: serde_json::Value = serde_json::from_str(&raw).expect("parse package");
     let tc = &mut pkg["tests"][0];
-    // 该场景挂 3 个规则集，门禁要求用例写明 rulesetId
+    // The scene mounts 3 rulesets, so the gate requires the case to name its rulesetId
     tc["rulesetId"] = serde_json::json!("rs-amount-limit");
     tc["status"] = serde_json::json!(if approved { "approved" } else { "pending_review" });
     pkg
@@ -278,7 +278,7 @@ fn verify_endpoint_runs_approved_cases() {
 fn verify_endpoint_blocks_failing_case() {
     let s = start(&[]);
     let mut pkg = candidate_package(true);
-    // 把期望改成 REJECT：规则实际给 REVIEW，门禁必须拦下
+    // Change the expectation to REJECT: the rule actually returns REVIEW, so the gate must block
     pkg["tests"][0]["expect"]["decision"] = serde_json::json!("REJECT");
     pkg["tests"][0]["expect"]["reasonCode"] = serde_json::json!("AMOUNT_LIMIT_EXCEEDED");
     let body = serde_json::json!({ "package": pkg });

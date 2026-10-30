@@ -8,17 +8,17 @@ import (
 	"time"
 )
 
-// 引擎转发：浏览器只跟平台说话，决策服务不对外开跨源。
+// Engine forwarding: the browser only talks to the platform; the decision service never enables CORS for the outside.
 //
-// 为什么不让引擎自己开 CORS：引擎是无认证的内部服务，任何网页只要能跨源喊它，
-// 就等于把「这台机器的决策能力」挂到公网上。平台本来就有 --cors-origin 这个
-// 显式开关，转发放在这里，暴露面只有一个点、且是可控的那个。
+// Why not let the engine enable CORS itself: the engine is an unauthenticated internal service, so any web page that can
+// reach it cross-origin would effectively expose "this machine's decision capability" to the public internet. The platform
+// already has the explicit --cors-origin switch; putting forwarding here leaves a single, controllable point of exposure.
 //
-// 代价是试跑多一跳。试跑是人在界面上点的动作，不在生产决策路径上，这一跳可以接受。
+// The cost is one extra hop for trial runs. A trial run is something a human clicks in the UI, not part of the production decision path, so that hop is acceptable.
 
 const engineTimeout = 5 * time.Second
 
-// GET /api/v1/engine —— 引擎自述：活着没有、装的是什么包。
+// GET /api/v1/engine —— engine self-description: is it alive, and which packages are loaded.
 func (s *Server) engineInfo(w http.ResponseWriter, r *http.Request) {
 	if s.deps.EngineURL == "" {
 		writeError(w, r, http.StatusServiceUnavailable, "ENGINE_NOT_CONFIGURED",
@@ -36,7 +36,7 @@ func (s *Server) engineInfo(w http.ResponseWriter, r *http.Request) {
 
 	raw, err := s.engineGet(client, r, "/v1/packages")
 	if err != nil {
-		// 活着但报错：如实说「活着、但拿不到包清单」，不要合成一个 healthy=true 的假象
+		// Alive but failing: report "alive, but the package list is unavailable" honestly instead of faking healthy=true
 		writeJSON(w, http.StatusOK, map[string]any{
 			"healthy": true,
 			"baseUrl": s.deps.EngineURL,
@@ -53,10 +53,10 @@ func (s *Server) engineInfo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// POST /api/v1/trial —— 原样转发到引擎 /v1/trial。
+// POST /api/v1/trial —— forward verbatim to the engine's /v1/trial.
 //
-// 响应（含错误）逐字透传：试跑的诊断属于引擎，平台不该二次解释——
-// 一旦在这里改写错误码，界面上看到的就不再是引擎真实说的话。
+// The response (including errors) is passed through word for word: trial-run diagnostics belong to the engine, and the platform
+// must not reinterpret them — once a reason code is rewritten here, the UI no longer shows what the engine actually said.
 func (s *Server) engineTrial(w http.ResponseWriter, r *http.Request) {
 	if s.deps.EngineURL == "" {
 		writeError(w, r, http.StatusServiceUnavailable, "ENGINE_NOT_CONFIGURED",
@@ -70,7 +70,7 @@ func (s *Server) engineTrial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body) > maxBody {
-		// 截断转发比直接拒绝更糟：引擎会收到半截 JSON，报一个与真实原因无关的解析错。
+		// Forwarding a truncated body is worse than rejecting it: the engine would receive half a JSON document and report a parse error unrelated to the real cause.
 		writeError(w, r, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE",
 			"试跑请求体超过 4MB，请精简事实快照", nil)
 		return

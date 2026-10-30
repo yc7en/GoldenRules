@@ -7,17 +7,17 @@ import (
 	"testing"
 )
 
-// B0 验收：同一份 fixture 在 Go 侧往返后字节等价——即 Rust 侧写出的契约 JSON，
-// Go 侧能解析且不丢字段。跨语言一致性的唯一裁判就是这个测试 + Rust 侧同名测试。
+// B0 acceptance: the same fixture is byte-equivalent after a round trip on the Go side — i.e. the contract JSON written by Rust
+// can be parsed by Go without losing fields. This test plus its Rust counterpart is the only referee for cross-language consistency.
 func fixtures(t *testing.T) string {
 	t.Helper()
 	return "../../fixtures"
 }
 
-// assertSameJSON 判定契约 JSON 的「语义等价」。
+// assertSameJSON decides "semantic equivalence" of contract JSON.
 //
-// 不比较字节的理由：跨语言的键序/省略写法必然不同（Go 按结构体字段序输出，
-// 且 omitempty 会省略 false/空值），契约一致性只能按值判定，不能按文本判定。
+// Why bytes are not compared: key order / omission styles necessarily differ across languages (Go emits struct field order,
+// and omitempty drops false/empty values), so contract consistency can only be decided by value, not by text.
 func assertSameJSON(t *testing.T, want, got []byte, label string) {
 	t.Helper()
 	var w, g any
@@ -100,7 +100,7 @@ func TestSnapshotAndDecisionRoundTrip(t *testing.T) {
 		t.Fatalf("want 1500, got %s", amount)
 	}
 
-	// 决策结果：输出值里的 decimal 也必须是字符串（跨语言不丢精度）
+	// decision result: decimals inside output values must also be strings (no precision loss across languages)
 	dec := []byte(`{"resultVersion":"v1","snapshotId":"fs-1","traceId":"t-1","rulesetId":"rs-1",
 		"rulesetVersion":"rs-v1","decision":"REJECT","reasonCode":"AMOUNT_LIMIT_EXCEEDED",
 		"hitRules":[{"ruleId":"R2001","priority":100,"reasonCode":"AMOUNT_LIMIT_EXCEEDED"}],

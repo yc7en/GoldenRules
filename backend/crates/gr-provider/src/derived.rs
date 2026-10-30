@@ -1,16 +1,16 @@
-//! 派生 Provider：由其他事实算出新事实（如 `availableLimit = dailyLimit - todayUsed`）。
+//! Derived Provider: compute new facts from other facts (e.g. `availableLimit = dailyLimit - todayUsed`).
 //!
-//! ## 为什么走 VM 而不是在这里写算术
+//! ## Why go through the VM instead of writing the arithmetic here
 //!
-//! 派生逻辑本质是 DSL 表达式，如果这里另写一套求值，就会出现「规则里能算的和派生能算的不一样」
-//! ——两套语义迟早漂移。这里把表达式交给 `gr_vm::compile_expr`，与规则**共用同一个编译器与
-//! 白名单**：派生事实不可能比规则多出算力（无循环、无副作用、步数受预算限制）。
+//! Derived logic is essentially a DSL expression; writing a second evaluator here would yield "what a rule can compute differs from what a derivation can compute"
+//! -- two sets of semantics drift sooner or later. Here the expression is handed to `gr_vm::compile_expr`, **sharing the same compiler and
+//! whitelist** as rules: a derived fact can never gain more computing power than a rule (no loops, no side effects, step count bounded by the budget).
 //!
-//! ## 依赖顺序即语义
+//! ## Dependency order is semantics
 //!
-//! 依赖事实在装配期已经就位（`ProviderCtx.facts`）。因此**Provider 的声明顺序是语义的一部分**，
-//! 上游 Provider 必须先于下游派生 Provider（装载期用 `dependsOn` 校验能否满足，不做拓扑排序——
-//! 排序会让「为什么这条链是这个顺序」变得不可见）。
+//! Dependency facts are already in place at assembly time (`ProviderCtx.facts`). Therefore **the declaration order of Providers is part of the semantics**:
+//! an upstream Provider must precede a downstream derived Provider (load time validates satisfiability via `dependsOn` and does no topological sort --
+//! sorting would make "why this chain is in this order" invisible).
 
 use crate::sample::{FactSample, Provider, ProviderCtx};
 use gr_contract::{Expr, FactCatalog, FactKind, MissingReason, Value};
@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct DerivedProvider {
     name: String,
     provides: Vec<String>,
-    /// `dependsOn` 的顺序即 slot 下标（编译期定死，运行期不查表）
+    /// The order of `dependsOn` is the slot index (fixed at compile time, no lookup at runtime)
     deps: Vec<(String, FactKind)>,
     items: Vec<DerivedItem>,
     budget_steps: u64,
@@ -29,7 +29,7 @@ pub struct DerivedProvider {
 struct DerivedItem {
     fact: String,
     chunk: Chunk,
-    /// 本表达式实际用到哪些依赖 slot（按需判定可算性，不是「缺一个就全废」）
+    /// Which dependency slots this expression actually uses (feasibility is decided on demand, not "one missing kills everything")
     used: BTreeSet<u32>,
 }
 
@@ -44,7 +44,7 @@ impl std::fmt::Debug for DerivedProvider {
 }
 
 impl DerivedProvider {
-    /// `deps` 由调用方按 `dependsOn` 从事实目录解析出类型（装载期做一次）。
+    /// `deps` is resolved by the caller from the fact catalog according to `dependsOn` (done once at load time).
     pub fn new(
         name: impl Into<String>,
         deps: Vec<(String, FactKind)>,
@@ -64,7 +64,7 @@ impl DerivedProvider {
         Ok(Self { name: name.into(), provides, deps, items, budget_steps: 10_000 })
     }
 
-    /// 声明了但目录里没有的依赖，装载期就报出来（运行期才发现等于每次决策都白跑一遍）。
+    /// Dependencies declared but missing from the catalog are reported at load time (discovering it at runtime means every decision does the work twice for nothing).
     pub fn missing_catalog_facts(&self, catalog: &FactCatalog) -> Vec<String> {
         self.deps
             .iter()
@@ -84,8 +84,8 @@ impl Provider for DerivedProvider {
     }
 
     fn fetch(&self, ctx: &ProviderCtx<'_>) -> Vec<(String, FactSample)> {
-        // 依赖事实按声明类型强校验后再进 slot：与引擎入口 `slots::fill` 同一套规则，
-        // 避免「快照里是字符串 "1500"、派生里当成字符串比较」这种双标。
+        // Dependency facts are type-checked against their declared types before entering slots: the same rules as the engine entry `slots::fill`,
+        // so we avoid double standards such as "the snapshot has the string "1500" but derivation compares it as a string".
         let mut slots: Vec<Value> = Vec::with_capacity(self.deps.len());
         let mut absent: BTreeSet<u32> = BTreeSet::new();
         let mut broken: BTreeSet<u32> = BTreeSet::new();
@@ -99,7 +99,7 @@ impl Provider for DerivedProvider {
                 Some(raw) => match kind.coerce(raw) {
                     Ok(v) => slots.push(v),
                     Err(_) => {
-                        // 有值但类型不符 → 上游供给错了（PROVIDER_ERROR），不是「没提供」
+                        // Has a value but the type does not match -> upstream supplied it wrongly (PROVIDER_ERROR), not "not provided"
                         slots.push(Value::Null);
                         broken.insert(idx as u32);
                     }
@@ -121,7 +121,7 @@ impl Provider for DerivedProvider {
             let mut budget = gr_vm::Budget::new(self.budget_steps);
             match gr_vm::vm::run(&item.chunk, &slots, ctx.request_time, &mut budget) {
                 Ok(Value::Null) => {
-                    // 算不出确定值就不装成 `null`：快照里禁止用 null 表达（`contracts/02` §3.2）
+                    // If no definite value can be computed, do not store `null`: expressing values as null is forbidden in snapshots (`contracts/02` §3.2)
                     out.push((item.fact.clone(), FactSample::missing(MissingReason::NotProvided)));
                 }
                 Ok(v) => match serde_json::to_value(&v) {
@@ -141,10 +141,10 @@ impl Provider for DerivedProvider {
     }
 }
 
-/// `Expr::Fact` → `Expr::Slot`（与 `gr-ir::resolve_expr` 同一规则：编译期解析）。
+/// `Expr::Fact` -> `Expr::Slot` (same rule as `gr-ir::resolve_expr`: resolved at compile time).
 ///
-/// 派生表达式不接受裸 `slot`：外部配置里出现 slot 下标只能说明「有人在手写编译后 IR」，
-/// 那属于越过 DSL 直接构造内部结构，直接拒绝比容忍更安全。
+/// A derived expression does not accept a bare `slot`: a slot index showing up in external config only means "someone is hand-writing compiled IR";
+/// that bypasses the DSL and builds internal structures directly, and rejecting it outright is safer than tolerating it.
 fn resolve(
     expr: &Expr,
     deps: &[(String, FactKind)],

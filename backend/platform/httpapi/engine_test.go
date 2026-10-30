@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// fakeEngine 扮演决策服务：只有界面上用得到的三个端点。
+// fakeEngine plays the decision service: only the three endpoints the UI needs.
 func fakeEngine(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -34,7 +34,7 @@ func fakeEngine(t *testing.T) *httptest.Server {
 	}))
 }
 
-// 没配 --engine-url 时必须明说「没配置」，不能伪装成「连不上」。
+// Without --engine-url it must say "not configured" explicitly, not disguise it as "unreachable".
 func TestEngineInfoNotConfigured(t *testing.T) {
 	rec, body := do2(New(Deps{}), "GET", "/api/v1/engine", "")
 	if rec.Code != http.StatusServiceUnavailable {
@@ -65,7 +65,7 @@ func TestEngineInfoReportsPackages(t *testing.T) {
 	}
 }
 
-// 引擎没起时是 502 + ENGINE_UNREACHABLE：这是「配置对了但对面没活」，与 503 不同。
+// With the engine down it is 502 + ENGINE_UNREACHABLE: "the config is right but the other side is not up", which differs from 503.
 func TestEngineInfoUnreachable(t *testing.T) {
 	rec, body := do2(New(Deps{EngineURL: "http://127.0.0.1:1"}), "GET", "/api/v1/engine", "")
 	if rec.Code != http.StatusBadGateway || body["errorCode"] != "ENGINE_UNREACHABLE" {
@@ -73,7 +73,7 @@ func TestEngineInfoUnreachable(t *testing.T) {
 	}
 }
 
-// 试跑：请求体与响应（含错误）都要逐字转发，平台不二次解释引擎的诊断。
+// Trial run: both the request body and the response (including errors) are forwarded verbatim; the platform does not reinterpret the engine's diagnostics.
 func TestTrialProxiesBodyAndStatus(t *testing.T) {
 	eng := fakeEngine(t)
 	defer eng.Close()
@@ -87,7 +87,7 @@ func TestTrialProxiesBodyAndStatus(t *testing.T) {
 		t.Fatalf("响应应原样透传: %v", body)
 	}
 
-	// 引擎侧的错误码要原样回来，不能被平台改写成自己的错误
+	// The engine's own reason code must come back unchanged; the platform must not rewrite it into one of its own errors
 	rec, body = do2(h, "POST", "/api/v1/trial", `{"context":{}}`)
 	if rec.Code != http.StatusBadRequest || body["errorCode"] != "CONTRACT_INVALID" {
 		t.Fatalf("引擎 400 应原样透传，实际 %d %v", rec.Code, body)
@@ -105,13 +105,13 @@ func TestTrialRejectsHugeBody(t *testing.T) {
 	h := New(Deps{EngineURL: "http://127.0.0.1:1"})
 	huge := `{"snapshot":{"x":"` + strings.Repeat("a", 4<<20) + `"}}`
 	rec, body := do2(h, "POST", "/api/v1/trial", huge)
-	// 413 而不是 400：请求体本身没写错，是太大了。截断转发会让引擎报一个假错误。
+	// 413 rather than 400: the request body itself is not malformed, it is just too large. Forwarding it truncated would make the engine report a bogus error.
 	if rec.Code != http.StatusRequestEntityTooLarge || body["errorCode"] != "PAYLOAD_TOO_LARGE" {
 		t.Fatalf("超过 4MB 应 413 PAYLOAD_TOO_LARGE，实际 %d %v", rec.Code, body)
 	}
 }
 
-// do2 发一个请求并解析 JSON 响应（错误也解析，便于断言 errorCode）。
+// do2 sends one request and parses the JSON response (errors included, so errorCode can be asserted).
 func do2(h http.Handler, method, path, body string) (*httptest.ResponseRecorder, map[string]any) {
 	var r *http.Request
 	if body == "" {

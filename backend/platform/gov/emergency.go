@@ -8,16 +8,16 @@ import (
 	"goldenrules/platform/packages"
 )
 
-// 紧急通道（`contracts/04` §7）。
+// Emergency channel (`contracts/04` §7).
 //
-// 线上事故需要立即修复时，允许「发布人直接发布」，但代价必须显式记账：
+// When a production incident needs an immediate fix, "the releaser publishes directly" is allowed, but the price must be booked explicitly:
 //
-//	① 24h 内必须补审（事后审批），超期补审会被标记 Late；
-//	② 全程留痕并标记 EMERGENCY；
-//	③ 仅 L3 及以下可用；L4 紧急变更必须双人授权（发布人 + 1 名负责人）。
+//	① a makeup review (post-hoc approval) is required within 24h; an overdue review is marked Late;
+//	② the whole flow is audited and flagged EMERGENCY;
+//	③ only L3 and below may use it; an emergency L4 change requires two-person authorization (the releaser + 1 owner).
 //
-// 这里刻意**不**给紧急通道开任何后门：不跳过 A-8（agent 永不发布）、不跳过审计、
-// 不跳过「变更单必须存在」。紧急只压缩「等审批的时间」，不压缩「谁来负责」。
+// Deliberately, **no** backdoor is opened here: A-8 is not skipped (an agent never publishes), auditing is not skipped,
+// and "the change request must exist" is not skipped. Emergency only compresses "the time spent waiting for approval", never "who is accountable".
 const (
 	CodeEmergencyLevelInvalid   = "GOV_EMERGENCY_LEVEL_INVALID"
 	CodeEmergencySecondRequired = "GOV_EMERGENCY_SECOND_REQUIRED"
@@ -28,10 +28,10 @@ const (
 	CodeMakeupReviewSelf        = "GOV_MAKEUP_REVIEW_SELF"
 )
 
-// 补审窗口（`contracts/04` §7）。
+// Makeup review window (`contracts/04` §7).
 const makeupReviewWindow = 24 * time.Hour
 
-// EmergencyInput 紧急发布入参。
+// EmergencyInput is the input for an emergency publish.
 type EmergencyInput struct {
 	ChangeID   string
 	Actor      string
@@ -39,15 +39,15 @@ type EmergencyInput struct {
 	Reason     string
 	ValidFrom  string
 	ValidUntil string
-	// SecondActor L4 必需：共同授权的负责人（必须是另一个人，且不是 agent）
+	// SecondActor is required for L4: the co-authorizing owner (must be another person, and not an agent)
 	SecondActor     string
 	SecondActorType string
 }
 
-// EmergencyPublish 走紧急通道发布：跳过等待审批，但把「谁按的、谁共同授权」记全。
+// EmergencyPublish publishes through the emergency channel: it skips waiting for approval, but records in full "who triggered it, who co-authorized it".
 //
-// 版本状态如果是 draft，会先推到 approved 再发布——不是绕过状态机，而是**在一条被审计的路径上
-// 把这两步合成一次操作**，保证状态机对其他读者仍然是连续的。
+// If the version is still draft, it is first pushed to approved and then published — this does not bypass the state machine; it **merges the two steps
+// into one operation on an audited path**, keeping the state machine continuous for every other reader.
 func (s *Service) EmergencyPublish(in EmergencyInput) (Change, error) {
 	if in.ActorType == SubmitterAgent {
 		return Change{}, errf(CodeAgentCannotPublish, "agent 永远不能发布（A-8），紧急通道也不例外")
@@ -74,8 +74,8 @@ func (s *Service) EmergencyPublish(in EmergencyInput) (Change, error) {
 			fmt.Sprintf("变更单状态是 %s，只有 submitted/approved 可走紧急通道", snapshot.Status))
 	}
 
-	// 等级门槛：L4 必须双人授权（§7）。这是紧急通道唯一的「额外门槛」，
-	// 也是它唯一不能压缩的东西——越紧急的高风险变更越需要第二双眼睛。
+	// Level threshold: L4 requires two-person authorization (§7). This is the only "extra threshold" of the emergency channel,
+	// and the only thing it must never compress — the more urgent a high-risk change, the more it needs a second pair of eyes.
 	if snapshot.RiskLevel == LevelL4 {
 		if strings.TrimSpace(in.SecondActor) == "" {
 			return Change{}, errf(CodeEmergencySecondRequired,
@@ -89,7 +89,7 @@ func (s *Service) EmergencyPublish(in EmergencyInput) (Change, error) {
 		}
 	}
 
-	// 版本推进：draft → approved → published 一次做完，但每一步都真实发生（可被其它读者观察到连续状态）
+	// Version advance: draft → approved → published in one go, but every step really happens (other readers observe a continuous state)
 	v, ok := s.pkg.Get(snapshot.PackageID, snapshot.PackageVersion)
 	if !ok {
 		return Change{}, &packages.NotFoundError{PackageID: snapshot.PackageID, Version: snapshot.PackageVersion}
@@ -140,7 +140,7 @@ func (s *Service) EmergencyPublish(in EmergencyInput) (Change, error) {
 		ChangeID: out.ChangeID, PackageID: out.PackageID, PackageVersion: out.PackageVersion,
 		RiskLevel: out.RiskLevel, To: ChangePublished, Reason: in.Reason, Detail: detail,
 	})
-	// 发布动作本身也要留一条常规事件，保证「发布史」不因为走了紧急通道而出现空洞。
+	// The publish itself also records a regular event, so the "publish history" has no hole just because the emergency channel was used.
 	s.audit(AuditEvent{
 		Action: ActionPackagePublished, Actor: in.Actor, ActorType: in.ActorType,
 		ChangeID: out.ChangeID, PackageID: published.PackageID, PackageVersion: published.PackageVersion,
@@ -149,10 +149,10 @@ func (s *Service) EmergencyPublish(in EmergencyInput) (Change, error) {
 	return out, nil
 }
 
-// MakeupReview 紧急发布后的事后补审（`contracts/04` §7）。
+// MakeupReview is the post-hoc review after an emergency publish (`contracts/04` §7).
 //
-// 超期补审**不拒绝**，只标记 `Late`：拒绝会让「已经发出去的变更」永远处于未补审状态，
-// 那比迟到更糟。合规上要的是「有没有补、什么时候补的」，不是一个卡死的记录。
+// An overdue makeup review is **not refused**, only marked `Late`: refusing would leave "a change that already shipped" permanently unreviewed,
+// which is worse than being late. What compliance wants is "was it reviewed, and when", not a record that is permanently stuck.
 func (s *Service) MakeupReview(changeID, actor, actorType, role, comment string) (Change, error) {
 	if !validRole(role) {
 		return Change{}, errf(CodeInvalidArgument, "未知的审批角色: "+role)
@@ -178,7 +178,7 @@ func (s *Service) MakeupReview(changeID, actor, actorType, role, comment string)
 			return errf(CodeMakeupReviewDuplicate, "该紧急变更已补审过")
 		}
 		if actor == c.EmergencyBy {
-			// 自己发、自己补审 = 没有补审。这是紧急通道最容易退化成橡皮图章的地方。
+			// Publishing yourself and reviewing yourself = no review. This is where the emergency channel most easily degrades into a rubber stamp.
 			return errf(CodeMakeupReviewSelf, "补审人不能是紧急发布人本人（contracts/04 §4 职责分离）")
 		}
 		late := false
@@ -212,7 +212,7 @@ func (s *Service) MakeupReview(changeID, actor, actorType, role, comment string)
 	return out, nil
 }
 
-// PendingMakeupReviews 列出「紧急发布但还没补审」的变更单（超时巡检入口）。
+// PendingMakeupReviews lists change requests that were emergency-published but not yet makeup-reviewed (the overdue patrol entry point).
 func (s *Service) PendingMakeupReviews() []Change {
 	var out []Change
 	s.doc.View(func(d *Doc) {

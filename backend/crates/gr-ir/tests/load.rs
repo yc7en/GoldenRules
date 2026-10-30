@@ -1,6 +1,6 @@
-//! B1 验收：
-//! - 千条规则规则包能加载，slot 解析正确；
-//! - 按 scene 选择后只扫相关规则集，前置事实缺失时跳过对应规则。
+//! B1 acceptance:
+//! - a thousand-rule package loads and slots resolve correctly;
+//! - after selection by scene only the relevant rulesets are scanned; rules whose gating fact is missing are skipped.
 
 use gr_contract::*;
 use gr_ir::{load, load_from_json, LoadLimits};
@@ -26,7 +26,7 @@ fn loads_package_and_resolves_slots() {
 
     let rs = pkg.ruleset("rs-amount-limit").unwrap();
     assert_eq!(rs.rule_count, 3);
-    // 字段引用已解析成 slot 下标：request.amount 是 slot 0
+    // field references are already resolved into slot indices: request.amount is slot 0
     let r2001 = rs.rules.iter().find(|r| r.rule.rule_id == "R2001").unwrap();
     match &r2001.rule.when {
         Expr::Op(op) => {
@@ -36,13 +36,13 @@ fn loads_package_and_resolves_slots() {
         }
         other => panic!("unexpected when: {other:?}"),
     }
-    // assign 里的字段引用也被解析
+    // field references inside assign are resolved too
     let assign = &r2001.rule.then.assign[0];
     assert_eq!(first_leaf_slot(&assign.expr), Some(0));
     assert_eq!(r2001.gating_slot, Some(0));
     assert!(r2001.has_assign);
 
-    // decimal 字面量保持字符串精度
+    // decimal literals keep string precision
     let r2002 = rs.rules.iter().find(|r| r.rule.rule_id == "R2002").unwrap();
     if let Expr::Op(op) = &r2002.rule.when {
         assert_eq!(op.args[1], Expr::Literal(Literal::dec("1000")));
@@ -69,12 +69,12 @@ fn rules_are_sorted_by_priority_then_id() {
 #[test]
 fn scene_selection_limits_scan_scope() {
     let pkg = load_fixture();
-    // 单场景决策只选一个规则集：withdraw-rate 只有 2 条规则，不会碰 withdraw-risk-check 的 7 条
+    // a single-scene decision picks only one ruleset: withdraw-rate has just 2 rules and never touches the 7 of withdraw-risk-check
     let rs = pkg.select_ruleset("withdraw-rate", None, None).expect("select");
     assert_eq!(rs.ruleset_id, "rs-withdraw-rate");
     assert_eq!(rs.rule_count, 2);
 
-    // 一个场景挂多个规则集时，必须显式指定，避免「顺手全跑」
+    // when a scene carries several rulesets they must be given explicitly, avoiding "just run everything while at it"
     let err = pkg.select_ruleset("withdraw-risk-check", None, None).unwrap_err();
     assert_eq!(err.issues[0].code, ErrorCode::VersionSelectionConflict);
 
@@ -91,7 +91,7 @@ fn pruning_skips_rules_whose_gate_fact_is_missing() {
     let rs = pkg.ruleset("rs-freq").unwrap();
     assert_eq!(rs.plan(&Default::default()).len(), 2);
 
-    // riskScore 是 slot 1，缺失 → R3002 被跳过
+    // riskScore is slot 1, missing -> R3002 is skipped
     let mut missing = std::collections::BTreeSet::new();
     missing.insert(1u32);
     let plan = rs.plan(&missing);
@@ -161,7 +161,7 @@ fn thousand_rule_package_loads() {
     assert_eq!(loaded.rule_count, 1000);
     let rs = loaded.ruleset("rs-bench").unwrap();
     assert_eq!(rs.plan(&Default::default()).len(), 1000);
-    // 加载 1000 条（含 slot 解析 + 排序）应在毫秒级
+    // loading 1000 rules (including slot resolution + sorting) should stay in the millisecond range
     assert!(elapsed.as_millis() < 200, "load took {elapsed:?}");
 }
 
@@ -214,7 +214,7 @@ fn rejects_rule_over_package_limit() {
 fn rejects_unknown_fact_reference() {
     let mut pkg: RulePackage =
         serde_json::from_str(&fixture("rule-package.json")).expect("parse fixture");
-    // 只把规则里的字段引用写错（slot 表保持正确），模拟「引用了目录里不存在的字段」
+    // only break the field reference inside the rule (keep the slot table correct), simulating "referencing a field that does not exist in the catalog"
     pkg.rulesets[1].rules[0].when = Expr::op(
         "gt",
         vec![Expr::fact("request.amout"), Expr::fact("config.withdrawDailyLimit")],

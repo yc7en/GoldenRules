@@ -103,7 +103,7 @@ func TestValidationRules(t *testing.T) {
 
 func TestWarnDoesNotBlock(t *testing.T) {
 	in := amountFact()
-	in.Unit = "" // 金额缺 unit：只告警
+	in.Unit = "" // amount without unit: warn only
 	issues := Validate(Normalize(in), nil)
 	if HasError(issues) {
 		t.Fatalf("unit 缺失不应阻断: %+v", issues)
@@ -137,14 +137,14 @@ func TestUpdateBreakingChangeNeedsVersionBump(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	// 改类型但不升版本 → 拒绝
+	// change the type without bumping the version → rejected
 	changed := amountFact()
 	changed.Type = "integer"
 	if _, issues, err := svc.Update("admin", "request.amount", changed); err == nil {
 		t.Fatalf("改类型未升版本应被拒绝，实际 issues=%+v", issues)
 	}
 
-	// 升版本后允许
+	// allowed after the version bump
 	changed.Version = "v2"
 	got, _, err := svc.Update("admin", "request.amount", changed)
 	if err != nil {
@@ -211,7 +211,7 @@ func TestArtifactsIdempotentAndDrift(t *testing.T) {
 		t.Fatalf("首次生成应写 3 个文件，实际 %v", changed)
 	}
 
-	// 幂等：再写一次不应有任何改动
+	// idempotent: writing again must not change anything
 	changed, err = svc.Write(dir)
 	if err != nil {
 		t.Fatalf("rewrite: %v", err)
@@ -228,7 +228,7 @@ func TestArtifactsIdempotentAndDrift(t *testing.T) {
 		t.Fatalf("刚生成不应过期: %+v", drifts)
 	}
 
-	// 改事实目录但不重新生成 → 必须被 CI 门禁抓到
+	// change the fact catalog without regenerating → must be caught by the CI gate
 	if _, _, err := svc.Create("admin", contracts.FactSchema{
 		Fact: "sanctions.hit", Type: "boolean", Required: true, Version: "v1",
 	}); err != nil {
@@ -265,7 +265,7 @@ func TestSlotTableDeterministic(t *testing.T) {
 	if len(arts.SlotTable) != 2 {
 		t.Fatalf("slot 数 = %d", len(arts.SlotTable))
 	}
-	// 按字段名升序：customer.level 在 request.amount 之前
+	// ascending by field name: customer.level comes before request.amount
 	if arts.SlotTable[0].Name != "customer.level" || arts.SlotTable[1].Name != "request.amount" {
 		t.Fatalf("slot 顺序不确定: %+v", arts.SlotTable)
 	}

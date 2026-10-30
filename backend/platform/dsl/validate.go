@@ -9,29 +9,29 @@ import (
 	"goldenrules/platform/contracts"
 )
 
-// Limits 静态校验的资源上限（`contracts/01` §4.5）。
+// Limits holds the resource limits of static validation (`contracts/01` §4.5).
 type Limits struct {
 	MaxDepth      int
 	MaxNodes      int
 	MaxRulesPerRS int
-	// StrictNullable 打开「可空字段必须显式判空」的阻断（`contracts/01` §5.2 #4）。
+	// StrictNullable turns on blocking for "nullable fields must be explicitly null-checked" (`contracts/01` §5.2 #4).
 	StrictNullable bool
 }
 
-// DefaultLimits 契约默认值。
+// DefaultLimits returns the contract defaults.
 func DefaultLimits() Limits {
 	return Limits{MaxDepth: 64, MaxNodes: 1000, MaxRulesPerRS: 1000, StrictNullable: true}
 }
 
-// Input 一次 dry-run 校验的输入。
+// Input is the input of one dry-run validation.
 type Input struct {
 	Definition   Definition
 	Catalog      contracts.FactCatalog
-	OutputSchema *contracts.OutputSchema // 可为空：为空时只做「无法校验」的告警
+	OutputSchema *contracts.OutputSchema // may be nil: when nil only the "cannot validate" warning is raised
 	Limits       Limits
 }
 
-// Stats 编译统计（前端校验面板要显示）。
+// Stats holds compilation statistics (the frontend validation panel displays them).
 type Stats struct {
 	Rules       int `json:"rules"`
 	Slots       int `json:"slots"`
@@ -40,7 +40,7 @@ type Stats struct {
 	AssignCount int `json:"assignCount"`
 }
 
-// Report 是 dry-run 校验结果。`Valid=false` 时 `IR` 为 nil（不产出半成品）。
+// Report is the dry-run validation result. When `Valid=false`, `IR` is nil (no half-finished artifact is produced).
 type Report struct {
 	RulesetID     string              `json:"rulesetId"`
 	Valid         bool                `json:"valid"`
@@ -69,10 +69,10 @@ var builtinDecisions = map[string]bool{"APPROVE": true, "REJECT": true, "REVIEW"
 
 var reasonPrefixes = []string{"AMOUNT_", "LIST_", "FREQ_", "CONTRACT_", "DEGRADE_", "DEFAULT_"}
 
-// Analyze 是 B7 的 dry-run 主入口：解析 → 静态校验 → （无错时）编译出 IR 预览。
+// Analyze is the main dry-run entry point of B7: parse → static validation → (when error-free) compile an IR preview.
 //
-// 校验顺序刻意固定（结构 → 表展开 → 单规则语义 → 类型 → 输出变量 → 上限），
-// 保证同一份输入永远得到同一批诊断，便于前端/agent 复现。
+// The validation order is deliberately fixed (structure → table expansion → single-rule semantics → types → output variables → limits),
+// so the same input always yields the same set of diagnostics, which the frontend/agent can reproduce.
 func Analyze(in Input) Report {
 	lim := in.Limits
 	if lim.MaxDepth == 0 {
@@ -82,7 +82,7 @@ func Analyze(in Input) Report {
 	d := &diag{}
 	rep := Report{RulesetID: def.RulesetID}
 
-	// ---- 1 规则集结构 ----
+	// ---- 1 rule set structure ----
 	if strings.TrimSpace(def.RulesetID) == "" {
 		d.errorf(CodeRuleSetInvalid, "rulesetId", "", "", "规则集缺少 rulesetId")
 	} else if !identPattern.MatchString(def.RulesetID) {
@@ -110,7 +110,7 @@ func Analyze(in Input) Report {
 			"决策表/表达式是同一 IR 的两种写法，不是两个模块（contracts/01 §3.1）")
 	}
 
-	// ---- 2 写法展开 ----
+	// ---- 2 form expansion ----
 	rules := def.Rules
 	if def.Table != nil {
 		rules = ExpandTable(def.Table, d)
@@ -134,7 +134,7 @@ func Analyze(in Input) Report {
 	}
 	sort.Strings(names)
 
-	// ---- 3 逐条规则 ----
+	// ---- 3 rule by rule ----
 	seenID := map[string]bool{}
 	asts := make([]ruleAST, 0, len(rules))
 	for i, r := range rules {
@@ -216,7 +216,7 @@ func Analyze(in Input) Report {
 		asts = append(asts, ruleAST{Rule: r, When: e, Assigns: assigns})
 	}
 
-	// ---- 4 测试用例 ----
+	// ---- 4 test cases ----
 	for i, tc := range def.Tests {
 		tpath := fmt.Sprintf("tests[%d]", i)
 		if tc.TestID == "" {
@@ -240,7 +240,7 @@ func Analyze(in Input) Report {
 		}
 	}
 
-	// ---- 5 汇总 ----
+	// ---- 5 summary ----
 	rep.Errors, rep.Warnings = split(d.list)
 	rep.Stats.Rules = len(asts)
 	for _, a := range asts {
@@ -256,7 +256,7 @@ func Analyze(in Input) Report {
 		return rep
 	}
 
-	// ---- 6 编译（只有全绿才产出 IR）----
+	// ---- 6 compile (the IR is produced only when everything is green) ----
 	ir, slots, sourceHash, slotHash := compile(def, asts, cat)
 	rep.Valid = true
 	rep.IR = ir
@@ -279,7 +279,7 @@ func split(list []Diagnostic) (errs, warns []Diagnostic) {
 	return errs, warns
 }
 
-// checkThen 校验命中后果：决策枚举、理由码、assign 结构。
+// checkThen validates the hit consequence: decision enum, reason code, assign structure.
 func checkThen(d *diag, r contracts.Rule, path string, out *contracts.OutputSchema) {
 	tpath := path + ".then"
 	if r.Then.Decision == "" {
@@ -314,7 +314,7 @@ func hasKnownReasonPrefix(code string) bool {
 }
 
 // ---------------------------------------------------------------------------
-// 类型检查
+// Type checking
 // ---------------------------------------------------------------------------
 
 type checker struct {
@@ -325,8 +325,8 @@ type checker struct {
 	strictNullable bool
 }
 
-// guardsOf 收集「被显式判空」的字段：isNull(x) 与 coalesce(x, ..) 的第一个参数。
-// 这是可空字段的合法用法，不能让「可空必须判空」的检查把它误判成违规。
+// guardsOf collects the fields that are **explicitly null-checked**: isNull(x) and the first argument of coalesce(x, ..).
+// This is a legitimate use of nullable fields; the "nullable must be null-checked" rule must not flag it as a violation.
 func guardsOf(e *Expr) map[string]bool {
 	out := map[string]bool{}
 	e.Walk(func(n *Expr) {
@@ -343,7 +343,7 @@ func guardsOf(e *Expr) map[string]bool {
 	return out
 }
 
-// check 返回推断出的类型（"" = 未知，不继续报错以免噪声叠加）。
+// check returns the inferred type ("" = unknown; stop reporting to avoid piling up noise).
 func (c *checker) check(e *Expr, path string, guards map[string]bool) string {
 	if e == nil {
 		return ""
@@ -391,7 +391,7 @@ func (c *checker) checkOp(e *Expr, path string, guards map[string]bool) string {
 		}
 		c.d.errorf(CodeTypeMismatch, path, c.ruleID, "",
 			fmt.Sprintf("%s 的参数个数是 %d，要求 %s", label, len(e.Args), arityText(minA, maxA)))
-		// 参数个数错时仍继续检查子树，一次性给全诊断
+		// even when the arity is wrong, keep checking the subtree so all diagnostics come back at once
 	}
 
 	argKinds := make([]string, len(e.Args))
@@ -466,7 +466,7 @@ func (c *checker) checkOp(e *Expr, path string, guards map[string]bool) string {
 func (c *checker) checkCall(e *Expr, path string, argKinds []string) string {
 	switch e.Func {
 	case "now":
-		return "string" // datetime 以 RFC3339 字符串出现（contracts/02 §5）
+		return "string" // datetime arrives as an RFC3339 string (contracts/02 §5)
 	case "inSet", "contains", "isNull":
 		return "boolean"
 	case "stringLen":
@@ -489,7 +489,7 @@ func (c *checker) checkCall(e *Expr, path string, argKinds []string) string {
 	return ""
 }
 
-// checkComparable 比较运算的类型兼容性 + 枚举字面量合法性。
+// checkComparable checks type compatibility of comparison operators + validity of enum literals.
 func (c *checker) checkComparable(e *Expr, path string, argKinds []string, ordered bool) {
 	if len(e.Args) != 2 || len(argKinds) != 2 {
 		return
@@ -500,7 +500,7 @@ func (c *checker) checkComparable(e *Expr, path string, argKinds []string, order
 		return
 	}
 	if ordered {
-		// 大小比较只允许数值或同类型有序值
+		// Ordered comparisons only allow numbers or ordered values of the same type
 		if !(isNumeric(l) && isNumeric(r)) && l != r {
 			c.d.errorf(CodeTypeMismatch, path, c.ruleID, "",
 				fmt.Sprintf("%s 两侧类型不可比较：%s 与 %s", e.Op, l, r),
@@ -517,7 +517,7 @@ func (c *checker) checkComparable(e *Expr, path string, argKinds []string, order
 	c.checkEnumMembership(e.Args[1], literalValue(e.Args[0]), path, nil)
 }
 
-// checkEnumMembership 枚举字段与字面量比较时，字面量必须在枚举值内。
+// checkEnumMembership: when an enum field is compared with a literal, the literal must be one of the enum values.
 func (c *checker) checkEnumMembership(factSide *Expr, lit any, path string, _ map[string]bool) {
 	if factSide == nil || factSide.Kind != KindFact {
 		return
@@ -587,7 +587,7 @@ func anyDecimal(kinds []string) bool {
 	return false
 }
 
-// kindMatches 类型兼容：同类、数值互通、枚举与字符串互通。
+// kindMatches is type compatibility: same kind, numeric interop, enum/string interop.
 func kindMatches(a, b string) bool {
 	if a == b {
 		return true
@@ -612,7 +612,7 @@ func arityText(minA, maxA int) string {
 	}
 }
 
-// suggest 字段名拼错时给最近候选（编辑距离 ≤ 3）。
+// suggest returns the closest candidate (edit distance ≤ 3) when a field name is misspelled.
 func (c *checker) suggest(name string) string {
 	best, bestDist := "", 4
 	for _, n := range c.names {
@@ -626,7 +626,7 @@ func (c *checker) suggest(name string) string {
 	return "是否拼写错误？目录中相近字段：" + best
 }
 
-// editDistance Levenshtein 距离。
+// editDistance is the Levenshtein distance.
 func editDistance(a, b string) int {
 	ra, rb := []rune(a), []rune(b)
 	prev := make([]int, len(rb)+1)
@@ -658,19 +658,19 @@ func min3(a, b, c int) int {
 	return a
 }
 
-// RawJSON 便于把 AST 转回 RawMessage（编译层用）。
+// RawJSON makes it easy to convert the AST back to RawMessage (used by the compile layer).
 func RawJSON(e *Expr) json.RawMessage { return mustJSON(e) }
 
 // ---------------------------------------------------------------------------
-// 字面量类型归一
+// Literal type normalisation
 // ---------------------------------------------------------------------------
 
-// normalizeLiterals 把「与 decimal 字段比较的整数字面量」提升为 decimal。
+// normalizeLiterals promotes "integer literals compared with a decimal field" to decimal.
 //
-// 这是 `contracts/01` §7.3 的要求：`{"fact":"request.amount"} > 1000` 编译后是
-// `{"slot":3} > {"type":"decimal","value":"1000"}`。它不是隐式跨类型转换——事实之间
-// 依然不许混算，只是**字面量**按对侧字段类型落地，这样文本糖与结构化两种写法能编译出
-// 字节一致的 IR（§5.3）。
+// This is required by `contracts/01` §7.3: `{"fact":"request.amount"} > 1000` compiles to
+// `{"slot":3} > {"type":"decimal","value":"1000"}`. It is not an implicit cross-type conversion — facts must
+// still not be mixed across types; only the **literal** is materialised according to the opposite field's type, so that
+// the textual-sugar and structured forms compile into a byte-identical IR (§5.3).
 func normalizeLiterals(e *Expr, cat map[string]contracts.FactSchema) {
 	if e == nil {
 		return

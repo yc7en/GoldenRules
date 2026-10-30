@@ -1,7 +1,7 @@
-//! 静态常量 Provider：配置类事实（限额、开关、产品参数）。
+//! Static constant Provider: configuration-type facts (limits, switches, product parameters).
 //!
-//! 这类事实的共同点是「一次下发、整场不变」，最忌讳的是硬编码进规则里——
-//! 硬编码进规则意味着改一个限额就要重发规则包，而规则包是走审批的。
+//! What these facts share is "delivered once, constant for the whole scene", and the worst thing you can do is hard-code them into rules --
+//! hard-coding into rules means changing one limit requires republishing the rule package, and rule packages go through approval.
 
 use crate::sample::{FactSample, Provider, ProviderCtx};
 use std::collections::BTreeMap;

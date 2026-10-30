@@ -26,7 +26,7 @@ const goodRuleset = `{
   ]
 }`
 
-// PUT 前必须先过 dry-run：引用不存在字段的规则集存不进去。
+// A PUT must pass dry-run first: a ruleset referencing a missing field cannot be stored.
 func TestPutRulesetRejectsBadField(t *testing.T) {
 	h := newTestServer(t)
 	if rec, _ := do(t, h, "POST", "/api/v1/facts", factForRule); rec.Code != http.StatusCreated {
@@ -56,7 +56,7 @@ func TestPutRulesetRejectsBadField(t *testing.T) {
 		t.Fatalf("path = %v", first["path"])
 	}
 
-	// 没存进去
+	// not persisted
 	rec, _ = do(t, h, "GET", "/api/v1/rulesets/rs-amount-limit", "")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("非法规则集不应入库，实际 %d", rec.Code)
@@ -87,7 +87,7 @@ func TestPutValidateAndDeleteRuleset(t *testing.T) {
 		t.Fatalf("list = %d %s", rec.Code, rec.Body)
 	}
 
-	// dry-run 未保存的编辑：不写库
+	// dry-run of an unsaved edit: nothing is written to the store
 	draft := `{"definition":{"rulesetId":"rs-amount-limit","scene":"withdraw-risk-check",
 	  "defaultDecision":"REJECT","rules":[{"ruleId":"R9","priority":10,
 	  "when":{"op":"unknownOp","args":[{"fact":"request.amount"}]},
@@ -109,7 +109,7 @@ func TestPutValidateAndDeleteRuleset(t *testing.T) {
 	}
 }
 
-// B6 遗留：事实被规则集引用时不允许删除。
+// B6 leftover: a fact that a ruleset references must not be deleted.
 func TestFactDeleteBlockedByRuleset(t *testing.T) {
 	h := newTestServer(t)
 	if rec, _ := do(t, h, "POST", "/api/v1/facts", factForRule); rec.Code != http.StatusCreated {
@@ -132,7 +132,7 @@ func TestFactDeleteBlockedByRuleset(t *testing.T) {
 		t.Fatalf("referers = %v", details)
 	}
 
-	// 删掉规则集后即可删除事实
+	// once the ruleset is deleted the fact can be deleted
 	if rec, _ := do(t, h, "DELETE", "/api/v1/rulesets/rs-amount-limit", ""); rec.Code != http.StatusOK {
 		t.Fatalf("delete ruleset = %d", rec.Code)
 	}

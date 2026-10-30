@@ -1,14 +1,14 @@
-// Package packages 实现 B8：规则包编译、原子发布、不可变版本与回滚。
+// Package packages implements B8: rule package compilation, atomic publish, immutable versions and rollback.
 //
-// 契约依据：`contracts/01` §6（规则包结构）、`contracts/06`（生命周期：版本 / 生效时间 /
-// 状态机 / 灰度 / 回滚）。本包只管「包这个资产怎么流转」，不关心规则长什么样（`dsl` 包管），
-// 也不关心谁批准（B9 的 `gov` 包管）。
+// Contract basis: `contracts/01` §6 (rule package structure), `contracts/06` (lifecycle: versions / effective time /
+// state machine / canary / rollback). This package only cares about "how the package asset moves", not what rules look like (the `dsl` package owns that),
+// nor who approves (B9's `gov` package owns that).
 //
-// # 交付给引擎的产物
+// # Artifact delivered to the engine
 //
-// 平台冻结的是 **IR + slot 表 + 签名**（`contracts/01` §6 的 `RulePackage`）。
-// 字节码是引擎加载期由 IR 派生的（B2 `gr-vm`），**不入包**——`contracts/01` §4.1 明确
-// 「IR 是长期资产，执行后端可替换（VM → JIT → WASM）」，把字节码写进包会把执行后端钉死。
+// What the platform freezes is the **IR + slot table + signature** (`RulePackage` of `contracts/01` §6).
+// Bytecode is derived from the IR at engine load time (B2 `gr-vm`) and **is not part of the package** — `contracts/01` §4.1 states clearly that
+// "the IR is the long-lived asset and the execution backend is replaceable (VM → JIT → WASM)"; writing bytecode into the package would pin the backend.
 package packages
 
 import (
@@ -17,7 +17,7 @@ import (
 	"goldenrules/platform/contracts"
 )
 
-// 版本状态机（`contracts/06` §4.1）。
+// Version state machine (`contracts/06` §4.1).
 //
 //	draft → approved → published → retired
 //	              ↓
@@ -30,7 +30,7 @@ const (
 	StatusRejected  = "rejected"
 )
 
-// 版本状态相关的错误码。
+// Error codes related to version state.
 const (
 	CodeNotFound       = "PKG_NOT_FOUND"
 	CodeImmutable      = "PKG_IMMUTABLE"
@@ -43,15 +43,15 @@ const (
 	CodeNotApproved    = "PKG_NOT_APPROVED"
 	CodeStillServing   = "PKG_STILL_SERVING"
 	CodeRollbackTarget = "PKG_ROLLBACK_TARGET_INVALID"
-	// F-PKG06 发布门禁
+	// F-PKG06 publish gate
 	CodeVerifyFailed = "PKG_TESTCASE_FAILED"
-	// CodeVerifyUnavailable 「包里有 approved 用例，但没有执行器能证明它们通过」。
-	// 这时**不能放行**：放行等于把「已验证」变成一句没人核实过的话。
+	// CodeVerifyUnavailable means "the package has approved test cases, but no executor can prove they pass".
+	// It must **not** be let through: letting it through turns "verified" into a claim nobody ever checked.
 	CodeVerifyUnavailable = "PKG_VERIFY_UNAVAILABLE"
 )
 
-// Version 一个规则包版本。发布后**内容不可变**（`contracts/06` §2.2），
-// 只有状态与生效时间这些「生命周期字段」允许变化。
+// Version is one rule package version. After publish the **content is immutable** (`contracts/06` §2.2);
+// only the lifecycle fields such as status and effective time may change.
 type Version struct {
 	PackageID         string `json:"packageId"`
 	PackageVersion    string `json:"packageVersion"`
@@ -65,7 +65,7 @@ type Version struct {
 	CreatedBy string `json:"createdBy,omitempty"`
 	CreatedAt string `json:"createdAt,omitempty"`
 
-	// 生命周期时间（UTC）。`validFrom` 之前不生效，`validUntil` 到期退役。
+	// Lifecycle times (UTC). Not effective before `validFrom`; retired when `validUntil` expires.
 	ValidFrom  string `json:"validFrom,omitempty"`
 	ValidUntil string `json:"validUntil,omitempty"`
 
@@ -80,32 +80,32 @@ type Version struct {
 	SourceHashes map[string]string `json:"sourceHashes"`
 	RulesetIDs   []string          `json:"rulesetIds"`
 
-	// 用例计数：`contracts/01` §6.1 要求发布时显式提示未确认用例数，
-	// B9 的门禁（approved 用例必须全绿才能发布）也读这两个字段。
+	// Test case counts: `contracts/01` §6.1 requires publish to warn explicitly about the number of unconfirmed test cases,
+	// and B9's gate (approved test cases must all be green before publish) reads these two fields as well.
 	UnconfirmedTC int `json:"unconfirmedTestCases"`
 	ConfirmedTC   int `json:"confirmedTestCases"`
 
-	// 包内容（IR 形态）。发布后与 Signature 一起参与完整性校验。
+	// Package content (IR form). After publish it participates in the integrity check together with Signature.
 	Package contracts.RulePackage `json:"package"`
 }
 
-// Repo 包仓库文档。`Active` 是「哪个版本正在生效」的指针（`contracts/06` §6）。
+// Repo is the package repository document. `Active` is the pointer to "which version is currently effective" (`contracts/06` §6).
 type Repo struct {
 	Versions []Version         `json:"versions"`
 	Active   map[string]string `json:"active"`
 }
 
-// ensureActive 保证 Active 指针表可写。
+// ensureActive makes sure the Active pointer table is writable.
 //
-// persist 的 init 回调由调用方给，可能只给了 `Repo{}`；JSON 里字段缺省时 Unmarshal 也会
-// 把 map 留成 nil。往 nil map 写会 panic，所以在所有写入点前统一兜一层。
+// The persist init callback is supplied by the caller, who may pass just `Repo{}`; Unmarshal also leaves the map
+// as nil when the JSON field is absent. Writing to a nil map panics, so every write site gets the same guard.
 func (r *Repo) ensureActive() {
 	if r.Active == nil {
 		r.Active = map[string]string{}
 	}
 }
 
-// Clone 深拷贝（persist 的回滚靠它，不能只拷结构体）。
+// Clone deep-copies (persist's rollback relies on it; copying the struct alone is not enough).
 func (v Version) Clone() Version {
 	out := v
 	out.SourceHashes = make(map[string]string, len(v.SourceHashes))
@@ -116,7 +116,7 @@ func (v Version) Clone() Version {
 	return out
 }
 
-// IsEffective 判断某版本在给定时刻是否生效（`contracts/06` §3）。
+// IsEffective reports whether a version is effective at the given moment (`contracts/06` §3).
 func (v Version) IsEffective(now time.Time) bool {
 	if v.Status != StatusPublished {
 		return false
@@ -134,7 +134,7 @@ func (v Version) IsEffective(now time.Time) bool {
 	return true
 }
 
-// NotFoundError 版本或包不存在。
+// NotFoundError means the version or package does not exist.
 type NotFoundError struct {
 	PackageID string
 	Version   string
@@ -147,7 +147,7 @@ func (e *NotFoundError) Error() string {
 	return "规则包版本不存在: " + e.PackageID + "@" + e.Version
 }
 
-// StateError 状态机拒绝。
+// StateError is a state machine refusal.
 type StateError struct {
 	Code    string
 	Message string

@@ -1,18 +1,18 @@
-//! 决策服务进程（HTTP/JSON 主入口，`ARCHITECTURE.md` §2）。
+//! Decision service process (main HTTP/JSON entry, `ARCHITECTURE.md` §2).
 //!
-//! 端点：
-//! - `GET  /healthz`        存活 + 规则包可加载（PLAN B12 要探的就是这个）
-//! - `GET  /v1/packages`    已加载规则包摘要 + 资源画像
-//! - `GET  /v1/limits`      生效中的资源上限（B11 自述）
-//! - `POST /v1/decide`      Snapshot 模式：传完整快照，纯求值
-//! - `POST /v1/trial`       试跑：同 decide，但不落决策日志（平台 dry-run 用）
-//! - `POST /v1/assemble`    Assemble 模式：传业务入参，服务内调 Provider 组装（B5）
-//! - `POST /v1/admin/reload` 热重载规则包（B12：先编译后切换，发布零中断）
-//! - `POST /v1/admin/verify` approved 用例发布门禁（F-PKG06：跑候选包，任一失败即阻断）
+//! Endpoints:
+//! - `GET  /healthz`        liveness + rule package loadable (exactly what PLAN B12 wants to probe)
+//! - `GET  /v1/packages`    summary of loaded rule packages + resource profile
+//! - `GET  /v1/limits`      effective resource caps (B11 self-description)
+//! - `POST /v1/decide`      Snapshot mode: pass a complete snapshot, pure evaluation
+//! - `POST /v1/trial`       trial run: same as decide, but no decision log (for platform dry-run)
+//! - `POST /v1/assemble`    Assemble mode: pass business inputs, the service calls Providers to assemble (B5)
+//! - `POST /v1/admin/reload` hot reload of rule packages (B12: compile first, then swap; zero-interruption publish)
+//! - `POST /v1/admin/verify` approved test-case publish gate (F-PKG06: run the candidate package, any failure blocks)
 //!
-//! 刻意用 `std::net` 手写极简 HTTP，而不是引 axum：
-//! 决策服务对协议栈的要求只有「HTTP/1.1 + JSON + keep-alive」，多一个依赖就多一类升级风险。
-//! keep-alive 是 B12 才补上的——没有它，压测量到的全是 TCP 建连成本，不是决策成本。
+//! Why hand-write a minimal HTTP stack on `std::net` instead of pulling in axum:
+//! the decision service asks only "HTTP/1.1 + JSON + keep-alive" of a protocol stack, and every extra dependency is another upgrade risk.
+//! keep-alive only arrived with B12 -- without it, bench numbers measured all TCP connect cost rather than decision cost.
 
 use gr_contract::{DecisionResult, ErrorContract, ExecutionContext, FactCatalog, FactSnapshot};
 use gr_engine::{engine_from_json, DecisionOutcome, Engine, EngineConfig};
@@ -28,9 +28,9 @@ mod http;
 
 use http::{Request, Response};
 
-/// 空闲连接保持时间：太短会让 keep-alive 形同虚设，太长会堆积闲置线程
+/// Idle connection keep-alive time: too short makes keep-alive meaningless, too long piles up idle threads
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
-/// 单连接最多处理多少个请求（防止一个连接长期占用线程；到点主动关，客户端会重连）
+/// Max requests handled per connection (stops one connection from holding a thread indefinitely; we close on purpose at the limit and the client reconnects)
 const MAX_REQUESTS_PER_CONN: usize = 100_000;
 
 fn main() {
@@ -51,11 +51,11 @@ fn main() {
                     package_paths.push(p);
                 }
             }
-            // Assemble 模式的 Provider 配置（不给则 /v1/assemble 返回 503）
+            // Provider config for Assemble mode (without it, /v1/assemble returns 503)
             "--providers" => providers_path = args.next(),
-            // 热重载鉴权：给了就必须带 X-Reload-Token，不给则只允许本机/内网使用
+            // Hot-reload auth: when set, X-Reload-Token is mandatory; when unset, only localhost/intranet use is allowed
             "--reload-token" => reload_token = args.next(),
-            // B11：资源上限（不给则用 EngineConfig::default）
+            // B11: resource caps (EngineConfig::default is used when not given)
             "--max-inflight" => config.max_inflight = parse_arg(&mut args, "--max-inflight"),
             "--deadline-ms" => config.deadline_ms = parse_arg(&mut args, "--deadline-ms"),
             "--step-budget" => config.step_budget = parse_arg(&mut args, "--step-budget"),
@@ -144,7 +144,7 @@ fn main() {
                 let service = Arc::clone(&service);
                 thread::spawn(move || {
                     if let Err(e) = handle(stream, &service) {
-                        // 客户端提前断开是常态（压测、连接池回收），不值得刷错误日志
+                        // A client disconnecting early is routine (load tests, pool recycling), not worth spamming the error log
                         if e.kind() != std::io::ErrorKind::ConnectionReset
                             && e.kind() != std::io::ErrorKind::BrokenPipe
                         {
@@ -158,7 +158,7 @@ fn main() {
     }
 }
 
-/// 装载所需的全部输入（重载时按同样路径重读，所以路径要留住）。
+/// Every input needed to load (a reload re-reads the same paths, so the paths must be kept).
 struct Sources {
     catalog_path: String,
     package_paths: Vec<String>,
@@ -171,7 +171,7 @@ struct Loaded {
     assembler: Option<Assembler>,
 }
 
-/// 从磁盘装载引擎（可重入：启动与热重载共用同一条路径，避免两套行为）。
+/// Load the engine from disk (re-entrant: startup and hot reload share one path, so the two cannot behave differently).
 fn load(sources: &Sources) -> Result<Loaded, ErrorContract> {
     let catalog_json = std::fs::read_to_string(&sources.catalog_path).map_err(|e| {
         ErrorContract::new(
@@ -219,7 +219,7 @@ fn load(sources: &Sources) -> Result<Loaded, ErrorContract> {
     Ok(Loaded { engine, assembler })
 }
 
-/// 服务实例：引擎可替换（热重载），因此放在 `RwLock` 里；请求路径只读。
+/// Service instance: the engine can be swapped (hot reload), so it lives in an `RwLock`; the request path is read-only.
 struct Service {
     engine: RwLock<Arc<Engine>>,
     assembler: RwLock<Option<Arc<Assembler>>>,
@@ -241,10 +241,10 @@ impl Service {
         self.generation.load(Ordering::Acquire)
     }
 
-    /// 热重载：**先编译后切换**——新包编译失败就保留旧引擎，服务不断。
+    /// Hot reload: **compile first, then swap** -- if the new package fails to compile, the old engine stays and the service keeps running.
     ///
-    /// 这正是「发布零中断」的实现方式：编译期不持锁、不阻塞任何在途请求；
-    /// 切换只是把 `Arc` 换掉，在途请求继续用完它手里的旧引擎，天然做到「预热到全部副本」。
+    /// This is exactly how "zero-interruption publish" is implemented: no lock is held and no in-flight request is blocked during compilation;
+    /// the swap just replaces the `Arc`, and in-flight requests keep using the old engine they already hold, which naturally achieves "warm up every replica".
     fn reload(&self) -> Result<serde_json::Value, ErrorContract> {
         let loaded = load(&self.sources)?;
         let describe = loaded.engine.describe();
@@ -271,19 +271,19 @@ fn usage_exit(msg: &str) -> ! {
     std::process::exit(2);
 }
 
-/// 解析一个数值参数：写错了直接退出，不静默用默认值（资源上限被静默忽略是很危险的）。
+/// Parse a numeric argument: a typo exits immediately rather than silently using the default (a silently ignored resource cap is very dangerous).
 fn parse_arg<T: std::str::FromStr>(args: &mut impl Iterator<Item = String>, flag: &str) -> T {
     let raw = args.next().unwrap_or_else(|| usage_exit(&format!("{flag} 缺少取值")));
     raw.parse::<T>()
         .unwrap_or_else(|_| usage_exit(&format!("{flag} 的取值不合法: {raw}")))
 }
 
-// ---------------------------------------------------------------- 连接循环
+// ---------------------------------------------------------------- connection loop
 
-/// 一条连接处理多个请求（HTTP/1.1 keep-alive）。
+/// Handle multiple requests on one connection (HTTP/1.1 keep-alive).
 ///
-/// 读用 `BufReader`（缓冲必须跨请求保留，否则每次重建会丢掉已缓冲的下一个请求），
-/// 写用 `try_clone` 出来的独立句柄。
+/// Reads go through a `BufReader` (the buffer must survive across requests, otherwise rebuilding it would drop the next request already buffered),
+/// writes go through a separate handle obtained from `try_clone`.
 fn handle(stream: TcpStream, service: &Service) -> std::io::Result<()> {
     stream.set_read_timeout(Some(IDLE_TIMEOUT)).ok();
     stream.set_nodelay(true).ok();
@@ -294,7 +294,7 @@ fn handle(stream: TcpStream, service: &Service) -> std::io::Result<()> {
         let req = match read_request(&mut reader) {
             Ok(Some(r)) => r,
             Ok(None) => return Ok(()),
-            // 空闲超时/客户端断开：正常收尾，不当错误
+            // Idle timeout / client disconnect: normalize the shutdown, do not treat it as an error
             Err(e)
                 if e.kind() == std::io::ErrorKind::WouldBlock
                     || e.kind() == std::io::ErrorKind::TimedOut =>
@@ -356,7 +356,7 @@ fn read_request(reader: &mut BufReader<TcpStream>) -> std::io::Result<Option<Req
     let close = match conn.as_deref() {
         Some(v) if v.contains("close") => true,
         Some(v) if v.contains("keep-alive") => false,
-        // HTTP/1.0 默认关连接，HTTP/1.1 默认保持
+        // HTTP/1.0 closes by default, HTTP/1.1 keeps alive by default
         _ => version.eq_ignore_ascii_case("HTTP/1.0"),
     };
 
@@ -391,7 +391,7 @@ fn reason(status: u16) -> &'static str {
     }
 }
 
-// ---------------------------------------------------------------- 路由
+// ---------------------------------------------------------------- routing
 
 fn route(req: &Request, service: &Service) -> Response {
     match (req.method.as_str(), req.path.as_str()) {
@@ -416,13 +416,13 @@ fn route(req: &Request, service: &Service) -> Response {
                 .collect();
             Response::json(200, &serde_json::json!({ "packages": items }))
         }
-        // B11：生效中的资源上限（压测与容量规划读它，不靠猜）
+        // B11: effective resource caps (benchmarking and capacity planning read this instead of guessing)
         ("GET", "/v1/limits") => Response::json(200, &service.engine().limits_report()),
         ("POST", "/v1/decide") => decide(req, service, true),
         ("POST", "/v1/trial") => decide(req, service, false),
         ("POST", "/v1/assemble") => assemble(req, service),
         ("POST", "/v1/admin/reload") => reload(req, service),
-        // F-PKG06：发布门禁用例执行（拿候选包跑它自己的 approved 用例）
+        // F-PKG06: publish-gate test-case execution (run the candidate package's own approved cases)
         ("POST", "/v1/admin/verify") => verify(req, service),
         ("GET", "/") => Response::json(
             200,
@@ -452,11 +452,11 @@ fn health(service: &Service) -> serde_json::Value {
         "packages": describe.len(),
         "rules": describe.iter().map(|(_, _, _, r)| *r).sum::<usize>(),
         "resultVersion": gr_contract::RESULT_VERSION,
-        // 探「规则包可加载」的第二个证据：当前代次（热重载后应递增）
+        // Second piece of evidence for "the rule package is loadable": the current generation (it should increment after a hot reload)
         "generation": service.generation(),
-        // Assemble 是否可用：探「Provider 配置装载成功」，探不到就是 503 而不是假健康
+        // Whether Assemble is available: probes "the Provider config loaded"; if it cannot be probed, that is a 503 rather than fake health
         "assembleScenes": service.assembler().map(|a| a.describe().len()).unwrap_or(0),
-        // B11：在途数贴近上限时，扩容前先看这里
+        // B11: when in-flight approaches the cap, look here before scaling out
         "inflight": limits.inflight,
         "maxInflight": limits.max_inflight,
     })
@@ -483,12 +483,12 @@ fn decide(req: &Request, service: &Service, with_log: bool) -> Response {
         }
     };
 
-    // 取一次 Arc：热重载换引擎时，本次请求继续用旧引擎（在途一致性）
+    // Grab the Arc once: when a hot reload swaps the engine, this request keeps using the old one (in-flight consistency)
     let engine = service.engine();
     match engine.decide(&parsed.snapshot, &parsed.context) {
         Ok(outcome) => {
             if with_log {
-                // P0：日志先打到 stdout（结构化 JSON），B10 接存储与查询
+                // P0: logs go to stdout first (structured JSON); B10 wires up storage and query
                 if let Ok(line) = serde_json::to_string(&outcome.log) {
                     println!("{line}");
                 }
@@ -507,15 +507,15 @@ fn to_response(result: &DecisionResult) -> Response {
 #[serde(rename_all = "camelCase")]
 struct AssembleRequest {
     context: ExecutionContext,
-    /// 业务入参（事实名 → 原始值）。Provider 只补齐入参没给的那部分。
+    /// Business inputs (fact name -> raw value). Providers only fill in what the inputs did not supply.
     #[serde(default)]
     inputs: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
-/// Assemble 模式：传业务入参 → 内置 Provider 组装快照 → 同一套决策入口求值。
+/// Assemble mode: pass business inputs -> built-in Providers assemble the snapshot -> the same decision entry evaluates it.
 ///
-/// 响应只回 `DecisionResult`（决策契约 `contracts/03` 统一）：组装出的快照是中间产物，
-/// 可能含 PII（`contracts/02` §9），不对调用方暴露。
+/// The response only returns `DecisionResult` (unified by the decision contract `contracts/03`): the assembled snapshot is an intermediate product
+/// that may contain PII (`contracts/02` §9), so it is not exposed to callers.
 fn assemble(req: &Request, service: &Service) -> Response {
     let Some(assembler) = service.assembler() else {
         return Response::json(
@@ -542,7 +542,7 @@ fn assemble(req: &Request, service: &Service) -> Response {
 
     let snapshot = match assembler.assemble(&parsed.context, parsed.inputs) {
         Ok(s) => s,
-        // 场景未配置 = 404；配置/目录不一致 = 500。都是「装配侧」的问题，不是决策。
+        // Scene not configured = 404; config/catalog mismatch = 500. Both are "assembly-side" problems, not decisions.
         Err(err) => return Response::json(err.error_code.http_status(), &err),
     };
 
@@ -558,10 +558,10 @@ fn assemble(req: &Request, service: &Service) -> Response {
     }
 }
 
-/// 热重载（B12）：发布新的规则包文件后调用，**不中断在途请求**。
+/// Hot reload (B12): called after publishing new rule package files, **without interrupting in-flight requests**.
 ///
-/// 失败语义：新包编译不过 → 返回 500 且**旧引擎继续服务**。
-/// 「重载失败就把服务打挂」是最坏的选择：一次手滑的发布不该让整条链路停摆。
+/// Failure semantics: if the new package fails to compile -> return 500 and **the old engine keeps serving**.
+/// "Take the service down when a reload fails" is the worst option: one slipshod publish must not stall the whole chain.
 fn reload(req: &Request, service: &Service) -> Response {
     if let Some(denied) = admin_denied(req, service) {
         return denied;
@@ -577,7 +577,7 @@ fn reload(req: &Request, service: &Service) -> Response {
             Response::json(200, &report)
         }
         Err(err) => {
-            // 注意：这里旧引擎仍在服务，HTTP 500 只表示「这次重载没成功」
+            // Note: the old engine is still serving here; the HTTP 500 only means "this reload did not succeed"
             eprintln!("热重载失败（旧引擎保持服务）：{err}");
             Response::json(err.error_code.http_status(), &err)
         }
@@ -589,12 +589,12 @@ fn outcome_summary(o: &DecisionOutcome) -> String {
     format!("{} {}", o.result.decision, o.result.reason_code)
 }
 
-// ---------------------------------------------------------------- 发布门禁
+// ---------------------------------------------------------------- publish gate
 
-/// 管理员端点的统一鉴权。
+/// Unified auth for admin endpoints.
 ///
-/// 返回 `Some(response)` 表示应直接拒绝。思路是把「谁能改服务行为」收敛到一个判据里：
-/// 热重载与用例门禁都是发布链路上的动作，不该出现「一个要 token、一个不用」的裂缝。
+/// Returning `Some(response)` means the request should be rejected outright. The idea is to converge "who may change service behavior" into a single criterion:
+/// hot reload and the test-case gate are both actions on the publish path, and there must be no crack where "one needs a token and the other does not".
 fn admin_denied(req: &Request, service: &Service) -> Option<Response> {
     let expected = service.reload_token.as_ref()?;
     match req.header("x-reload-token") {
@@ -609,10 +609,10 @@ fn admin_denied(req: &Request, service: &Service) -> Option<Response> {
     }
 }
 
-/// 发布门禁（F-PKG06）：拿候选包跑它自己的 approved 用例。
+/// Publish gate (F-PKG06): run the candidate package's own approved test cases.
 ///
-/// 入参只带包体，不带事实目录——门禁必须用**这台引擎真正在跑的那份目录**，
-/// 否则「在我本地用另一份目录跑过了」就成了绕过门禁的口子。
+/// The request carries only the package, not the fact catalog -- the gate must use **the very catalog this engine is running**,
+/// otherwise "I already ran it locally against a different catalog" becomes a hole for bypassing the gate.
 #[derive(serde::Deserialize)]
 struct VerifyRequest {
     package: gr_contract::RulePackage,
@@ -660,7 +660,7 @@ fn verify(req: &Request, service: &Service) -> Response {
         }
     };
 
-    // 门禁是串行跑用例，不该被生产在途上限挡住；其余装载期硬顶照旧生效。
+    // The gate runs test cases serially and must not be blocked by the production in-flight cap; every other load-time hard cap still applies.
     let mut config = service.sources.config.clone();
     config.max_inflight = usize::MAX;
 

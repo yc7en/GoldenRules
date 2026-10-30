@@ -8,7 +8,7 @@ import (
 	"goldenrules/platform/contracts"
 )
 
-// stubVerifier 记录被调用次数，按需返回结果。
+// stubVerifier counts how many times it is called and returns a result on demand.
 type stubVerifier struct {
 	calls  int
 	report VerifyReport
@@ -22,7 +22,7 @@ func (v *stubVerifier) VerifyPackage(pkg contracts.RulePackage) (VerifyReport, e
 	return v.report, v.err
 }
 
-// approveFirstCase 把包内首条用例改成 approved（等价于业务确认）。
+// approveFirstCase flips the package's first test case to approved (equivalent to business confirmation).
 func approveFirstCase(t *testing.T, svc *Service, pkgID, version string) {
 	t.Helper()
 	err := svc.st.Update(func(r *Repo) error {
@@ -42,7 +42,7 @@ func approveFirstCase(t *testing.T, svc *Service, pkgID, version string) {
 	}
 }
 
-// 没有 approved 用例：门禁不需要执行器，发布照常放行。
+// No approved test cases: the gate needs no executor, and publish goes through as usual.
 func TestPublishWithoutApprovedCasesSkipsGate(t *testing.T) {
 	cat := loadCatalog(t)
 	svc := newSvc(t)
@@ -55,7 +55,7 @@ func TestPublishWithoutApprovedCasesSkipsGate(t *testing.T) {
 	}
 }
 
-// 有 approved 用例但没执行器 → fail-closed，不发布。
+// Approved test cases exist but there is no executor → fail-closed, no publish.
 func TestPublishWithApprovedCasesRequiresVerifier(t *testing.T) {
 	cat := loadCatalog(t)
 	svc := newSvc(t)
@@ -69,14 +69,14 @@ func TestPublishWithApprovedCasesRequiresVerifier(t *testing.T) {
 	if !errors.As(err, &se) || se.Code != CodeVerifyUnavailable {
 		t.Fatalf("应 %s，实际 %v", CodeVerifyUnavailable, err)
 	}
-	// 关键：包状态不能被动过
+	// Key point: the package state must not have been touched
 	v, _ := svc.Get("pkg-withdraw-risk", "v1")
 	if v.Status != StatusApproved {
 		t.Fatalf("门禁拦下后状态应仍是 approved，实际 %s", v.Status)
 	}
 }
 
-// 用例失败 → 阻断发布，且阻断原因里能直接看到是哪条用例、为什么。
+// A failing test case → publish blocked, and the blocking reason shows directly which case failed and why.
 func TestPublishBlockedByFailingCase(t *testing.T) {
 	cat := loadCatalog(t)
 	svc := newSvc(t)
@@ -103,7 +103,7 @@ func TestPublishBlockedByFailingCase(t *testing.T) {
 	}
 }
 
-// 用例全过 → 发布成功，且执行器确实被调用。
+// All test cases pass → publish succeeds, and the executor really was called.
 func TestPublishRunsApprovedCases(t *testing.T) {
 	cat := loadCatalog(t)
 	svc := newSvc(t)
@@ -126,7 +126,7 @@ func TestPublishRunsApprovedCases(t *testing.T) {
 		t.Fatalf("门禁应被调用 1 次，实际 %d", v.calls)
 	}
 
-	// 重复发布（幂等）不应再跑一遍门禁——状态已不是 approved
+	// An idempotent re-publish must not run the gate again — the state is no longer approved
 	if _, err := svc.Publish("pkg-withdraw-risk", "v1", "release.A", "", ""); err != nil {
 		t.Fatalf("幂等发布: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestPublishRunsApprovedCases(t *testing.T) {
 	}
 }
 
-// 预演入口只读：跑用例但不改状态，便于发布前先看红灯。
+// The rehearsal entry point is read-only: it runs the test cases without changing state, so red lights can be seen before publishing.
 func TestVerifyPreviewIsReadOnly(t *testing.T) {
 	cat := loadCatalog(t)
 	svc := newSvc(t)
@@ -154,14 +154,14 @@ func TestVerifyPreviewIsReadOnly(t *testing.T) {
 	if v, _ := svc.Get("pkg-withdraw-risk", "v1"); v.Status != StatusDraft {
 		t.Fatalf("预演不应改状态，实际 %s", v.Status)
 	}
-	// 未知版本 → NotFoundError
+	// unknown version → NotFoundError
 	var nf *NotFoundError
 	if _, err := svc.Verify("pkg-withdraw-risk", "v9"); !errors.As(err, &nf) {
 		t.Fatalf("未知版本应 NotFound，实际 %v", err)
 	}
 }
 
-// 执行器报错（引擎挂了/超时）也算「无法证明通过」→ 阻断，不能当成通过。
+// An executor error (engine down/timeout) also counts as "cannot prove they pass" → block; never treat it as a pass.
 func TestVerifierErrorBlocksPublish(t *testing.T) {
 	cat := loadCatalog(t)
 	svc := newSvc(t)

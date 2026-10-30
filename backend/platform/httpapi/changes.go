@@ -8,12 +8,12 @@ import (
 	"goldenrules/platform/packages"
 )
 
-// actorType 从 `X-Actor-Type` 取提交者/操作者类型；认不出时按 agent（最小权限，`gov.NormalizeActorType`）。
+// actorType reads the submitter/actor type from `X-Actor-Type`; when unrecognized it falls back to agent (least privilege, `gov.NormalizeActorType`).
 func actorType(r *http.Request) string {
 	return gov.NormalizeActorType(r.Header.Get("X-Actor-Type"))
 }
 
-// GET /api/v1/approval-matrix —— 审批矩阵（前端渲染审批工作台 / 审计对账用）
+// GET /api/v1/approval-matrix —— approval matrix (used by the frontend to render the approval workbench / reconcile audits)
 func (s *Server) approvalMatrix(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"cells": gov.Describe()})
 }
@@ -29,7 +29,7 @@ func (s *Server) listChanges(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"total": len(out), "items": out})
 }
 
-// POST /api/v1/changes —— 提交变更单
+// POST /api/v1/changes —— submit a change request
 func (s *Server) createChange(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PackageID      string   `json:"packageId"`
@@ -154,7 +154,7 @@ func (s *Server) putGray(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"gray": g, "warnings": warns})
 }
 
-// POST /api/v1/rollback  {packageId, toVersion, reason} —— `PLAN.md` §9 的扁平回滚入口
+// POST /api/v1/rollback  {packageId, toVersion, reason} —— the flat rollback entry point from `PLAN.md` §9
 func (s *Server) rollbackFlat(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PackageID string `json:"packageId"`
@@ -173,7 +173,7 @@ func (s *Server) rollbackFlat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, summarize(v))
 }
 
-// GET /api/v1/audit?changeId=&packageId= —— 治理动作留痕（`contracts/04` §9）
+// GET /api/v1/audit?changeId=&packageId= —— audit trail of governance actions (`contracts/04` §9)
 func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	evs := s.deps.Gov.Audits(q.Get("changeId"), q.Get("packageId"))
@@ -183,7 +183,7 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"total": len(evs), "items": evs})
 }
 
-// changeSummary 列表视图：去掉审批位明细以外的冗长字段。
+// changeSummary builds the list view: drops the long fields beyond the approval-slot details.
 func changeSummary(c gov.Change) map[string]any {
 	out := map[string]any{
 		"changeId":       c.ChangeID,
@@ -198,7 +198,7 @@ func changeSummary(c gov.Change) map[string]any {
 		"approved":       len(c.Approvals),
 		"remaining":      len(c.Remaining()),
 		"createdAt":      c.CreatedAt,
-		// 审批时效（contracts/04 §8）：列表页要能直接按「已超时」排序催办
+		// Approval SLA (contracts/04 §8): the list page must be able to sort directly by "already overdue" to chase approvers
 		"sla": c.SLA(time.Now().UTC()),
 	}
 	if c.Emergency {
@@ -209,10 +209,10 @@ func changeSummary(c gov.Change) map[string]any {
 	return out
 }
 
-// POST /api/v1/changes/{id}/emergency-publish —— 紧急通道（contracts/04 §7）
+// POST /api/v1/changes/{id}/emergency-publish —— emergency channel (contracts/04 §7)
 //
-// 紧急发布是例外路径，因此接口上把「共同授权人」单独列为字段而不是塞进 header：
-// 双人授权必须能在请求体里被审计系统读到。
+// Emergency publish is an exception path, so the "co-authorizer" is an explicit request field rather than a header:
+// two-person authorization must be readable by the audit system from the request body.
 func (s *Server) emergencyPublish(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Reason          string `json:"reason"`
@@ -247,7 +247,7 @@ func (s *Server) emergencyPublish(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// POST /api/v1/changes/{id}/makeup-review —— 紧急发布后补审（contracts/04 §7）
+// POST /api/v1/changes/{id}/makeup-review —— post-hoc review after an emergency publish (contracts/04 §7)
 func (s *Server) makeupReview(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Role    string `json:"role"`
@@ -265,7 +265,7 @@ func (s *Server) makeupReview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, c)
 }
 
-// GET /api/v1/changes/pending-makeup-review —— 超时巡检：紧急发布但未补审的单子
+// GET /api/v1/changes/pending-makeup-review —— overdue patrol: change requests published under emergency without makeup review
 func (s *Server) pendingMakeupReview(w http.ResponseWriter, r *http.Request) {
 	list := s.deps.Gov.PendingMakeupReviews()
 	out := make([]map[string]any, 0, len(list))
@@ -275,8 +275,8 @@ func (s *Server) pendingMakeupReview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"total": len(out), "items": out})
 }
 
-// publishGuard 发布前的治理检查。`Gov` 未接线（单包测试/演练）时放行，
-// 但 `platformd` 一定接线——生产路径上「没有变更单就发布」是不存在的。
+// publishGuard is the governance check before publish. It lets the call through when `Gov` is not wired in (single-package tests/drills),
+// but `platformd` always wires it in — "publish without a change request" does not exist on the production path.
 func (s *Server) publishGuard(r *http.Request, changeID string, pkg packages.Version) error {
 	if s.deps.Gov == nil {
 		return nil

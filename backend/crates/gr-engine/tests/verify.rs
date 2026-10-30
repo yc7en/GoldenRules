@@ -1,7 +1,7 @@
-//! F-PKG06 验收：approved 用例门禁。
+//! F-PKG06 acceptance: the approved test-case gate.
 //!
-//! 门禁的价值全在「断言真的跑起来了」：所以每条用例都同时覆盖两个方向——
-//! 该过的必须过（否则门禁会把发布全堵死），该拦的必须拦（否则门禁等于装饰）。
+//! The value of a gate lies entirely in "the assertion really ran": so every case covers both directions --
+//! what should pass must pass (otherwise the gate would block every publish), and what should be blocked must be blocked (otherwise the gate is mere decoration).
 
 use gr_contract::*;
 use gr_engine::verify::{verify_package, TestFailure, VerifyReport};
@@ -21,10 +21,10 @@ fn package() -> RulePackage {
     serde_json::from_str(&fixture("rule-package.json")).expect("package")
 }
 
-/// 把 fixture 里那条用例改成指定状态（fixture 本身是 pending_review）。
+/// Set the fixture's test case to the given status (the fixture itself is pending_review).
 ///
-/// 该场景挂载了 3 个规则集，所以用例必须写明 `rulesetId`——这也正是门禁要教给
-/// 用例作者的事（见 `ambiguous_scene_blocks_the_gate`）。
+/// The scene mounts 3 rulesets, so the case must specify `rulesetId` -- which is exactly what the gate has to teach
+/// the case author (see `ambiguous_scene_blocks_the_gate`).
 fn with_case(status: TestCaseStatus, mutate: impl FnOnce(&mut TestCase)) -> RulePackage {
     let mut pkg = package();
     let mut tc = pkg.tests[0].clone();
@@ -43,7 +43,7 @@ fn failure_of(r: &VerifyReport) -> &TestFailure {
     r.failures.first().expect("应有一条失败")
 }
 
-// 已批准且预期正确的用例：门禁放行，且 `ran` 显示真的执行了。
+// An approved case with the expected-correct result: the gate passes it, and `ran` shows it really executed.
 #[test]
 fn approved_passing_case_opens_the_gate() {
     let pkg = with_case(TestCaseStatus::Approved, |_| {});
@@ -53,7 +53,7 @@ fn approved_passing_case_opens_the_gate() {
     assert!(r.summary().contains("1/1"), "{}", r.summary());
 }
 
-// 决策不一致必须拦下，并且原因要说清「期望什么、实际什么」。
+// A decision mismatch must block, and the reason must spell out "what was expected, what was actual".
 #[test]
 fn decision_mismatch_blocks_the_gate() {
     let pkg = with_case(TestCaseStatus::Approved, |tc| {
@@ -68,7 +68,7 @@ fn decision_mismatch_blocks_the_gate() {
     assert!(f.message.contains("REJECT") && f.message.contains("REVIEW"), "{}", f.message);
 }
 
-// 决策对了但原因码不对同样拦：原因码是调用方与客诉复盘的依据。
+// The decision is right but the reason code is wrong is blocked all the same: the reason code is what callers and complaint reviews rely on.
 #[test]
 fn reason_code_mismatch_blocks_the_gate() {
     let pkg = with_case(TestCaseStatus::Approved, |tc| {
@@ -79,7 +79,7 @@ fn reason_code_mismatch_blocks_the_gate() {
     assert_eq!(failure_of(&r).code, "REASON_MISMATCH");
 }
 
-// 输出字段比对：期望值是子集语义，写了的必须对上。
+// Output field comparison: expected values follow subset semantics, whatever is written must match.
 #[test]
 fn output_mismatch_blocks_the_gate() {
     let mut pkg = with_case(TestCaseStatus::Approved, |tc| {
@@ -92,7 +92,7 @@ fn output_mismatch_blocks_the_gate() {
     assert_eq!(f.code, "OUTPUT_MISMATCH");
     assert!(f.message.contains("riskLevel"), "{}", f.message);
 
-    // 期望值正确时放行（子集语义：只写想校验的字段就够）
+    // Passes when the expected value is correct (subset semantics: writing only the fields you care about is enough)
     pkg.tests[0].expect.outputs.insert(
         "riskLevel".into(),
         Value::Str("MEDIUM".into()),
@@ -100,7 +100,7 @@ fn output_mismatch_blocks_the_gate() {
     assert!(run(&pkg).ok(), "正确的输出期望应放行");
 }
 
-// 期望输出里写了引擎根本没产出的字段 → 明确报「缺失」，而不是静默放过。
+// An expected output names a field the engine never produced -> report it as "missing" explicitly instead of silently letting it through.
 #[test]
 fn missing_expected_output_is_a_failure() {
     let pkg = with_case(TestCaseStatus::Approved, |tc| {
@@ -114,12 +114,12 @@ fn missing_expected_output_is_a_failure() {
     assert!(f.message.contains("notProduced") && f.message.contains("缺失"), "{}", f.message);
 }
 
-// 未批准的用例不跑、不阻断，但必须记在 `skipped` 里——
-// 「没验」和「验过了」在报告里不能长得一样。
+// Unapproved cases are not run and do not block, but must be counted in `skipped` --
+// "not verified" and "verified" must not look the same in the report.
 #[test]
 fn pending_cases_are_skipped_not_passed() {
     let pkg = with_case(TestCaseStatus::PendingReview, |tc| {
-        // 故意写错预期：如果它被跑了，一定失败
+        // Deliberately wrong expectation: if it were run, it would certainly fail
         tc.expect.decision = Decision::Reject;
         tc.expect.reason_code = "NOPE".into();
     });
@@ -129,7 +129,7 @@ fn pending_cases_are_skipped_not_passed() {
     assert!(r.summary().contains("跳过 1"), "{}", r.summary());
 }
 
-// 一个 approved 都没有：放行但 ran=0，让调用方能区分「没用例」与「用例全过」。
+// Nothing is approved: pass but with ran=0, so the caller can distinguish "no cases" from "all cases passed".
 #[test]
 fn no_approved_cases_passes_with_zero_ran() {
     let mut pkg = package();
@@ -139,7 +139,7 @@ fn no_approved_cases_passes_with_zero_ran() {
     assert_eq!((r.total, r.ran, r.skipped), (0, 0, 0));
 }
 
-// 多条用例一次全收集：发布人要一次看到所有坏用例，而不是修一个跑一次。
+// All failures collected in one run: the publisher must see every bad case at once, not fix one and run again.
 #[test]
 fn all_failures_are_collected() {
     let mut pkg = package();
@@ -157,7 +157,7 @@ fn all_failures_are_collected() {
     assert_eq!(ids, vec!["T-BAD-1", "T-BAD-2"]);
 }
 
-// 用例的 scene 在包里不存在 → 引擎报错也要收成一条失败，不能让整个门禁 500。
+// The case's scene does not exist in the package -> an engine error must also be collected as one failure; it must not 500 the whole gate.
 #[test]
 fn unknown_scene_reports_engine_error() {
     let pkg = with_case(TestCaseStatus::Approved, |tc| {
@@ -168,7 +168,7 @@ fn unknown_scene_reports_engine_error() {
     assert_eq!(failure_of(&r).code, "ENGINE_ERROR");
 }
 
-// 场景挂多个规则集而用例没写明针对哪个 → 明确拒绝，绝不替它挑一个。
+// The scene mounts several rulesets and the case does not say which one it targets -> reject explicitly, never pick one for it.
 #[test]
 fn ambiguous_scene_blocks_the_gate() {
     let pkg = with_case(TestCaseStatus::Approved, |tc| {
@@ -185,22 +185,22 @@ fn ambiguous_scene_blocks_the_gate() {
     );
 }
 
-// 写明了规则集但该规则集不在这个场景上 → 也是配置错误，报清楚而不是猜。
+// The case names a ruleset but that ruleset is not on this scene -> also a configuration error; report it clearly instead of guessing.
 #[test]
 fn ruleset_mismatch_blocks_the_gate() {
     let pkg = with_case(TestCaseStatus::Approved, |tc| {
-        tc.ruleset_id = Some("rs-withdraw-rate".into()); // 属于另一个场景
+        tc.ruleset_id = Some("rs-withdraw-rate".into()); // belongs to another scene
     });
     let r = run(&pkg);
     assert!(!r.ok());
     assert_eq!(failure_of(&r).code, "RULESET_MISMATCH");
 }
 
-// 场景只挂一个规则集时无需写明 rulesetId（少写一句不该拦住发布）。
+// When a scene mounts only one ruleset, rulesetId is unnecessary (one less line written must not block the publish).
 #[test]
 fn single_ruleset_scene_needs_no_ruleset_id() {
     let mut pkg = package();
-    // 只保留 rs-withdraw-rate（独占 withdraw-rate 场景）
+    // Keep only rs-withdraw-rate (which exclusively owns the withdraw-rate scene)
     pkg.rulesets.retain(|rs| rs.ruleset_id == "rs-withdraw-rate");
     let mut tc = pkg.tests[0].clone();
     tc.test_id = "T-RATE".into();
@@ -213,14 +213,14 @@ fn single_ruleset_scene_needs_no_ruleset_id() {
     tc.expect.outputs.clear();
     pkg.tests = vec![tc];
     let r = run(&pkg);
-    // 断言的是「规则集被自动解析出来了」：只要不是 AMBIGUOUS_SCENE 即可，
-    // 业务结论对不对不是这条用例的职责。
+    // What is asserted is "the ruleset was resolved automatically": it only needs to not be AMBIGUOUS_SCENE,
+    // whether the business conclusion is right is not this case's job.
     if let Some(f) = r.failures.first() {
         assert_ne!(f.code, "AMBIGUOUS_SCENE", "单规则集场景不该要求 rulesetId");
     }
 }
 
-// 门禁必须用**固定时间基准**：跑两次结果一致，否则含时间条件的规则会随机红绿。
+// The gate must use a **fixed time baseline**: two runs give identical results, otherwise time-conditional rules flicker red/green.
 #[test]
 fn verification_is_deterministic() {
     let pkg = with_case(TestCaseStatus::Approved, |_| {});
@@ -229,7 +229,7 @@ fn verification_is_deterministic() {
     assert_eq!(a, b);
 }
 
-// 包本身编不过时 verify 返回 Err（不是「用例失败」）：这两种情况的处理人不同。
+// When the package itself does not compile, verify returns Err (not "case failure"): the two situations have different owners.
 #[test]
 fn uncompilable_package_is_an_error_not_a_failure() {
     let mut pkg = with_case(TestCaseStatus::Approved, |_| {});

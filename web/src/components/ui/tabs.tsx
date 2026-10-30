@@ -1,9 +1,10 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
-// 受控 Tabs。此前这里只渲染了一层 div，`TabsContent` 收到 value 直接丢掉，
-// 结果是「三个面板同时显示、点 tab 只换按钮高亮」—— 看起来像分区没做，
-// 实际是不分区。现在用 context 把当前值传下去，`TabsContent` 只显示匹配的那一块。
+// Controlled Tabs. Previously this only rendered a single layer of divs and `TabsContent` threw away the
+// value it received, so the result was "all three panels visible at once, clicking a tab only moved the
+// button highlight" - it looked like the sections were missing, when in fact there were no sections. Now
+// context passes the current value down and `TabsContent` only shows the matching block.
 
 interface TabsCtxValue {
   value?: string
@@ -69,7 +70,7 @@ const TabsTrigger = React.forwardRef<
   }
 >(({ className, active, value: ownValue, onClick, ...props }, ref) => {
   const ctx = React.useContext(TabsCtx)
-  // 两种用法都支持：显式传 active（页面自己算），或只传 value（交给 context 管）。
+  // Both usages are supported: pass active explicitly (the page computes it), or pass only value (left to context).
   const selected = active ?? (ownValue !== undefined && ownValue === ctx.value)
   return (
     <button
@@ -97,7 +98,7 @@ const TabsContent = React.forwardRef<
   React.HTMLAttributes<HTMLDivElement> & { value?: string }
 >(({ className, value: ownValue, ...props }, ref) => {
   const ctx = React.useContext(TabsCtx)
-  // 不匹配时用 hidden 而不是卸载：切回来时不丢编辑器状态、也不重跑请求。
+  // On mismatch use hidden instead of unmounting: switching back does not lose editor state or refire requests.
   const hidden = ownValue !== undefined && ctx.value !== ownValue
   return (
     <div

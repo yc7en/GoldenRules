@@ -49,7 +49,7 @@ export default function RuleSetEditor() {
       <Async state={ruleset} loadingLabel="读取规则集">
         {(def) => (
           <EditorInner
-            // revision 变了要重置编辑器内容，否则保存成功后文本还是旧的
+            // Reset the editor content when revision changes, otherwise the text is still stale after a successful save
             key={`${def.rulesetId}-${def.revision ?? 0}`}
             ruleset={def}
             catalogVersion={facts.data?.catalogVersion}
@@ -654,7 +654,7 @@ function renderCell(v: unknown): string {
   return String(v)
 }
 
-/** 表达式 → 可读文本。只做展示，不参与判定（判定永远在引擎里）。 */
+/** Expression -> readable text. Display only, never used for evaluation (evaluation always lives in the engine). */
 function exprToText(e: unknown): string {
   if (e === null || typeof e !== "object") return JSON.stringify(e)
   const obj = e as {

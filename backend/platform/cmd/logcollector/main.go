@@ -1,13 +1,13 @@
-// logcollector 是决策日志采集侧车（F-OBS06）：把引擎 stdout 的结构化决策日志搬进平台。
+// logcollector is the decision log collection sidecar (F-OBS06): it moves the structured decision logs from the engine's stdout into the platform.
 //
-// 用法（与引擎同机部署时最简）：
+// Usage (simplest when co-located with the engine):
 //
 //	gr-server ... | logcollector --platform http://127.0.0.1:8080
 //	logcollector --platform http://127.0.0.1:8080 --source /var/log/goldenrules/engine.log
 //
-// 为什么用管道而不是让引擎直连平台：决策路径不能依赖日志存储是否可用
-// （`contracts/03` §8）。管道把「日志投递」从决策链路上摘出去——平台宕了，
-// 决策照旧；侧车只在自己的缓冲里扛着，扛不住就丢并计数（见 obs/collector.go）。
+// Why a pipe instead of letting the engine talk to the platform directly: the decision path must not depend on whether log storage is available
+// (`contracts/03` §8). The pipe takes "log delivery" off the decision path — the platform can be down and
+// decisions continue; the sidecar holds on in its own buffer, and when it cannot it drops and counts (see obs/collector.go).
 package main
 
 import (
@@ -46,7 +46,7 @@ func main() {
 		src = f
 	}
 
-	// 缓冲为 0 是危险配置：读侧会一直阻塞在推送重试上，最终把引擎的管道堵死。
+	// A buffer of 0 is a dangerous configuration: the read side blocks forever on push retries and eventually plugs the engine's pipe.
 	if *buffer == 0 {
 		log.Printf("警告：--buffer 0 表示不丢弃，平台长时间不可用会反压到引擎 stdout（可能拖慢决策）")
 	}
@@ -91,7 +91,7 @@ func main() {
 	log.Printf("采集结束: %s", statsLine(collector.Stats()))
 }
 
-// statsLine 一行统计：丢了多少必须每次都能一眼看到。
+// statsLine renders the stats on one line: how much was dropped must be visible at a glance every time.
 func statsLine(s obs.CollectorStats) string {
 	return fmt.Sprintf(
 		"收到=%d 已推送=%d 失败=%d 丢弃=%d 噪声行=%d 批次=%d 待推送=%d",

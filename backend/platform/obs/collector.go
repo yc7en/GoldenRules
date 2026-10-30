@@ -13,29 +13,29 @@ import (
 	"time"
 )
 
-// Collector 日志采集侧车（F-OBS06）：把引擎 stdout 的结构化决策日志搬进平台。
+// Collector is the log collection sidecar (F-OBS06): it moves the engine's structured decision logs from stdout into the platform.
 //
-// 为什么要有侧车而不是「引擎直接写平台」：`contracts/03` §8 要求决策路径**不依赖**
-// 日志存储是否可用。引擎只管往 stdout 写一行 JSON，采集失败、平台重启都不影响决策；
-// 反过来，让引擎在决策路径上同步 HTTP 上报，平台抖一下就是决策 P99 抖一下。
+// Why a sidecar instead of "the engine writes to the platform directly": `contracts/03` §8 requires the decision path to be **independent** of
+// whether log storage is available. The engine just writes one JSON line to stdout, so collection failures and platform restarts never affect decisions;
+// conversely, having the engine report over synchronous HTTP on the decision path makes every platform hiccup a decision P99 hiccup.
 //
-// 三条刻意的取舍：
+// Three deliberate trade-offs:
 //
-//  1. **缓冲满就丢，不阻塞**。侧车一旦卡住，stdout 的管道会被填满，最终把引擎阻塞——
-//     那是「日志拖死决策」，比丢日志严重得多。丢的条数计入统计并周期上报，绝不静默。
-//  2. **噪声行直接跳过**。引擎启动时也会往 stdout 打人类可读的横幅，侧车不能因为
-//     一行不是 JSON 就退出。
-//  3. **重试有上限**。无限重试等于把内存耗光；重试用尽后整批记失败并继续前进，
-//     让「平台挂了」表现为可观测的失败计数，而不是侧车内存悄悄涨到 OOM。
+//  1. **Drop when the buffer is full, never block**. Once the sidecar stalls, the stdout pipe fills up and eventually blocks the engine —
+//     that is "logging killing decisions", far worse than losing logs. Dropped counts are tracked and reported periodically, never silenced.
+//  2. **Noise lines are skipped outright**. The engine also prints a human-readable banner to stdout at startup, and the sidecar must not
+//     exit just because one line is not JSON.
+//  3. **Retries are bounded**. Retrying forever just exhausts memory; once retries run out the whole batch is recorded as failed and we move on,
+//     so "the platform is down" shows up as an observable failure count instead of the sidecar's memory quietly growing until OOM.
 type Collector struct {
 	cfg    CollectorConfig
 	client IngestClient
 
 	buf []LogEntry
-	// warn 可选告警钩子（由 cmd 接到日志里）。侧车本身不打印，
-	// 否则测试里会刷屏、库也不好复用。
+	// warn is an optional warning hook (wired into logging by cmd). The sidecar itself does not print,
+	// otherwise tests would be flooded and the library would be hard to reuse.
 	warn func(string)
-	// 统计只增不减，便于运维看「今天丢了多少」。
+	// The counters only increase, so ops can see "how much was dropped today".
 	received atomic.Uint64
 	dropped  atomic.Uint64
 	sent     atomic.Uint64
@@ -44,27 +44,27 @@ type Collector struct {
 	batches  atomic.Uint64
 }
 
-// IngestClient 把一批日志推给平台。抽成接口是为了让测试不必起 HTTP 服务。
+// IngestClient pushes a batch of logs to the platform. It is an interface so tests do not have to run an HTTP server.
 type IngestClient interface {
 	Push(items []IngestItem) (IngestResult, error)
 	Describe() string
 }
 
-// CollectorConfig 采集参数。
+// CollectorConfig holds the collection parameters.
 type CollectorConfig struct {
-	// Batch 每批条数（平台单批上限 500）
+	// Batch is the number of entries per batch (the platform caps a batch at 500)
 	Batch int
-	// Flush 攒不够一批时的最长等待（决定日志延迟上限）
+	// Flush is the maximum wait when a batch is not yet full (it sets the log latency ceiling)
 	Flush time.Duration
-	// Buffer 缓冲上限；0 表示不丢（危险：等于让引擎等日志）
+	// Buffer is the buffer cap; 0 means never drop (dangerous: it makes the engine wait for the logs)
 	Buffer int
-	// Retries 单批最多重试次数
+	// Retries is the maximum number of retries per batch
 	Retries int
-	// Backoff 首次退避时长（指数增长，上限 5s）
+	// Backoff is the first backoff duration (grows exponentially, capped at 5s)
 	Backoff time.Duration
 }
 
-// DefaultCollectorConfig 默认参数：200 条一批、200ms 一刷、1 万条缓冲。
+// DefaultCollectorConfig holds the defaults: 200 entries per batch, a flush every 200ms, a 10k buffer.
 func DefaultCollectorConfig() CollectorConfig {
 	return CollectorConfig{
 		Batch:   200,
@@ -75,7 +75,7 @@ func DefaultCollectorConfig() CollectorConfig {
 	}
 }
 
-// CollectorStats 采集统计（周期打到 stderr，进程退出时打最终值）。
+// CollectorStats holds collection statistics (periodically written to stderr, final values on exit).
 type CollectorStats struct {
 	Received uint64 `json:"received"`
 	Sent     uint64 `json:"sent"`
@@ -86,13 +86,13 @@ type CollectorStats struct {
 	Pending  int    `json:"pending"`
 }
 
-// NewCollector 构造侧车采集器。
+// NewCollector builds the sidecar collector.
 func NewCollector(cfg CollectorConfig, client IngestClient) *Collector {
 	if cfg.Batch <= 0 {
 		cfg.Batch = DefaultCollectorConfig().Batch
 	}
 	if cfg.Batch > 500 {
-		cfg.Batch = 500 // 平台单批硬上限，超了整批会被拒
+		cfg.Batch = 500 // hard per-batch cap on the platform; an oversized batch is rejected whole
 	}
 	if cfg.Flush <= 0 {
 		cfg.Flush = DefaultCollectorConfig().Flush
@@ -103,7 +103,7 @@ func NewCollector(cfg CollectorConfig, client IngestClient) *Collector {
 	return &Collector{cfg: cfg, client: client}
 }
 
-// WithWarn 挂告警钩子（推送失败/丢弃时的第一现场）。
+// WithWarn attaches the warning hook (the first observation point for push failures/drops).
 func (c *Collector) WithWarn(fn func(string)) *Collector {
 	c.warn = fn
 	return c
@@ -115,7 +115,7 @@ func (c *Collector) warnf(format string, args ...any) {
 	}
 }
 
-// Stats 当前统计。
+// Stats returns the current statistics.
 func (c *Collector) Stats() CollectorStats {
 	return CollectorStats{
 		Received: c.received.Load(),
@@ -128,13 +128,13 @@ func (c *Collector) Stats() CollectorStats {
 	}
 }
 
-// Run 读 `src` 直到 EOF 或 ctx 取消；退出前把剩余日志刷出去。
+// Run reads from `src` until EOF or the stop channel closes; it flushes the remaining logs before returning.
 //
-// 返回的 error 只表示「读流失败」，不含推送失败——推送失败已计入统计，
-// 让侧车因为平台暂时不可用而退出，会把「可恢复的上游故障」变成「采集永久停摆」。
+// The returned error only means "reading the stream failed" and never a push failure — push failures are already counted in the stats,
+// and letting the sidecar exit because the platform is temporarily unavailable turns "a recoverable upstream fault" into "collection permanently stopped".
 func (c *Collector) Run(src io.Reader, stop <-chan struct{}) error {
 	scanner := bufio.NewScanner(src)
-	// 单条日志可能带较大的脱敏快照，默认 64KB 上限不够
+	// A single log line may carry a large redacted snapshot, so the default 64KB limit is not enough
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
 	lastFlush := time.Now()
@@ -164,10 +164,10 @@ func (c *Collector) Run(src io.Reader, stop <-chan struct{}) error {
 	}
 }
 
-// Accept 处理一行输入：是决策日志就入缓冲，不是就当噪声跳过。
+// Accept processes one input line: a decision log goes into the buffer, anything else is skipped as noise.
 //
-// 判据是「能否解析成合法 LogEntry」而不是「是不是以 { 开头」：
-// 引擎的启动横幅里也可能有花括号，而 JSON 解析失败本身就说明这行不是日志。
+// The criterion is "can it be parsed into a valid LogEntry", not "does it start with {":
+// the engine's startup banner may contain braces too, while a JSON parse failure by itself already proves the line is not a log.
 func (c *Collector) Accept(line []byte) {
 	trimmed := bytes.TrimSpace(line)
 	if len(trimmed) == 0 || trimmed[0] != '{' {
@@ -179,8 +179,8 @@ func (c *Collector) Accept(line []byte) {
 		c.noise.Add(1)
 		return
 	}
-	// 必填字段缺失说明这不是决策日志（或引擎版本不兼容），按噪声处理并计数，
-	// 不要静默丢——否则「日志变少了」会查不出原因。
+	// Missing required fields mean this is not a decision log (or the engine version is incompatible); treat it as noise and count it,
+	// but never drop it silently — otherwise "there are fewer logs" becomes unexplainable.
 	if err := entry.Validate(); err != nil {
 		c.noise.Add(1)
 		return
@@ -188,7 +188,7 @@ func (c *Collector) Accept(line []byte) {
 	c.received.Add(1)
 
 	if c.cfg.Buffer > 0 && len(c.buf) >= c.cfg.Buffer {
-		// 丢最新的并计数：缓冲里已有的更早日志对事故复盘更有价值
+		// Drop the newest and count it: the earlier logs already in the buffer are more valuable for incident review
 		if n := c.dropped.Add(1); n == 1 || n%1000 == 0 {
 			c.warnf("缓冲已满（%d 条），累计丢弃 %d 条日志；请检查平台可用性", c.cfg.Buffer, n)
 		}
@@ -197,7 +197,7 @@ func (c *Collector) Accept(line []byte) {
 	c.buf = append(c.buf, entry)
 }
 
-// Flush 把缓冲推给平台（含重试）。返回成功推送的条数。
+// Flush pushes the buffer to the platform (with retries). It returns the number of entries pushed successfully.
 func (c *Collector) Flush() int {
 	if len(c.buf) == 0 {
 		return 0
@@ -218,7 +218,7 @@ func (c *Collector) Flush() int {
 			return len(items)
 		}
 		lastErr = err
-		// 平台明确说「这批有问题」（4xx）时重试没有意义，直接记失败
+		// When the platform explicitly says "this batch is bad" (4xx), retrying is pointless; record the failure immediately
 		var nerr *permanentError
 		if errors.As(err, &nerr) {
 			break
@@ -235,20 +235,20 @@ func (c *Collector) Flush() int {
 	return 0
 }
 
-// ---------------------------------------------------------------- HTTP 客户端
+// ---------------------------------------------------------------- HTTP client
 
-// permanentError 标记「重试也没用」的失败（4xx）。
+// permanentError marks a failure where retrying is pointless (4xx).
 type permanentError struct{ msg string }
 
 func (e *permanentError) Error() string { return e.msg }
 
-// HTTPIngestClient 把日志推给平台 `POST /api/v1/logs`。
+// HTTPIngestClient pushes logs to the platform via `POST /api/v1/logs`.
 type HTTPIngestClient struct {
 	baseURL string
 	client  *http.Client
 }
 
-// NewHTTPIngestClient 构造推送客户端。
+// NewHTTPIngestClient builds the push client.
 func NewHTTPIngestClient(baseURL string) *HTTPIngestClient {
 	return &HTTPIngestClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -258,7 +258,7 @@ func NewHTTPIngestClient(baseURL string) *HTTPIngestClient {
 
 func (h *HTTPIngestClient) Describe() string { return "platform:" + h.baseURL + " /api/v1/logs" }
 
-// Push 推送一批日志。
+// Push pushes one batch of logs.
 func (h *HTTPIngestClient) Push(items []IngestItem) (IngestResult, error) {
 	var out IngestResult
 	body, err := json.Marshal(map[string]any{"items": items})
@@ -272,7 +272,7 @@ func (h *HTTPIngestClient) Push(items []IngestItem) (IngestResult, error) {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return out, err // 网络错误可重试
+		return out, err // network errors are retryable
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 && resp.StatusCode < 500 {

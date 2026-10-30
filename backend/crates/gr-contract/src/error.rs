@@ -1,7 +1,7 @@
-//! 错误契约（`contracts/05` §1 / §3）
+//! Error contract (`contracts/05` §1 / §3)
 //!
-//! 最高优先级边界：**契约违规落成 REJECT 决策，不落成 HTTP 500**；
-//! 只有服务级故障（超时/过载/内部 bug）才是真错误。
+//! Highest-priority boundary: **a contract violation lands as a REJECT decision, not as an HTTP 500**;
+//! only service-level failures (timeout/overload/internal bug) are real errors.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -10,7 +10,7 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
-    // --- 契约违规（落成 REJECT 决策）---
+    // --- Contract violations (land as a REJECT decision) ---
     ContractViolation,
     ContractTypeError,
     ContractRequiredMissing,
@@ -18,17 +18,17 @@ pub enum ErrorCode {
     ContractSnapshotTooLarge,
     ContractEnumInvalid,
     ContractContextSnapshotMismatch,
-    // --- 版本选择 ---
+    // --- Version selection ---
     VersionSelectionConflict,
     VersionRulesetNotFound,
     VersionPackageNotFound,
-    // --- 执行 ---
+    // --- Execution ---
     ExecTimeout,
     ExecStepLimit,
     ExecOverload,
     ExecInternal,
     ExecRuleLimitExceeded,
-    // --- 规则包 / IR ---
+    // --- Rule package / IR ---
     IrInvalid,
     IrUnknownSlot,
     IrDuplicateSlot,
@@ -40,9 +40,9 @@ pub enum ErrorCode {
     DslArityMismatch,
     DslDepthLimit,
     DslNodeLimit,
-    // --- 出口校验 ---
+    // --- Output validation ---
     OutputSchemaViolation,
-    // --- Provider / Assemble（入口层，不进执行内核）---
+    // --- Provider / Assemble (entry layer, never the execution core) ---
     ProviderUnavailable,
     ProviderTimeout,
     ProviderError,
@@ -87,7 +87,7 @@ impl ErrorCode {
         }
     }
 
-    /// 契约违规 → 决策；其余 → 真错误。
+    /// Contract violation -> decision; everything else -> a real error.
     pub fn is_contract_violation(&self) -> bool {
         use ErrorCode::*;
         matches!(
@@ -101,7 +101,7 @@ impl ErrorCode {
         )
     }
 
-    /// HTTP 状态码映射：契约违规不在这里（它们不返回错误）。
+    /// HTTP status mapping: contract violations are not here (they never return as errors).
     pub fn http_status(&self) -> u16 {
         use ErrorCode::*;
         match self {
@@ -119,7 +119,7 @@ impl fmt::Display for ErrorCode {
     }
 }
 
-/// 统一错误响应（`contracts/05` §3.2）
+/// Unified error response (`contracts/05` §3.2)
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ErrorContract {
@@ -157,7 +157,7 @@ impl std::error::Error for ErrorContract {}
 
 pub type EngineResult<T> = Result<T, ErrorContract>;
 
-/// 一个契约违规点：落成决策时进 `degradedReasons`，同时记指标。
+/// One contract violation point: when it lands in a decision it goes into `degradedReasons` and is also recorded as a metric.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContractIssue {

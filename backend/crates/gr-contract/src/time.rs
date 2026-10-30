@@ -1,9 +1,9 @@
-//! 极简 RFC3339 解析（UTC / 带偏移），只到「秒」。
+//! Minimal RFC3339 parsing (UTC / with offset), down to seconds only.
 //!
-//! 不引 chrono 的理由：引擎只用它算事实新鲜度（`freshnessSec = requestTime - eventTime`），
-//! 不需要时区库的全部能力；少一个依赖，少一类非确定性来源。
+//! Why not pull in chrono: the engine only uses this to compute fact freshness (`freshnessSec = requestTime - eventTime`),
+//! it does not need the full power of a timezone library; one dependency less, one source of nondeterminism less.
 
-/// 解析 `2026-10-30T10:00:00Z` / `2026-10-30T10:00:00.123Z` / `+08:00` 偏移，返回 epoch 秒。
+/// Parse `2026-10-30T10:00:00Z` / `2026-10-30T10:00:00.123Z` / `+08:00` offsets and return epoch seconds.
 pub fn parse_rfc3339_secs(s: &str) -> Option<i64> {
     let s = s.trim();
     let bytes = s.as_bytes();
@@ -27,7 +27,7 @@ pub fn parse_rfc3339_secs(s: &str) -> Option<i64> {
     }
 
     let mut rest = &s[19..];
-    // 跳过小数秒
+    // skip fractional seconds
     if let Some(stripped) = rest.strip_prefix('.') {
         let end = stripped.find(|c: char| !c.is_ascii_digit()).unwrap_or(stripped.len());
         rest = &stripped[end..];
@@ -53,7 +53,7 @@ pub fn parse_rfc3339_secs(s: &str) -> Option<i64> {
         }
     };
 
-    // days_from_civil（Howard Hinnant），对 1970 起算
+    // days_from_civil (Howard Hinnant), counted from 1970
     let y = if month <= 2 { year - 1 } else { year };
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = y - era * 400;
@@ -73,7 +73,7 @@ mod tests {
     fn parses_utc_and_offsets() {
         assert_eq!(parse_rfc3339_secs("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(parse_rfc3339_secs("2026-10-30T10:00:00Z"), Some(1_793_354_400));
-        // 带毫秒与 +08:00 偏移
+        // with milliseconds and a +08:00 offset
         let a = parse_rfc3339_secs("2026-10-30T18:00:00.500+08:00").unwrap();
         assert_eq!(a, 1_793_354_400);
         assert!(parse_rfc3339_secs("2026-13-01T00:00:00Z").is_none());

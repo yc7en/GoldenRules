@@ -16,27 +16,27 @@ import (
 	"sync"
 )
 
-// Box 原始快照的加密盒（AES-256-GCM）。
+// Box is the encryption box for raw snapshots (AES-256-GCM).
 //
-// 取舍：P0 不做密钥管理（KMS），密钥从 `-log-key` 或环境变量 `GOLDENRULES_LOG_KEY`
-// 读（32 字节，hex 或 base64）。**没配密钥就不收原始快照**——明确降级为「仅脱敏日志」，
-// 而不是悄悄用明文落盘。这条 fail-closed 是 `contracts/03` §8.2 的底线。
+// Trade-off: P0 does not do key management (KMS); the key is read from `-log-key` or the environment variable
+// `GOLDENRULES_LOG_KEY` (32 bytes, hex or base64). **With no key configured, raw snapshots are not collected at all** — an explicit degrade to "redacted logs only",
+// rather than quietly writing plaintext to disk. This fail-closed rule is the bottom line of `contracts/03` §8.2.
 type Box struct {
-	// mu 保护 current 与 retained：密钥轮换发生在运行期，而加解密在并发路径上。
+	// mu guards current and retained: key rotation happens at runtime, while encryption and decryption run on concurrent paths.
 	//
-	// 轮换的**正确性要求**是「旧密文还能读」：轮换只改变「新写入用哪把钥匙」，
-	// 绝不删除旧钥匙，否则历史原始快照会变成永久不可解密的字节（这是不可逆的数据损失）。
+	// The **correctness requirement** of rotation is "old ciphertext stays readable": rotation only changes which key new writes use,
+	// and never deletes old keys; otherwise historical raw snapshots become permanently undecryptable bytes (irreversible data loss).
 	mu       sync.RWMutex
 	aead     cipher.AEAD
 	keyID    string
 	retained map[string]cipher.AEAD
 	source   string
-	// provider 可选的托管密钥源。只在「本地找不到某把钥匙」时才被调用——
-	// 常规路径不该为每次解密多打一次网络往返。
+	// provider is the optional managed key source. It is only consulted when a key cannot be found locally —
+	// the normal path must not pay an extra network round-trip on every decryption.
 	provider KeyProvider
 }
 
-// NewBox 由 hex/base64 编码的 32 字节密钥构造加密盒。
+// NewBox builds the encryption box from a 32-byte key encoded as hex/base64.
 func NewBox(encoded string) (*Box, error) {
 	raw := strings.TrimSpace(encoded)
 	if raw == "" {
@@ -58,7 +58,7 @@ func newBoxFromKey(key []byte, source string) (*Box, error) {
 	if err != nil {
 		return nil, fmt.Errorf("初始化 GCM 失败: %w", err)
 	}
-	// keyID 只用摘要前缀：审计里要能说清「哪把钥匙」，但不能泄露钥匙。
+	// keyID uses only a digest prefix: the audit trail must be able to say "which key" without leaking the key.
 	return &Box{
 		aead:     aead,
 		keyID:    keyIDOf(key),
@@ -67,10 +67,10 @@ func newBoxFromKey(key []byte, source string) (*Box, error) {
 	}, nil
 }
 
-// asOBS 把普通 error 收敛成带错误码的领域错误。
+// asOBS narrows a plain error into a domain error carrying an error code.
 //
-// 对外错误码必须封闭：调用方按码判断，不解析文案。已经带码的原样透出，
-// 兜底的按解密失败处理（加解密路径上的裸错基本都是密钥/密文不匹配）。
+// The outward error codes must stay closed: callers branch on the code and never parse the text. Errors that already
+// carry a code pass through unchanged; anything else is treated as a decryption failure (bare errors on the crypto path are almost always a key/ciphertext mismatch).
 func asOBS(err error) *Error {
 	var oe *Error
 	if errors.As(err, &oe) {
@@ -79,7 +79,7 @@ func asOBS(err error) *Error {
 	return &Error{Code: CodeDecryptFailed, Message: err.Error()}
 }
 
-// NewBoxFromEnv 优先用显式入参，其次环境变量。
+// NewBoxFromEnv prefers the explicit argument, then the environment variable.
 func NewBoxFromEnv(explicit string) (*Box, error) {
 	if strings.TrimSpace(explicit) != "" {
 		return NewBox(explicit)
@@ -87,16 +87,16 @@ func NewBoxFromEnv(explicit string) (*Box, error) {
 	return NewBox(os.Getenv("GOLDENRULES_LOG_KEY"))
 }
 
-// KeyID 当前密钥标识（新密文用它）。
+// KeyID is the current key identifier (used for new ciphertext).
 func (b *Box) KeyID() string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.keyID
 }
 
-// Seal 加密：返回 nonce 与密文（都做 base64，便于塞进 JSON）。
+// Seal encrypts: it returns the nonce and the ciphertext (both base64, so they fit into JSON).
 //
-// AAD 用 logId：把密文绑定到具体日志，防止「把 A 的密文挪到 B 上」这种低成本篡改。
+// The AAD is logId: it binds the ciphertext to a specific log, preventing the cheap tampering trick of "moving A's ciphertext onto B".
 func (b *Box) Seal(plain []byte, logID string) (nonce, cipherText string, err error) {
 	b.mu.RLock()
 	aead := b.aead
@@ -110,19 +110,19 @@ func (b *Box) Seal(plain []byte, logID string) (nonce, cipherText string, err er
 	return base64.StdEncoding.EncodeToString(n), base64.StdEncoding.EncodeToString(sealed), nil
 }
 
-// Open 解密。AAD 为 logId，绑定「这条密文属于这条日志」，防止把 A 的密文挪到 B 上。
+// Open decrypts. The AAD is logId, binding "this ciphertext belongs to this log" and preventing A's ciphertext from being moved onto B.
 func (b *Box) Open(nonceB64, cipherB64, logID string) ([]byte, error) {
 	return b.OpenWithKeyID(nonceB64, cipherB64, logID, "")
 }
 
-// OpenWithKeyID 用指定密钥解密；keyID 为空表示「当前钥 + 全部保留钥」依次尝试。
+// OpenWithKeyID decrypts with the given key; an empty keyID means "current key + all retained keys", tried in turn.
 //
-// 明确的两条取舍：
+// Two deliberate trade-offs:
 //
-//  1. **未知 keyID 必须报错，不能静默回退当前钥**。否则「轮换后读不了」会被
-//     掩盖成一句含糊的 GCM 校验失败，运维永远查不清是哪一把钥匙丢了。
-//  2. keyID 为空时按「当前钥 → 保留钥」顺序试。这段路径只服务于旧数据——
-//     历史原始快照写入时还没有按钥记录 keyId 的字段。
+//  1. **An unknown keyID must be an error, never a silent fallback to the current key**. Otherwise "unreadable after
+//     rotation" would be masked as a vague GCM verification failure, and ops would never work out which key was lost.
+//  2. an empty keyID tries "current key → retained keys" in order. This path only serves old data —
+//     historical raw snapshots were written before there was a field recording keyId per key.
 func (b *Box) OpenWithKeyID(nonceB64, cipherB64, logID, keyID string) ([]byte, error) {
 	nonce, err := base64.StdEncoding.DecodeString(nonceB64)
 	if err != nil {
@@ -139,7 +139,7 @@ func (b *Box) OpenWithKeyID(nonceB64, cipherB64, logID, keyID string) ([]byte, e
 	switch {
 	case keyID == "":
 		candidates = append(candidates, b.aead)
-		// 保留钥顺序不确定，但候选之间互斥（不同 key 解不开彼此），顺序不影响正确性。
+		// The order of retained keys is unspecified, but candidates are mutually exclusive (different keys cannot decrypt each other), so order does not affect correctness.
 		for _, a := range b.retained {
 			candidates = append(candidates, a)
 		}
@@ -155,8 +155,8 @@ func (b *Box) OpenWithKeyID(nonceB64, cipherB64, logID, keyID string) ([]byte, e
 	b.mu.RUnlock()
 
 	if !resolved {
-		// 本地没有：向托管源要一次（拿到后会落入保留集）。这里已经**不持锁**，
-		// 因为 provider 可能是一次网络往返，持锁会阻塞全部加解密。
+		// Not found locally: ask the managed source once (what comes back is stored into the retained set). We are deliberately **not holding the lock** here,
+		// because provider may be a network round-trip and holding the lock would stall all encryption and decryption.
 		a, err := b.adoptFromProvider(keyID)
 		if err != nil {
 			return nil, err
@@ -175,7 +175,7 @@ func (b *Box) OpenWithKeyID(nonceB64, cipherB64, logID, keyID string) ([]byte, e
 	return nil, fmt.Errorf("解密失败: %w", lastErr)
 }
 
-// WithKeyProvider 挂上托管密钥源（KMS）。返回自身便于链式调用。
+// WithKeyProvider attaches the managed key source (KMS). It returns the receiver for chaining.
 func (b *Box) WithKeyProvider(p KeyProvider) *Box {
 	b.mu.Lock()
 	b.provider = p
@@ -183,7 +183,7 @@ func (b *Box) WithKeyProvider(p KeyProvider) *Box {
 	return b
 }
 
-// ProviderName 自述托管源名字；未挂则返回空串。
+// ProviderName self-reports the managed source name; an empty string when none is attached.
 func (b *Box) ProviderName() string {
 	b.mu.RLock()
 	p := b.provider
@@ -194,10 +194,10 @@ func (b *Box) ProviderName() string {
 	return p.Name()
 }
 
-// adoptFromProvider 本地没有这把钥匙时向托管源要一次。
+// adoptFromProvider asks the managed source once when the key is not available locally.
 //
-// 拿到后**落进 retained**：同一把历史钥会被反复用于解密老密文，
-// 每次都回 KMS 取一遍既慢又浪费配额。
+// What comes back is **stored into retained**: the same historical key keeps being used to decrypt old
+// ciphertext, and going back to KMS every time would be slow and waste quota.
 func (b *Box) adoptFromProvider(keyID string) (cipher.AEAD, error) {
 	b.mu.RLock()
 	p := b.provider
@@ -210,8 +210,8 @@ func (b *Box) adoptFromProvider(keyID string) (cipher.AEAD, error) {
 		return nil, err
 	}
 	if got != keyID {
-		// 托管源给了另一把钥匙：宁可直接失败，也不要用错钥匙去试——
-		// 错钥匙只会得到一句 GCM 校验失败，把「取错钥」伪装成「数据损坏」。
+		// The managed source returned a different key: fail outright rather than trying the wrong key —
+		// a wrong key only yields a GCM verification failure, disguising "wrong key fetched" as "corrupted data".
 		return nil, errf(CodeKeyUnknown, "托管源返回的密钥标识 "+got+" 与请求的 "+keyID+" 不一致")
 	}
 	next, err := newBoxFromKey(key, source)
@@ -224,12 +224,12 @@ func (b *Box) adoptFromProvider(keyID string) (cipher.AEAD, error) {
 	return next.aead, nil
 }
 
-// Rotate 轮换密钥：新密文改用新钥，旧钥进入保留集。
+// Rotate rotates the key: new ciphertext uses the new key, the old key moves into the retained set.
 //
-// 这里只做「换钥匙」，不做「换完就删」——删旧钥等于让历史原始快照永久不可解密，
-// 是不可逆的数据损失。真要下线旧钥，必须先把历史密文全部重加密（本轮不做）。
+// This only "swaps the key", it does not "swap then delete" — deleting the old key makes historical raw snapshots permanently undecryptable,
+// which is irreversible data loss. To actually retire an old key, all historical ciphertext must be re-encrypted first (not in this round).
 //
-// 幂等：重复轮换到同一把钥匙是空操作，不会在保留集里堆积同 keyID 的副本。
+// Idempotent: rotating to the same key again is a no-op and does not pile up duplicate entries for the same keyID.
 func (b *Box) Rotate(encoded string) error {
 	raw := strings.TrimSpace(encoded)
 	if raw == "" {
@@ -247,9 +247,9 @@ func (b *Box) Rotate(encoded string) error {
 	return nil
 }
 
-// RotateFromProvider 向托管源要「当前钥」并轮换过去（KMS 定期轮换的接线点）。
+// RotateFromProvider asks the managed source for the "current key" and rotates to it (the wiring point for periodic KMS rotation).
 //
-// 返回轮换后的 keyID；若托管源给的还是同一把钥匙则原样返回、不做任何变动。
+// It returns the keyID after rotation; if the managed source returns the same key, that keyID is returned and nothing changes.
 func (b *Box) RotateFromProvider() (string, error) {
 	b.mu.RLock()
 	p := b.provider
@@ -272,7 +272,7 @@ func (b *Box) RotateFromProvider() (string, error) {
 	return id, nil
 }
 
-// swapIn 换上新钥，旧钥沉入保留集。
+// swapIn installs the new key and sinks the old key into the retained set.
 func (b *Box) swapIn(next *Box) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -285,7 +285,7 @@ func (b *Box) swapIn(next *Box) {
 	b.source = next.source
 }
 
-// RetainedKeyIDs 保留钥标识列表（可用于自述「历史密文还用哪些钥匙」）。
+// RetainedKeyIDs lists the retained key identifiers (useful to self-report "which keys historical ciphertext still needs").
 func (b *Box) RetainedKeyIDs() []string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -297,7 +297,7 @@ func (b *Box) RetainedKeyIDs() []string {
 	return out
 }
 
-// KeySource 当前钥的来源（explicit / env / kms / rotated），用于运维自述。
+// KeySource is the source of the current key (explicit / env / kms / rotated), used for operational self-report.
 func (b *Box) KeySource() string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -320,7 +320,7 @@ func sha256Short(b []byte) string {
 }
 
 func keyIDOf(key []byte) string {
-	// 简单摘要：不从 keyID 反推密钥。用 sha256 前 4 字节即可区分不同钥匙。
+	// Simple digest: the key cannot be derived back from keyID. The first 4 bytes of sha256 suffice to distinguish keys.
 	h := sha256Short(key)
 	return "k-" + h
 }

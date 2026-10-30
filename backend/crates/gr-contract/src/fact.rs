@@ -1,7 +1,7 @@
-//! 事实契约（`contracts/02`）
+//! Fact contract (`contracts/02`)
 //!
-//! Fact Catalog 只存**契约**（字段名/类型/语义/时效/脱敏/版本），不存**取数逻辑**
-//! （`ARCHITECTURE.md` §2.2 数据供给边界，`设计教训.md` 反模式 3）。
+//! The Fact Catalog stores **contracts** only (field name/type/semantics/freshness/masking/version), never **fetch logic**
+//! (`ARCHITECTURE.md` §2.2 data supply boundary, `设计教训.md` anti-pattern 3).
 
 use crate::ty::FactKind;
 use serde::{Deserialize, Serialize};
@@ -25,13 +25,13 @@ pub enum Sensitivity {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum OnMissing {
-    /// 落 REJECT（`CONTRACT_*`）
+    /// Land as REJECT (`CONTRACT_*`)
     Error,
-    /// 用默认值 + degraded
+    /// Use the default value + degraded
     Default,
-    /// 跳过引用该字段的规则
+    /// Skip the rules that reference this field
     Skip,
-    /// 走场景降级决策
+    /// Use the scene fallback decision
     #[serde(rename = "FALLBACK_DECISION")]
     FallbackDecision,
 }
@@ -107,7 +107,7 @@ pub struct FactSchema {
     pub deprecated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replaced_by: Option<String>,
-    /// 缺失处理策略（`contracts/05` §4.1）
+    /// Missing-value handling strategy (`contracts/05` §4.1)
     #[serde(default)]
     pub on_missing: OnMissing,
 }
@@ -145,7 +145,7 @@ pub enum DegradeReason {
     Stale,
     ProviderDegraded,
     Partial,
-    /// 回放期字段不可用（`contracts/03` §8.3）
+    /// Field unavailable during replay (`contracts/03` §8.3)
     ReplayFieldUnavailable,
 }
 
@@ -169,10 +169,10 @@ pub struct DegradedFact {
     pub fallback: Option<String>,
 }
 
-/// 输入快照（`contracts/02` §3）。
+/// Input snapshot (`contracts/02` §3).
 ///
-/// 缺失 = 不在 `facts` 中出现 + 登记在 `missingFacts`；
-/// 降级 = 值在 `facts` 中 + 登记在 `degradedFacts`。禁止用 `null` 表达缺失。
+/// Missing = absent from `facts` + registered in `missingFacts`;
+/// degraded = value present in `facts` + registered in `degradedFacts`. Never express missing as `null`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FactSnapshot {

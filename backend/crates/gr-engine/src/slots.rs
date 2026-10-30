@@ -1,7 +1,7 @@
-//! slot 装载：FactSnapshot → `Vec<Value>`（B3 入口层）。
+//! Slot loading: FactSnapshot -> `Vec<Value>` (B3 entry layer).
 //!
-//! 只在入口做一次，执行内核拿到的就是下标数组——这正是「字段引用编译期解析为 slot」
-//! 的收益：VM 里没有任何字符串查表。
+//! Done exactly once at the entry, so the execution kernel receives an array of indices -- that is precisely the payoff
+//! of "field references compile down to slots": the VM never does a string lookup.
 
 use gr_contract::{FactCatalog, FactKind, FactSnapshot, Value};
 use gr_ir::LoadedRuleSet;
@@ -9,20 +9,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlotState {
-    /// 快照里有值
+    /// A value is present in the snapshot
     Present,
-    /// 快照里没有该字段
+    /// The snapshot does not contain this field
     Missing,
 }
 
 #[derive(Debug)]
 pub struct SlotFill {
     pub values: Vec<Value>,
-    /// 缺失 slot（用于剪枝与缺失策略）
+    /// Missing slots (used for pruning and the missing-value strategy)
     pub missing: BTreeSet<u32>,
-    /// 类型不符的 slot（`CONTRACT_TYPE_ERROR` 的原料）
+    /// Slots with a type mismatch (the raw material for `CONTRACT_TYPE_ERROR`)
     pub type_errors: Vec<(u32, String, String)>,
-    /// 被用默认值兜底的 slot（onMissing=DEFAULT 时由 B4 填）
+    /// Slots filled with a default (filled by B4 when onMissing=DEFAULT)
     pub defaulted: BTreeMap<u32, String>,
 }
 
@@ -32,10 +32,10 @@ impl SlotFill {
     }
 }
 
-/// 按 slot 表把快照值装进栈。
+/// Load the snapshot values into the stack according to the slot table.
 ///
-/// 类型按 slot 表声明强校验：字符串 `"1500"` → decimal 是**声明类型**要求的转换，
-/// 不是隐式跨类型转换（`contracts/01` §3.3 禁止的是「整数和 decimal 混算要人猜」那种）。
+/// Types are checked strictly against the slot table declaration: converting the string `"1500"` to decimal is a coercion **required by the declared type**,
+/// not an implicit cross-type conversion (what `contracts/01` §3.3 forbids is "mixing integers and decimals and making a human guess").
 pub fn fill(rs: &LoadedRuleSet, snapshot: &FactSnapshot, _catalog: &FactCatalog) -> SlotFill {
     let mut values = Vec::with_capacity(rs.slot_table.len());
     let mut missing = BTreeSet::new();
@@ -62,7 +62,7 @@ pub fn fill(rs: &LoadedRuleSet, snapshot: &FactSnapshot, _catalog: &FactCatalog)
     SlotFill { values, missing, type_errors, defaulted: BTreeMap::new() }
 }
 
-/// 用默认值填充（`onMissing: DEFAULT`，B4 用）。按 slot 声明类型解析，失败则不动。
+/// Fill with the default value (used by B4 for `onMissing: DEFAULT`). Parsed as the slot's declared type; leaves it untouched on failure.
 pub fn apply_default(
     fill: &mut SlotFill,
     rs: &LoadedRuleSet,
@@ -81,7 +81,7 @@ pub fn apply_default(
     }
 }
 
-/// 便捷：某个 slot 的声明类型
+/// Convenience: the declared type of a slot
 pub fn slot_kind(rs: &LoadedRuleSet, slot: u32) -> Option<FactKind> {
     rs.slot_table.get(slot as usize).map(|s| s.kind)
 }

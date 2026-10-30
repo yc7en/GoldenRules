@@ -1,10 +1,10 @@
-//! B11 验收：执行资源上限与隔离。
+//! B11 acceptance: execution resource caps and isolation.
 //!
-//! 核心命题不是「能拦住」，而是**拦住的方式正确**：
-//! - 装载期越界 → 真错误，包进不来（不该在运行期才炸）；
-//! - 请求期超预算/超时 → 真错误（不是 REJECT 决策，不能把「系统忙」记成「业务拒绝」）；
-//! - 过载 → 快速失败 `EXEC_OVERLOAD`（503），**不排队**；
-//! - 隔离 → 一个场景吃满自己的额度，不挤掉别的场景。
+//! The core proposition is not "it can block", but that **it blocks the right way**:
+//! - Load-time overrun -> real error, the package never gets in (it must not explode only at runtime);
+//! - Request-time budget overrun / timeout -> real error (not a REJECT decision; "system busy" must not be recorded as "business rejection");
+//! - Overload -> fail fast with `EXEC_OVERLOAD` (503), **no queuing**;
+//! - Isolation -> one scene exhausting its own quota does not squeeze other scenes out.
 
 use gr_contract::*;
 use gr_engine::{engine_from_json, Engine, EngineConfig};
@@ -36,11 +36,11 @@ fn ctx(ruleset: &str) -> ExecutionContext {
     c
 }
 
-// ------------------------------------------------------------ 装载期闸门
+// ------------------------------------------------------------ load-time gates
 
 #[test]
 fn rule_count_limit_blocks_oversized_package_at_load() {
-    // fixture 有 9 条规则；把上限压到 5 → 装载期就该拒绝
+    // The fixture has 9 rules; drop the cap to 5 -> it must be rejected at load time
     let err = engine_from_json(
         &fixture("fact-catalog.json"),
         &[fixture("rule-package.json")],
@@ -53,7 +53,7 @@ fn rule_count_limit_blocks_oversized_package_at_load() {
 
 #[test]
 fn instr_limit_blocks_expression_heavy_package() {
-    // 规则条数不多但指令总量越界：拦的是「表达式爆炸」，不是「规则条数」
+    // Few rules but the total instruction count is over the limit: what is blocked is "expression explosion", not "rule count"
     let err = engine_from_json(
         &fixture("fact-catalog.json"),
         &[fixture("rule-package.json")],
@@ -88,16 +88,16 @@ fn package_stats_are_reported() {
     assert!(s.instrs > 0 && s.est_bytes > s.instrs * gr_engine::limits::INSTR_BYTES / 2);
 }
 
-// ------------------------------------------------------------ 过载（准入）
+// ------------------------------------------------------------ overload (admission)
 
 #[test]
 fn overload_is_a_real_error_not_a_decision() {
-    // max_inflight=0：任何请求都进不来
+    // max_inflight=0: no request can get in
     let e = engine_with(EngineConfig { max_inflight: 0, ..base_config() });
     let err = e.decide(&snapshot(), &ctx("rs-amount-limit")).expect_err("应为过载错误");
     assert_eq!(err.error_code, ErrorCode::ExecOverload);
     assert_eq!(err.error_code.http_status(), 503);
-    // 关键：不能变成 REJECT 决策——「系统忙」不是「业务拒绝」
+    // Key: it must not become a REJECT decision -- "the system is busy" is not "business rejection"
     assert_eq!(e.inflight(), 0, "拒绝后名额必须归还");
 }
 
@@ -139,7 +139,7 @@ fn concurrent_requests_cannot_exceed_inflight_cap() {
         h.join().unwrap();
     }
 
-    // 只要过载真的发生过，就说明闸门在起作用；而成功的请求必须全部完成且名额归零
+    // If overload actually happened, the gate is doing its job; and every successful request must have completed with the counter back at zero
     let ok = ok.load(std::sync::atomic::Ordering::Relaxed);
     assert!(ok >= 32 * 20 / 4, "至少应有相当一部分成功（实测 {ok}）");
     assert_eq!(e.inflight(), 0, "压完必须归零，否则是名额泄漏");
@@ -147,7 +147,7 @@ fn concurrent_requests_cannot_exceed_inflight_cap() {
 
 #[test]
 fn scene_cap_isolates_one_scene_from_another() {
-    // 全局 8，但 withdraw-risk-check 只给 1 个名额；别的场景仍可用剩余容量
+    // Global is 8, but withdraw-risk-check gets only 1 slot; other scenes can still use the remaining capacity
     let mut scene_limits = BTreeMap::new();
     scene_limits.insert(
         "withdraw-risk-check".to_string(),
@@ -159,7 +159,7 @@ fn scene_cap_isolates_one_scene_from_another() {
         ..base_config()
     });
 
-    // 顺序调用不会触发（名额即时归还）；这里验证「配置被识别且生效」的可见面
+    // Sequential calls never trip it (slots are returned immediately); this checks the visible side of "the config is recognized and effective"
     let limits = e.limits_report();
     let sc = limits
         .scenes
@@ -170,11 +170,11 @@ fn scene_cap_isolates_one_scene_from_another() {
     assert_eq!(limits.max_inflight, 8);
 }
 
-// ------------------------------------------------------------ 场景级预算
+// ------------------------------------------------------------ scene-level budget
 
 #[test]
 fn scene_deadline_override_applies() {
-    // 场景级 deadline=0 → 必然超时；但另一场景（未覆盖）不受影响
+    // Scene-level deadline=0 -> always times out; but the other scene (not overridden) is unaffected
     let mut scene_limits = BTreeMap::new();
     scene_limits.insert(
         "withdraw-risk-check".to_string(),
@@ -208,7 +208,7 @@ fn default_limits_allow_normal_traffic() {
     assert_eq!(out.result.reason_code, "AMOUNT_REVIEW");
 }
 
-// ------------------------------------------------------------ 自述
+// ------------------------------------------------------------ self-description
 
 #[test]
 fn limits_report_describes_all_scenes() {
@@ -218,7 +218,7 @@ fn limits_report_describes_all_scenes() {
     assert_eq!(r.step_budget, 200_000);
     assert_eq!(r.deadline_ms, 50);
     assert!(r.max_snapshot_bytes >= 1024);
-    // 规则包里的三个场景都要出现在自述里（含未显式配置限额的）
+    // All three scenes in the rule package must appear in the self-description (including the ones without explicit limits)
     let scenes: Vec<&str> = r.scenes.iter().map(|s| s.scene.as_str()).collect();
     assert!(scenes.contains(&"withdraw-risk-check"));
     assert!(scenes.contains(&"withdraw-rate"));

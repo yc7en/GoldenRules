@@ -38,7 +38,7 @@ func testDef() dsl.Definition {
 	}
 }
 
-// env 一套打通的治理环境：事实目录 + 规则集 + 规则包 + 治理服务。
+// env is a fully wired governance environment: fact catalog + rulesets + rule packages + governance service.
 type env struct {
 	svc *Service
 	pkg *packages.Service
@@ -71,7 +71,7 @@ func newEnv(t *testing.T) *env {
 	return &env{svc: svc, pkg: pkgSvc, cat: testCatalog(), def: testDef(), now: clock()}
 }
 
-// draft 造一个草稿版本。
+// draft builds one draft version.
 func (e *env) draft(t *testing.T, version, risk string) packages.Version {
 	t.Helper()
 	v, _, err := e.pkg.CreateDraft(packages.BuildInput{
@@ -89,7 +89,7 @@ func (e *env) draft(t *testing.T, version, risk string) packages.Version {
 	return v
 }
 
-// publish 走完整治理链：过 PermitPublish → 真发布 → 变更单收尾 + 审计。
+// publish walks the full governance chain: PermitPublish → real publish → change request wrap-up + audit.
 func (e *env) publish(t *testing.T, changeID, version string) {
 	t.Helper()
 	if _, err := e.svc.PermitPublish(changeID, "pkg-withdraw", version, "release.R", SubmitterEngineer); err != nil {
@@ -103,7 +103,7 @@ func (e *env) publish(t *testing.T, changeID, version string) {
 	e.svc.MarkPublished(changeID, v, "release.R", SubmitterEngineer, prev.PackageVersion, "", "")
 }
 
-// approveAll 按矩阵把一张单子批满（除 submitter 之外的合适人选）。
+// approveAll fills every approval slot of a request per the matrix (with suitable people other than the submitter).
 func (e *env) approveAll(t *testing.T, changeID string) Change {
 	t.Helper()
 	c, ok := e.svc.Get(changeID)
@@ -134,7 +134,7 @@ func (e *env) approveAll(t *testing.T, changeID string) Change {
 
 // ---------------------------------------------------------------------------
 
-// 硬规则 A-8：agent 不得直接提交 L4。
+// Hard rule A-8: an agent must not submit L4 directly.
 func TestAgentCannotSubmitL4(t *testing.T) {
 	e := newEnv(t)
 	e.draft(t, "v1", LevelL4)
@@ -152,7 +152,7 @@ func TestAgentCannotSubmitL4(t *testing.T) {
 	}
 }
 
-// 矩阵按等级要人：L3 工程师提交 → 需 2 人，第一位之后仍未通过。
+// The matrix requires people by level: an engineer submits L3 → 2 approvers needed, still not passed after the first one.
 func TestEngineerL3NeedsTwoApprovals(t *testing.T) {
 	e := newEnv(t)
 	e.draft(t, "v1", LevelL3)
@@ -191,7 +191,7 @@ func TestEngineerL3NeedsTwoApprovals(t *testing.T) {
 	}
 }
 
-// 「自审」只在矩阵写了自审的格子里成立。
+// "Self-approval" holds only in cells where the matrix says self-approval.
 func TestSelfApprovalOnlyWhenMatrixAllows(t *testing.T) {
 	e := newEnv(t)
 	e.draft(t, "v1", LevelL3)
@@ -209,7 +209,7 @@ func TestSelfApprovalOnlyWhenMatrixAllows(t *testing.T) {
 		t.Fatalf("L3 自审应被拒，实际 %v", err)
 	}
 
-	// L1 允许自审
+	// L1 allows self-approval
 	e2 := newEnv(t)
 	e2.draft(t, "v1", LevelL1)
 	c2, err := e2.svc.Submit(SubmitInput{
@@ -228,7 +228,7 @@ func TestSelfApprovalOnlyWhenMatrixAllows(t *testing.T) {
 	}
 }
 
-// 职责分离：提交者、审批人、agent 都不能发布。
+// Segregation of duties: neither the submitter, nor an approver, nor an agent may publish.
 func TestPublishSeparationOfDuties(t *testing.T) {
 	e := newEnv(t)
 	e.draft(t, "v1", LevelL3)
@@ -256,24 +256,24 @@ func TestPublishSeparationOfDuties(t *testing.T) {
 		}
 	}
 
-	// 第三方发布人可以
+	// a third-party releaser may
 	if _, err := e.svc.PermitPublish(c.ChangeID, "pkg-withdraw", "v1", "release.R", SubmitterEngineer); err != nil {
 		t.Fatalf("发布人应被允许: %v", err)
 	}
-	// 目标不一致
+	// mismatched target
 	_, err = e.svc.PermitPublish(c.ChangeID, "pkg-withdraw", "v9", "release.R", SubmitterEngineer)
 	var ge *Error
 	if !errors.As(err, &ge) || ge.Code != CodePackageMismatch {
 		t.Fatalf("版本不符应 %s，实际 %v", CodePackageMismatch, err)
 	}
-	// 没挂变更单
+	// no change request attached
 	_, err = e.svc.PermitPublish("", "pkg-withdraw", "v1", "release.R", SubmitterEngineer)
 	if !errors.As(err, &ge) || ge.Code != CodeChangeRequired {
 		t.Fatalf("缺变更单应 %s，实际 %v", CodeChangeRequired, err)
 	}
 }
 
-// 单据的风险等级不能低于包内声明（防降级绕过）。
+// The request's risk level must not be lower than the one declared in the package (prevents downgrade bypasses).
 func TestRiskLevelMustMatchPackage(t *testing.T) {
 	e := newEnv(t)
 	e.draft(t, "v1", LevelL4)
@@ -288,7 +288,7 @@ func TestRiskLevelMustMatchPackage(t *testing.T) {
 	}
 }
 
-// 否决是终态，且必须写理由。
+// A refusal is final, and a reason is mandatory.
 func TestRejectIsTerminal(t *testing.T) {
 	e := newEnv(t)
 	e.draft(t, "v1", LevelL2)
@@ -317,7 +317,7 @@ func TestRejectIsTerminal(t *testing.T) {
 	}
 }
 
-// L4 不得一步到 100%，必须先有中间档（`contracts/04` §6）。
+// L4 must not jump straight to 100%; an intermediate step is required first (`contracts/04` §6).
 func TestGrayStagedForL4(t *testing.T) {
 	e := newEnv(t)
 	e.draft(t, "v1", LevelL4)
@@ -331,7 +331,7 @@ func TestGrayStagedForL4(t *testing.T) {
 	e.approveAll(t, c.ChangeID)
 	e.publish(t, c.ChangeID, "v1")
 
-	// 直接 100%
+	// straight to 100%
 	_, _, err = e.svc.SetGray(GrayInput{
 		PackageID: "pkg-withdraw", Version: "v1", Mode: GrayPercentage, Percentage: 100,
 		Actor: "release.R", ActorType: SubmitterEngineer, Reason: "冲",
@@ -341,7 +341,7 @@ func TestGrayStagedForL4(t *testing.T) {
 		t.Fatalf("L4 一步到 100%% 应被拒，实际 %v", err)
 	}
 
-	// 首档也不能太大
+	// the first step must not be too large either
 	_, _, err = e.svc.SetGray(GrayInput{
 		PackageID: "pkg-withdraw", Version: "v1", Mode: GrayPercentage, Percentage: 30,
 		Actor: "release.R", ActorType: SubmitterEngineer,
@@ -365,7 +365,7 @@ func TestGrayStagedForL4(t *testing.T) {
 	}
 }
 
-// 灰度三形态的形态约束。
+// Mode constraints for the three canary modes.
 func TestGrayModeConstraints(t *testing.T) {
 	e := newEnv(t)
 	e.draft(t, "v1", LevelL1)
@@ -398,7 +398,7 @@ func TestGrayModeConstraints(t *testing.T) {
 	}
 }
 
-// 回滚留痕：审计里能还原「谁、何时、从哪个版本切到哪个版本、为什么」。
+// Rollback audit trail: the audit can reconstruct "who, when, from which version to which version, and why".
 func TestRollbackIsAudited(t *testing.T) {
 	e := newEnv(t)
 	e.draft(t, "v1", LevelL1)
@@ -446,7 +446,7 @@ func TestRollbackIsAudited(t *testing.T) {
 	if rollback.From != "v2" || rollback.To != "v1" || rollback.Reason != "线上误拒率升高" || rollback.Actor != "release.R" {
 		t.Fatalf("回滚审计字段不全: %+v", rollback)
 	}
-	// 发布也要留痕
+	// publishes are audited too
 	var publishes int
 	for _, ev := range evs {
 		if ev.Action == ActionPackagePublished {
@@ -458,7 +458,7 @@ func TestRollbackIsAudited(t *testing.T) {
 	}
 }
 
-// 矩阵导出给前端：12 格齐全，agent×L4 标记禁止。
+// The matrix export for the frontend: all 12 cells present, agent×L4 marked forbidden.
 func TestDescribeMatrix(t *testing.T) {
 	cells := Describe()
 	if len(cells) != 12 {

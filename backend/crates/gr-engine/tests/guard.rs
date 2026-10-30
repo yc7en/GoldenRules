@@ -1,8 +1,8 @@
-//! B4 验收：
-//! - 字段类型错、必填缺失分别返回对应错误码 + REJECT 决策（HTTP 仍 200）；
-//! - 超时/版本冲突返回服务级错误（HTTP 503 / 409）；
-//! - onMissing 四态（ERROR / DEFAULT / SKIP / FALLBACK_DECISION）各自行为；
-//! - 出口校验失败不静默，落 CONTRACT_VIOLATION。
+//! B4 acceptance:
+//! - A field type error and a missing required field each return the corresponding error code + a REJECT decision (HTTP is still 200);
+//! - Timeout / version conflict return service-level errors (HTTP 503 / 409);
+//! - The four onMissing states (ERROR / DEFAULT / SKIP / FALLBACK_DECISION) each behave as specified;
+//! - Exit validation failures are not silent; they land as CONTRACT_VIOLATION.
 
 use gr_contract::*;
 use gr_engine::{engine_from_json, Engine, EngineConfig};
@@ -143,7 +143,7 @@ fn on_missing_default_uses_default_and_marks_degraded() {
     let e = engine_with(EngineConfig::default());
     let out = e.decide(&snap, &ctx("rs-freq")).unwrap();
 
-    // riskScore 缺失 → 用默认 600（不算 <600，也不触发 isNull）→ 无命中 → 默认 APPROVE
+    // riskScore missing -> use the default 600 (not < 600, and does not trigger isNull) -> no hit -> default APPROVE
     assert_eq!(out.result.decision, Decision::Approve);
     assert_eq!(out.result.reason_code, "DEFAULT_NO_RULE_MATCHED");
     assert!(out.result.degraded, "用了默认值必须标降级");
@@ -240,7 +240,7 @@ fn exit_validation_catches_unregistered_output() {
         "catalogVersion": "c",
         "facts": [{ "fact": "request.amount", "type": "decimal" }]
     });
-    // 规则 assign 了 riskLevel，但场景输出 schema 里没有登记 → 出口校验失败
+    // The rule assigns riskLevel, but the scene output schema does not register it -> exit validation fails
     let pkg = json!({
         "packageId": "pkg-out", "packageVersion": "v1", "factSchemaVersion": "c",
         "dslVersion": "1.0", "irVersion": "1.0", "metadata": {},

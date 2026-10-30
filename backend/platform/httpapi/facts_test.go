@@ -17,14 +17,14 @@ import (
 	"goldenrules/platform/persist"
 )
 
-// newTestServer 供只关心 HTTP 行为的用例使用；需要直接操纵领域服务的用例走 newTestEnv。
+// newTestServer is for test cases that only care about HTTP behavior; cases that need to manipulate domain services directly use newTestEnv.
 func newTestServer(t *testing.T) http.Handler {
 	t.Helper()
 	h, _ := newTestEnv(t)
 	return h
 }
 
-// newTestEnv 返回 handler 与其依赖，方便用例绕过 HTTP 造前置状态。
+// newTestEnv returns the handler together with its dependencies, so test cases can set up precondition state without going through HTTP.
 func newTestEnv(t *testing.T) (http.Handler, Deps) {
 	t.Helper()
 	dir := t.TempDir()
@@ -57,8 +57,8 @@ func newTestEnv(t *testing.T) (http.Handler, Deps) {
 	return New(deps), deps
 }
 
-// newGovTestServer 在同一个存储上再接一层治理服务：审批/发布走变更单，
-// 用来测 B9 的闭环；B8 的裸动作仍由 newTestServer（Gov 为 nil）覆盖。
+// newGovTestServer adds a governance service on top of the same storage: approval/publish go through change requests,
+// which is used to test the B9 closed loop; B8's bare actions are still covered by newTestServer (Gov is nil).
 func newGovTestServer(t *testing.T) http.Handler {
 	t.Helper()
 	_, deps := newTestEnv(t)
@@ -74,8 +74,8 @@ func newGovTestServer(t *testing.T) http.Handler {
 	return New(deps)
 }
 
-// newObsTestServer 再接一层决策日志服务；withReplay=false 时无回放后端。
-// 密钥固定写在测试里（32 字节 hex），只用于本地断言加解密通路。
+// newObsTestServer adds a decision log service on top; withReplay=false means there is no replay backend.
+// The key is hardcoded in the test (32-byte hex) and only serves to assert the encryption/decryption path locally.
 func newObsTestServer(t *testing.T, withKey, withReplay bool) http.Handler {
 	t.Helper()
 	var rep obs.Replayer
@@ -85,10 +85,10 @@ func newObsTestServer(t *testing.T, withKey, withReplay bool) http.Handler {
 	return newObsEnv(t, withKey, rep)
 }
 
-// newObsEnv 用指定的回放后端装配环境。
+// newObsEnv assembles the environment with the given replay backend.
 //
-// 单独抽出来是为了能注入**类型化 nil**（`(*obs.HTTPReplayer)(nil)`）——那正是
-// 「没配 --engine-url」时真实装配出来的值，也是曾经把日志列表打成 500 的值。
+// It is factored out so that a **typed nil** (`(*obs.HTTPReplayer)(nil)`) can be injected — exactly the value
+// real assembly produces when --engine-url is unset, and the value that once turned the log list into a 500.
 func newObsEnv(t *testing.T, withKey bool, rep obs.Replayer) http.Handler {
 	t.Helper()
 	_, deps := newTestEnv(t)
@@ -115,7 +115,7 @@ func newObsEnv(t *testing.T, withKey bool, rep obs.Replayer) http.Handler {
 	deps.Obs = obs.New(logStore, rawStore, box).WithClock(func() time.Time {
 		return time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	})
-	// 回放/日志访问要写审计，所以观测环境也带上治理服务。
+	// Replay/log access must write an audit record, so the observation environment carries the governance service too.
 	govStore, err := persist.Open(filepath.Join(t.TempDir(), "gov.json"), func() gov.Doc {
 		return gov.Doc{Grays: map[string]gov.Gray{}, Seq: map[string]int{}}
 	})
@@ -131,7 +131,7 @@ func newObsEnv(t *testing.T, withKey bool, rep obs.Replayer) http.Handler {
 	return New(deps)
 }
 
-// doAs 带操作者身份的请求：`X-Actor` + `X-Actor-Type`（治理侧的职责分离靠它判定）。
+// doAs sends a request carrying the actor identity: `X-Actor` + `X-Actor-Type` (governance-side segregation of duties is decided from these).
 func doAs(t *testing.T, h http.Handler, method, path, body, actor, actorType string) (*httptest.ResponseRecorder, map[string]any) {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -145,7 +145,7 @@ func doAs(t *testing.T, h http.Handler, method, path, body, actor, actorType str
 	return rec, out
 }
 
-// doRaw 返回原始响应（产物是裸 JSON 文档，不是包装对象）。
+// doRaw returns the raw response (the artifact is a bare JSON document, not a wrapper object).
 func doRaw(t *testing.T, h http.Handler, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(""))
@@ -271,7 +271,7 @@ func TestFactArtifactsAreIdempotent(t *testing.T) {
 		t.Fatalf("verify = %d %s", rec.Code, rec.Body)
 	}
 
-	// 改目录但不重新生成 → 门禁必须报过期
+	// Change the catalog without regenerating → the gate must report staleness
 	if rec, _ := do(t, h, "POST", "/api/v1/facts",
 		`{"fact":"sanctions.hit","type":"boolean","required":true,"version":"v1"}`); rec.Code != http.StatusCreated {
 		t.Fatalf("create sanctions = %d %s", rec.Code, rec.Body)

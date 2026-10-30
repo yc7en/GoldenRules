@@ -1,33 +1,33 @@
-// Package gov 实现 B9：审批矩阵、职责分离、灰度与发布治理。
+// Package gov implements B9: approval matrix, segregation of duties, canary and publish governance.
 //
-// 契约依据：`contracts/04`（风险分级 / 审批矩阵 / 职责分离 / 审计留存）、
-// `contracts/06` §4–§6（状态机 / 灰度 / 回滚）。
+// Contract basis: `contracts/04` (risk grading / approval matrix / segregation of duties / audit retention),
+// `contracts/06` §4–§6 (state machine / canary / rollback).
 //
-// 与 `packages` 的关系是**单向**的：gov 调 packages（审批通过后推进版本状态、发布、回滚），
-// packages 不知道 gov 的存在。这样 B8 的发布能力可以单独使用（CI、演练），
-// 而「谁批准」「能不能发」这类问题只在 gov 里回答。
+// The relationship with `packages` is **one-way**: gov calls packages (advancing the version state after approval, publishing, rolling back),
+// and packages does not know gov exists. That way B8's publish capability can be used on its own (CI, drills),
+// while questions like "who approved this" and "may this be published" are answered only inside gov.
 package gov
 
 import "strings"
 
-// 提交者类型（`contracts/04` §3 矩阵的行）。
+// Submitter types (the rows of the `contracts/04` §3 matrix).
 const (
 	SubmitterEngineer = "engineer"
 	SubmitterBusiness = "business"
 	SubmitterAgent    = "agent"
 )
 
-// 审批角色（`contracts/04` §11.C）。
+// Approval roles (`contracts/04` §11.C).
 const (
-	RoleEngineer   = "engineer"   // 工程师（可自审）
-	RolePeer       = "peer"       // 同行工程师（review）
-	RoleBusiness   = "business"   // 业务
-	RoleRisk       = "risk"       // 风控
-	RoleCompliance = "compliance" // 合规
-	RoleOwner      = "owner"      // 负责人
+	RoleEngineer   = "engineer"   // engineer (may self-review)
+	RolePeer       = "peer"       // peer engineer (review)
+	RoleBusiness   = "business"   // business
+	RoleRisk       = "risk"       // risk
+	RoleCompliance = "compliance" // compliance
+	RoleOwner      = "owner"      // owner
 )
 
-// 风险等级（`contracts/04` §2）。
+// Risk levels (`contracts/04` §2).
 const (
 	LevelL1 = "L1"
 	LevelL2 = "L2"
@@ -35,16 +35,16 @@ const (
 	LevelL4 = "L4"
 )
 
-// Slot 一个待填的审批位。
+// Slot is one approval slot waiting to be filled.
 //
-// Roles 是**可接受的角色集合**而不是单一角色：矩阵里写「双人（含 1 名业务/风控）」时，
-// 这一位谁来做是业务现实决定的，不该由平台替客户挑人。
+// Roles is **the set of acceptable roles**, not a single role: when the matrix says "two people (including 1 business/risk)",
+// who takes that slot is decided by business reality, and the platform should not pick people on the customer's behalf.
 type Slot struct {
 	Roles []string `json:"roles"`
 	Label string   `json:"label"`
 }
 
-// Accepts 该审批位是否接受某角色。
+// Accepts reports whether this approval slot accepts a given role.
 func (s Slot) Accepts(role string) bool {
 	for _, r := range s.Roles {
 		if r == role {
@@ -54,19 +54,19 @@ func (s Slot) Accepts(role string) bool {
 	return false
 }
 
-// Cell 矩阵的一格：某提交者类型 × 某风险等级。
+// Cell is one cell of the matrix: a submitter type × a risk level.
 type Cell struct {
 	Slots []Slot
-	// SelfApproval 是否允许提交者本人占用审批位。
-	// `contracts/04` §3 的「自审」与 §4 的「审批人不得是提交者本人」在此收口：
-	// 只有矩阵明确写「自审」的格子才允许，其余一律拒绝。
+	// SelfApproval says whether the submitter himself may occupy an approval slot.
+	// `contracts/04` §3's "self-approval" and §4's "the approver must not be the submitter" converge here:
+	// only cells that explicitly say "self-approval" allow it; everything else is refused.
 	SelfApproval bool
-	// Forbidden 硬规则：agent 不得直提 L4（A-8）。
+	// Forbidden is a hard rule: an agent must not submit L4 directly (A-8).
 	Forbidden bool
 	Reason    string
 }
 
-// matrix 是 `contracts/04` §3 表格的直译。改矩阵必须同步改契约。
+// matrix is a literal transcription of the `contracts/04` §3 table. Changing the matrix requires changing the contract in step.
 var matrix = map[string]map[string]Cell{
 	SubmitterEngineer: {
 		LevelL1: {Slots: []Slot{{Roles: []string{RoleEngineer}, Label: "工程师自审"}}, SelfApproval: true},
@@ -108,7 +108,7 @@ var matrix = map[string]map[string]Cell{
 	},
 }
 
-// Lookup 取矩阵的一格。
+// Lookup fetches one cell of the matrix.
 func Lookup(submitter, level string) (Cell, bool) {
 	byLevel, ok := matrix[submitter]
 	if !ok {
@@ -118,7 +118,7 @@ func Lookup(submitter, level string) (Cell, bool) {
 	return c, ok
 }
 
-// Describe 导出一整张矩阵（给前端审批工作台渲染与审计对账用）。
+// Describe exports the whole matrix (for the frontend approval workbench to render and for audit reconciliation).
 func Describe() []map[string]any {
 	out := make([]map[string]any, 0, 12)
 	for _, submitter := range []string{SubmitterEngineer, SubmitterBusiness, SubmitterAgent} {
@@ -145,7 +145,7 @@ func Describe() []map[string]any {
 	return out
 }
 
-// validSubmitter / validLevel 用于把「拼错的枚举」挡在提交入口，而不是变成矩阵查不到。
+// validSubmitter / validLevel keep a mistyped enum from reaching the submit entry point and turning into a matrix lookup miss.
 func validSubmitter(s string) bool {
 	switch s {
 	case SubmitterEngineer, SubmitterBusiness, SubmitterAgent:
@@ -170,11 +170,11 @@ func validRole(r string) bool {
 	return false
 }
 
-// NormalizeActorType 把请求头里的大小写/空白差异收敛，认不出时按最小权限（agent）处理。
+// NormalizeActorType collapses case/whitespace differences in the header, and treats anything unrecognized as least privilege (agent).
 //
-// 这是**故意的 fail-closed**：P1 接入认证前，调用方靠 `X-Actor-Type` 自报身份；
-// 认不出时若默认成工程师，等于凭空给了「自审 + 发布」权，所以缺省与拼错一律落到 agent
-// （agent 只能提草稿，不能审批、不能发布）。
+// This is **deliberate fail-closed**: before authentication is wired in at P1, callers self-report their identity via `X-Actor-Type`;
+// defaulting to engineer when unrecognized would hand out "self-approval + publish" for free, so both the missing and the mistyped value land on agent
+// (an agent can only submit drafts; it can neither approve nor publish).
 func NormalizeActorType(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "engineer", "工程师":

@@ -1,7 +1,7 @@
-//! Value model（`contracts/01` §3.3 / `contracts/02` §2）
+//! Value model (`contracts/01` §3.3 / `contracts/02` §2)
 //!
-//! 金额/费率一律走 `rust_decimal::Decimal`（精确十进制，禁浮点，D9 / A-5）。
-//! 序列化：decimal 落地为 **字符串**，避免 JSON number 的精度歧义（跨语言一致）。
+//! Amounts/rates always go through `rust_decimal::Decimal` (exact decimal, floats forbidden, D9 / A-5).
+//! Serialization: a decimal lands as a **string**, avoiding JSON number precision ambiguity (cross-language consistency).
 
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
@@ -33,12 +33,12 @@ impl Value {
         }
     }
 
-    /// 命中判定用：只有 `true` 才算命中；null / 非布尔一律不命中。
+    /// For hit tests: only `true` counts as a hit; null / non-boolean never hits.
     pub fn is_truthy(&self) -> bool {
         matches!(self, Value::Bool(true))
     }
 
-    /// 数值视图（integer 提升为 decimal；类型系统保证不隐式混算，这里是求值期的统一表示）。
+    /// Numeric view (an integer is promoted to decimal; the type system guarantees no implicit mixing, this is just the uniform representation at evaluation time).
     pub fn as_number(&self) -> Option<Decimal> {
         match self {
             Value::Int(i) => Some(Decimal::from(*i)),
@@ -58,7 +58,7 @@ impl Value {
         }
     }
 
-    /// 通用 JSON → Value（不做类型约束；用于数组元素、日志回读等）。
+    /// Generic JSON -> Value (no type constraints; used for array elements, log readback, etc.).
     pub fn from_json(json: &serde_json::Value) -> Result<Value, String> {
         Ok(match json {
             serde_json::Value::Null => Value::Null,
@@ -114,7 +114,7 @@ impl Serialize for Value {
             Value::Null => s.serialize_unit(),
             Value::Bool(b) => s.serialize_bool(*b),
             Value::Int(i) => s.serialize_i64(*i),
-            // decimal 一律字符串：跨语言（Go/JS）不丢精度
+            // decimals are always strings: no precision loss across languages (Go/JS)
             Value::Dec(d) => s.serialize_str(&d.to_string()),
             Value::Str(v) => s.serialize_str(v),
             Value::Arr(items) => {
@@ -154,7 +154,7 @@ impl<'de> Deserialize<'de> for Value {
                     .map_err(|_| E::custom("integer out of i64 range"))
             }
             fn visit_f64<E: de::Error>(self, v: f64) -> Result<Value, E> {
-                // JSON 浮点字面量：先转十进制再断言精确，不做二进制浮点运算
+                // JSON float literal: convert to decimal first, then assert exactness; no binary float arithmetic
                 Decimal::from_f64(v)
                     .map(Value::Dec)
                     .ok_or_else(|| E::custom("float literal is not representable as decimal"))
@@ -173,7 +173,7 @@ impl<'de> Deserialize<'de> for Value {
                 Ok(Value::Arr(out))
             }
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
-                // 允许 {"type":"decimal","value":"1.20"} 形态（与 Literal 结构一致）
+                // accept the {"type":"decimal","value":"1.20"} shape (consistent with the Literal structure)
                 let mut ty: Option<String> = None;
                 let mut val: Option<Value> = None;
                 while let Some(k) = map.next_key::<String>()? {
@@ -202,7 +202,7 @@ impl<'de> Deserialize<'de> for Value {
     }
 }
 
-/// 序列化辅助：`{"type": .., "value": ..}`
+/// Serialization helper: `{"type": .., "value": ..}`
 pub(crate) fn serialize_tagged<S: Serializer>(
     s: S,
     ty: &str,

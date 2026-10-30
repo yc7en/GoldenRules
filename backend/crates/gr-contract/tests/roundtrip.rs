@@ -1,7 +1,7 @@
-//! B0 验收：`RulePackage` / `FactCatalog` / `FactSnapshot` 的 JSON 往返一致，
-//! 且 decimal 不经过二进制浮点（A-5）。
+//! B0 acceptance: JSON round-trip consistency for `RulePackage` / `FactCatalog` / `FactSnapshot`,
+//! and decimals never pass through binary floats (A-5).
 //!
-//! 同一份 fixture 也被 Go 侧（`platform/contracts`）读取，用于跨语言 round-trip。
+//! The same fixtures are also read by the Go side (`platform/contracts`) for cross-language round-trip.
 
 use gr_contract::*;
 
@@ -51,17 +51,17 @@ fn snapshot_round_trip() {
 
 #[test]
 fn decimal_is_exact_no_float() {
-    // 0.1 + 0.2 必须是精确 0.3，不是 0.30000000000000004
+    // 0.1 + 0.2 must be exactly 0.3, not 0.30000000000000004
     let a = Literal::dec("0.1");
     let b = Literal::dec("0.2");
     let sum = a.value.as_number().unwrap() + b.value.as_number().unwrap();
     assert_eq!(sum.to_string(), "0.3");
 
-    // 大额金额不丢精度
+    // large amounts keep their precision
     let big: Value = serde_json::from_value(serde_json::json!("9999999999999999.99")).unwrap();
     assert_eq!(big.to_string(), "9999999999999999.99");
 
-    // 序列化后仍是字符串
+    // still a string after serialization
     let json = serde_json::to_value(&big).unwrap();
     assert_eq!(json, serde_json::json!("9999999999999999.99"));
 }
@@ -98,9 +98,9 @@ fn decision_result_shape_matches_contract() {
     };
     let json = serde_json::to_value(&result).unwrap();
     assert_eq!(json["decision"], serde_json::json!("REJECT"));
-    // decimal 出口仍是字符串，消费方（JS/Go）不会拿到 1e-7 之类的浮点
+    // the decimal at the exit is still a string, so consumers (JS/Go) never get floats like 1e-7
     assert_eq!(json["outputs"]["excessAmount"], serde_json::json!("500"));
-    // 契约要求：命中列表里没有冗余 matched 字段
+    // contract requirement: the hit list carries no redundant matched field
     assert!(json["hitRules"][0].get("matched").is_none());
 }
 

@@ -1,7 +1,7 @@
-//! Provider 的声明式配置（`--providers` 指向的 JSON）。
+//! Declarative configuration for Providers (the JSON `--providers` points at).
 //!
-//! 之所以用配置而不是让业务方写 Rust：Provider 组合是**场景级**的，属运营可调的接线，
-//! 不是编译期知识。配置在装载期做全量校验（目录/重复/依赖），运行期零反射。
+//! Why configuration instead of asking business teams to write Rust: Provider composition is **scene-level**; it is
+//! operations-tunable wiring, not compile-time knowledge. The config is fully validated at load time (catalog / duplicates / dependencies), with zero reflection at runtime.
 
 use crate::sample::JsonMap;
 use gr_contract::Expr;
@@ -19,39 +19,39 @@ pub struct AssemblerSpec {
 #[serde(rename_all = "camelCase")]
 pub struct SceneSpec {
     pub scene: String,
-    /// **声明顺序即执行顺序**：派生 Provider 依赖的事实必须由更早的 Provider（或调用方入参）提供。
+    /// **Declaration order is execution order**: facts a derived Provider depends on must be supplied by an earlier Provider (or by caller inputs).
     #[serde(default)]
     pub providers: Vec<ProviderSpec>,
 }
 
-// 注意：枚举上的 `rename_all` 只改**变体名**，变体内部的字段要靠 `rename_all_fields`
-// （否则 `dependsOn` / `timeoutMs` 会被静默忽略——这正是本文件第一版踩的坑）。
+// Note: `rename_all` on an enum only renames **variant names**; fields inside variants need `rename_all_fields`
+// (otherwise `dependsOn` / `timeoutMs` are silently ignored -- exactly the trap the first version of this file fell into).
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "kind")]
 pub enum ProviderSpec {
-    /// 静态常量：配置类事实
+    /// Static constants: configuration-type facts
     Static {
         #[serde(default)]
         name: Option<String>,
         #[serde(default)]
         facts: JsonMap,
     },
-    /// 派生表达式：由其他事实算出新事实
+    /// Derived expressions: compute new facts from other facts
     Derived {
         #[serde(default)]
         name: Option<String>,
         #[serde(default)]
         facts: BTreeMap<String, Expr>,
-        /// 表达式可引用的事实，顺序即 slot 下标
+        /// Facts the expression may reference; the order is the slot index
         #[serde(default)]
         depends_on: Vec<String>,
     },
-    /// HTTP 拉取：外部服务供给
+    /// HTTP fetch: supplied by an external service
     Http {
         #[serde(default)]
         name: Option<String>,
         url: String,
-        /// 事实名 → 响应体取值路径（`""`/`"$"` = 响应体本身是事实名→值的对象）
+        /// Fact name -> value path in the response body (`""`/`"$"` = the body itself is an object of fact name -> value)
         #[serde(default)]
         facts: BTreeMap<String, String>,
         #[serde(default)]
@@ -76,7 +76,7 @@ impl ProviderSpec {
         }
     }
 
-    /// 声明供给的事实名（装载期用于目录校验与重复检测）。
+    /// Fact names declared as supplied (used at load time for catalog validation and duplicate detection).
     pub fn declared_facts(&self) -> Vec<String> {
         match self {
             ProviderSpec::Static { facts, .. } => facts.keys().cloned().collect(),

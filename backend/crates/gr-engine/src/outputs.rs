@@ -1,13 +1,13 @@
-//! 输出变量（assign）与合并规则（`contracts/01` §3.2.3 / `contracts/03` §2.1）。
+//! Output variables (assign) and merge rules (`contracts/01` §3.2.3 / `contracts/03` §2.1).
 //!
-//! 合并是**确定性**的：按「优先级降序 → reasonCode 升序 → ruleId 升序」遍历命中规则，
-//! 同名变量**先写先赢**（= 最高优先级命中规则的值），同名同值幂等。
+//! The merge is **deterministic**: walk the hit rules in "priority descending -> reasonCode ascending -> ruleId ascending" order,
+//! and a variable with the same name **first writer wins** (= the value from the highest-priority hit rule); same name with the same value is idempotent.
 
 use gr_contract::{ErrorContract, Value};
 use gr_vm::{run_assigns, Budget, RuleSetProgram};
 use std::collections::BTreeMap;
 
-/// 命中规则的确定性顺序（同名变量冲突时用它决定谁赢）。
+/// Deterministic order of hit rules (used to decide the winner when variables with the same name collide).
 pub fn hit_order(program: &RuleSetProgram, hits: &[u32]) -> Vec<u32> {
     let mut ordered = hits.to_vec();
     ordered.sort_by(|&a, &b| {
@@ -21,7 +21,7 @@ pub fn hit_order(program: &RuleSetProgram, hits: &[u32]) -> Vec<u32> {
     ordered
 }
 
-/// 汇总所有命中规则的 `assign`。
+/// Aggregate the `assign` results of all hit rules.
 pub fn compute_outputs(
     program: &RuleSetProgram,
     hits: &[u32],
@@ -38,9 +38,9 @@ pub fn compute_outputs(
                 None => {
                     outputs.insert(var, value);
                 }
-                // 同名同值：幂等
+                // Same name, same value: idempotent
                 Some(existing) if values_equal(existing, &value) => {}
-                // 同名冲突：先写先赢 = 最高优先级命中规则
+                // Same name, conflicting value: first writer wins = the highest-priority hit rule
                 Some(_) => {}
             }
         }

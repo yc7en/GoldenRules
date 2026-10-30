@@ -1,4 +1,4 @@
-//! 决策契约（`contracts/03` / `contracts/05` §7）
+//! Decision contract (`contracts/03` / `contracts/05` §7)
 
 use crate::dsl::Decision;
 use crate::value::Value;
@@ -64,14 +64,14 @@ pub struct DecisionResult {
     pub executed_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub engine_version: Option<String>,
-    /// 规则包版本（A-4：日志必须含规则包版本）
+    /// Rule package version (A-4: logs must carry the rule package version)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package_version: Option<String>,
 }
 
-/// 决策日志条目（A-4：快照(脱敏) + 事实目录版本 + 规则包版本 + 命中规则 + 输出 + 降级标记 + 引擎版本 + 耗时）
+/// Decision log entry (A-4: snapshot (masked) + fact catalog version + rule package version + hit rules + outputs + degraded flag + engine version + latency)
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DecisionLogEntry {
@@ -84,7 +84,7 @@ pub struct DecisionLogEntry {
     pub package_version: String,
     pub ruleset_id: String,
     pub ruleset_version: String,
-    /// 脱敏后的快照视图（PII 掩码），原始快照不入此结构（`contracts/03` §6.2）
+    /// Masked snapshot view (PII masking); the raw snapshot never enters this structure (`contracts/03` §6.2)
     pub masked_facts: BTreeMap<String, serde_json::Value>,
     pub masked_fields: Vec<String>,
     pub hit_rules: Vec<HitRule>,

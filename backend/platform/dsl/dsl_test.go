@@ -65,7 +65,7 @@ func hasDiag(list []Diagnostic, code string) *Diagnostic {
 	return nil
 }
 
-// 验收 1：引用不存在字段 → DSL_FIELD_NOT_FOUND + 精确路径 + 拼写建议。
+// Acceptance 1: referencing a non-existent field → DSL_FIELD_NOT_FOUND + precise path + spelling suggestion.
 func TestFieldNotFoundHasPrecisePath(t *testing.T) {
 	cat := loadCatalog(t)
 	def := baseDef()
@@ -96,7 +96,7 @@ func TestFieldNotFoundHasPrecisePath(t *testing.T) {
 	}
 }
 
-// 验收 2：非白名单算子 → DSL_OP_NOT_ALLOWED。
+// Acceptance 2: a non-allow-listed operator → DSL_OP_NOT_ALLOWED.
 func TestUnknownOpRejected(t *testing.T) {
 	cat := loadCatalog(t)
 	def := baseDef()
@@ -112,7 +112,7 @@ func TestUnknownOpRejected(t *testing.T) {
 	}
 }
 
-// 验收 3：文本表达式糖与结构化写法产出**同一份 IR**（字节一致）。
+// Acceptance 3: textual expression sugar and the structured form produce **the same IR** (byte-identical).
 func TestTextSugarEqualsStructured(t *testing.T) {
 	cat := loadCatalog(t)
 
@@ -140,7 +140,7 @@ func TestTextSugarEqualsStructured(t *testing.T) {
 	}
 }
 
-// 验收 4：决策表展开成等价规则，且能编译出 IR。
+// Acceptance 4: a decision table expands into equivalent rules and compiles into an IR.
 func TestDecisionTableExpands(t *testing.T) {
 	cat := loadCatalog(t)
 	def := Definition{
@@ -195,7 +195,7 @@ func TestDecisionTableExpands(t *testing.T) {
 	if rep.IR.Rules[0].Priority <= rep.IR.Rules[1].Priority {
 		t.Fatalf("行序应表达优先级: %d vs %d", rep.IR.Rules[0].Priority, rep.IR.Rules[1].Priority)
 	}
-	// 展开后 when 已解析成 slot，不再含 fact 名
+	// after expansion, when is already resolved into slots and no longer contains fact names
 	if containsStr(string(rep.IR.Rules[0].When), "fact") {
 		t.Fatalf("编译后不应残留 fact 引用: %s", rep.IR.Rules[0].When)
 	}
@@ -204,7 +204,7 @@ func TestDecisionTableExpands(t *testing.T) {
 	}
 }
 
-// 枚举字面量必须落在取值范围内。
+// Enum literals must fall inside the value range.
 func TestEnumLiteralChecked(t *testing.T) {
 	cat := loadCatalog(t)
 	def := baseDef()
@@ -220,7 +220,7 @@ func TestEnumLiteralChecked(t *testing.T) {
 	}
 }
 
-// 可空字段未判空 → 阻断；用 is null 兜底后放行。
+// A nullable field without a guard → blocked; with an is null guard it is allowed through.
 func TestNullableRequiresGuard(t *testing.T) {
 	cat := loadCatalog(t)
 	def := baseDef()
@@ -241,7 +241,7 @@ func TestNullableRequiresGuard(t *testing.T) {
 	}
 }
 
-// assign 变量必须在场景输出 schema 登记，且类型要匹配。
+// assign variables must be registered in the scene output schema, and their types must match.
 func TestAssignVarMustBeRegistered(t *testing.T) {
 	cat := loadCatalog(t)
 	def := baseDef()
@@ -270,7 +270,7 @@ func TestAssignVarMustBeRegistered(t *testing.T) {
 	}
 }
 
-// slot 分配按 (priority desc, ruleId asc)，与书写顺序无关。
+// Slots are assigned by (priority desc, ruleId asc), independent of authoring order.
 func TestSlotAssignmentIsOrderIndependent(t *testing.T) {
 	cat := loadCatalog(t)
 	r1 := contracts.Rule{
@@ -287,7 +287,7 @@ func TestSlotAssignmentIsOrderIndependent(t *testing.T) {
 	a := baseDef()
 	a.Rules = []contracts.Rule{r1, r2}
 	b := baseDef()
-	b.Rules = []contracts.Rule{r2, r1} // 反过来写
+	b.Rules = []contracts.Rule{r2, r1} // reversed on purpose
 
 	ra := analyze(t, a, cat, nil)
 	rb := analyze(t, b, cat, nil)
@@ -304,7 +304,7 @@ func TestSlotAssignmentIsOrderIndependent(t *testing.T) {
 	}
 }
 
-// fixtures 里的四个规则集必须全部通过 dry-run —— 契约样例是跨语言唯一裁判。
+// The four rule sets in fixtures must all pass dry-run — the contract samples are the only cross-language referee.
 func TestFixtureRulesetsAllValid(t *testing.T) {
 	cat := loadCatalog(t)
 	pkg := loadFixturePackage(t)
@@ -326,7 +326,7 @@ func TestFixtureRulesetsAllValid(t *testing.T) {
 				def.OutputSchema = &s
 			}
 		}
-		// 用例只取同场景的
+		// only take the test cases of the same scene
 		for _, tc := range pkg.Tests {
 			if tc.Scene == rs.Scene {
 				def.Tests = append(def.Tests, tc)
@@ -343,19 +343,19 @@ func TestFixtureRulesetsAllValid(t *testing.T) {
 	}
 }
 
-// 文本表达式的运算符优先级与括号。
+// Operator precedence and parentheses of textual expressions.
 func TestTextParserPrecedence(t *testing.T) {
 	cases := []struct {
 		src  string
 		want string
 	}{
-		{ // && 比 || 紧；比较比 && 紧
+		{ // && binds tighter than ||; comparisons bind tighter than &&
 			`a.b > 1 && c.d == "X" || e.f == true`,
 			`{"args":[{"args":[{"args":[{"fact":"a.b"},{"type":"integer","value":1}],"op":"gt"},` +
 				`{"args":[{"fact":"c.d"},{"type":"string","value":"X"}],"op":"eq"}],"op":"and"},` +
 				`{"args":[{"fact":"e.f"},{"type":"boolean","value":true}],"op":"eq"}],"op":"or"}`,
 		},
-		{ // * 比 + 紧；括号优先
+		{ // * binds tighter than +; parentheses win
 			`a.b + 1 * 2 > 3`,
 			`{"args":[{"args":[{"fact":"a.b"},{"args":[{"type":"integer","value":1},` +
 				`{"type":"integer","value":2}],"op":"mul"}],"op":"add"},{"type":"integer","value":3}],"op":"gt"}`,
@@ -364,7 +364,7 @@ func TestTextParserPrecedence(t *testing.T) {
 			`a.b is not null`,
 			`{"args":[{"fact":"a.b"}],"negated":true,"op":"isNull"}`,
 		},
-		{ // in 列表
+		{ // in-list
 			`a.b in ["X","Y"]`,
 			`{"args":[{"fact":"a.b"},{"type":"array","value":["X","Y"]}],"op":"in"}`,
 		},
@@ -387,7 +387,7 @@ func TestTextParserRejectsBadSyntax(t *testing.T) {
 		`(request.amount > 1`,
 		`request.amount > 1 > 2`,
 		`request.amount @@ 1`,
-		`upper(request.currency) == "A"`, // 不在白名单
+		`upper(request.currency) == "A"`, // not in the whitelist
 	}
 	for _, src := range bad {
 		if _, err := parseText(src); err == nil {

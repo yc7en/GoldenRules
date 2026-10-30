@@ -10,24 +10,24 @@ import (
 	"time"
 )
 
-// Replayer 回放执行器：把「历史原始快照 + 指定版本」重新跑一遍决策。
+// Replayer is the replay executor: it re-runs a decision from "historical raw snapshot + a specified version".
 //
-// 为什么是接口而不是直接写 HTTP：回放是**离线动作**（`contracts/03` §8.1），
-// 不该让平台在编译期依赖决策服务的地址；测试里注入假实现也比起进程便宜。
+// Why an interface instead of writing HTTP directly: replay is an **offline action** (`contracts/03` §8.1), and
+// the platform should not depend on the decision service's address at compile time; injecting a fake in tests is also cheaper than spawning a process.
 type Replayer interface {
-	// Decide 用给定快照与上下文求值，返回引擎的 DecisionResult 原文。
+	// Decide evaluates with the given snapshot and context and returns the engine's DecisionResult verbatim.
 	Decide(snapshot, execCtx json.RawMessage) (json.RawMessage, error)
-	// Describe 说明回放后端（写进响应，便于排查「回放结果为什么和线上不一样」）。
+	// Describe describes the replay backend (written into the response, to help explain "why the replay differs from production").
 	Describe() string
 }
 
-// HTTPReplayer 通过决策服务的 `/v1/decide` 回放。
+// HTTPReplayer replays through the decision service's `/v1/decide`.
 type HTTPReplayer struct {
 	BaseURL string
 	Client  *http.Client
 }
 
-// NewHTTPReplayer 构造 HTTP 回放器；baseURL 为空时返回 nil（= 回放不可用）。
+// NewHTTPReplayer builds the HTTP replayer; an empty baseURL returns nil (= replay unavailable).
 func NewHTTPReplayer(baseURL string) *HTTPReplayer {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
@@ -36,11 +36,11 @@ func NewHTTPReplayer(baseURL string) *HTTPReplayer {
 	return &HTTPReplayer{BaseURL: baseURL, Client: &http.Client{Timeout: 5 * time.Second}}
 }
 
-// Describe 回放后端自述。
+// Describe is the replay backend's self-description.
 //
-// nil 接收者返回空串而不是 panic：`NewHTTPReplayer("")` 返回的是**类型化 nil**
-// （`*HTTPReplayer` 的 nil），装进 `Replayer` 接口后接口本身不为 nil。这种「看着不是 nil
-// 其实是 nil」的值一旦漏到 handler 里，会把整个日志列表接口打成 500——所以这里兜一层。
+// A nil receiver returns an empty string instead of panicking: `NewHTTPReplayer("")` returns a **typed nil**
+// (a nil `*HTTPReplayer`) which is not nil once stored in a `Replayer` interface. Such a "looks non-nil
+// but is actually nil" value leaking into a handler would turn the whole log-list endpoint into a 500 — hence this guard.
 func (r *HTTPReplayer) Describe() string {
 	if r == nil {
 		return ""
@@ -48,7 +48,7 @@ func (r *HTTPReplayer) Describe() string {
 	return "gr-server " + r.BaseURL
 }
 
-// Decide 调 `/v1/decide`。注意用 decide 而不是 trial：回放要的是与线上同一入口的语义。
+// Decide calls `/v1/decide`. Note it uses decide rather than trial: replay needs the semantics of the same entry point as production.
 func (r *HTTPReplayer) Decide(snapshot, execCtx json.RawMessage) (json.RawMessage, error) {
 	if r == nil {
 		return nil, fmt.Errorf("回放后端未配置（--engine-url 为空）")
@@ -75,11 +75,11 @@ func (r *HTTPReplayer) Decide(snapshot, execCtx json.RawMessage) (json.RawMessag
 	return json.RawMessage(raw), nil
 }
 
-// Replay 纯快照重算并比对（`contracts/03` §8）。
+// Replay recomputes from the raw snapshot only and compares (`contracts/03` §8).
 //
-// 比对口径只取「可判定的三样」：`decision`、`reasonCode`、`outputs`。
-// 命中路径（`hitRules`）原样带回但不参与判定——它含规则 ID 与版本，属于解释性字段，
-// 用它判定会把「规则顺序调整但结论相同」误判成回放失败。
+// The comparison only takes "the three decidable things": `decision`, `reasonCode`, `outputs`.
+// The hit path (`hitRules`) is returned as-is but does not participate in the verdict — it contains rule IDs and versions and is explanatory,
+// so judging by it would misclassify "rule order changed but the conclusion is the same" as a replay failure.
 func (s *Service) Replay(logID string, r Replayer) (ReplayResult, error) {
 	if r == nil {
 		return ReplayResult{}, errf(CodeReplayUnavailable,
@@ -94,7 +94,7 @@ func (s *Service) Replay(logID string, r Replayer) (ReplayResult, error) {
 		return ReplayResult{}, rerr
 	}
 
-	// 上下文按日志重建：版本钉死在日志记录的那一版，否则回放会被当前生效版本污染。
+	// Rebuild the context from the log: the version is pinned to the one recorded in the log, otherwise the replay would be polluted by the currently active version.
 	ctx := map[string]any{
 		"tenantId":    rec.Entry.TenantID,
 		"scene":       rec.Entry.Scene,
@@ -146,7 +146,7 @@ func (s *Service) Replay(logID string, r Replayer) (ReplayResult, error) {
 	return res, nil
 }
 
-// diffOutputs 只报「值不同 / 只在一边」的变量，避免把 key 顺序差异当成不一致。
+// diffOutputs only reports variables that "differ in value / exist on one side only", so key-order differences are not taken for mismatches.
 func diffOutputs(want, got map[string]json.RawMessage) string {
 	var parts []string
 	for k, wv := range want {

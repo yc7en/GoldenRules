@@ -1,17 +1,17 @@
-// Package dsl 实现 B7：规则 DSL 的解析、校验与编译（dry-run）。
+// Package dsl implements B7: parsing, validation and compilation (dry-run) of the rule DSL.
 //
-// 契约依据：`contracts/01`（DSL 与 IR 规范）、`contracts/05` §6（校验流水线）。
+// Contract basis: `contracts/01` (DSL and IR specification), `contracts/05` §6 (validation pipeline).
 //
-// # 三种写法，一套 IR
+// # Three authoring styles, one IR
 //
-// 结构化 JSON、文本表达式糖、决策表，三者**表达等价**，都先收敛到本包的 [Expr] AST，
-// 再编译成同一份 IR（`contracts/01` §3.1、`设计教训.md` 反模式 2）。
-// 决策表在编译期展开成等价规则列表，运行时不存在「表」这个概念。
+// Structured JSON, textual expression sugar and decision tables are **expressively equivalent**;
+// all three converge into this package's [Expr] AST first, then compile into the same IR (`contracts/01` §3.1,
+// `设计教训.md` anti-pattern 2). Decision tables expand into an equivalent rule list at compile time; no "table" exists at runtime.
 //
-// # 本包不做的事
+// # What this package does not do
 //
-// 不求值（B2/引擎侧）、不取数（A-2）、不管发布与审批（B8/B9）。
-// 校验只做**静态**判断：字段存在性、类型、枚举、可空、白名单算子/函数、资源上限。
+// It does not evaluate (B2/engine side), does not fetch facts (A-2), and does not handle publishing or approval (B8/B9).
+// Validation makes **static** judgements only: field existence, type, enum, nullability, allow-listed operators/functions, and resource limits.
 package dsl
 
 import (
@@ -20,7 +20,7 @@ import (
 	"sort"
 )
 
-// 校验诊断错误码（`contracts/01` §3.7 与附录 A，本包补充见附录 A）。
+// Validation diagnostic error codes (`contracts/01` §3.7 and Appendix A; additions from this package are listed in Appendix A).
 const (
 	CodeFieldNotFound       = "DSL_FIELD_NOT_FOUND"
 	CodeTypeMismatch        = "DSL_TYPE_MISMATCH"
@@ -41,10 +41,10 @@ const (
 	CodeFactNotFound        = "DSL_FIELD_NOT_FOUND"
 )
 
-// Diagnostic 一条诊断：错误码 + 字段路径 + 建议。
+// Diagnostic is a single diagnostic: error code + field path + suggestion.
 //
-// 路径形如 `rules[2].when.args[1].args[0]`，用**编译前的 DSL 形态**定位（不是 IR 形态），
-// 这样规则作者能直接对着自己写的东西改。诊断必须让 agent 能自我纠错（`contracts/01` §3.7）。
+// The path looks like `rules[2].when.args[1].args[0]` and is anchored in the **pre-compilation DSL form** (not the IR form),
+// so rule authors can fix exactly what they wrote. Diagnostics must let the agent self-correct (`contracts/01` §3.7).
 type Diagnostic struct {
 	Code    string `json:"code"`
 	Level   string `json:"level"` // error | warn
@@ -55,7 +55,7 @@ type Diagnostic struct {
 	Suggest string `json:"suggest,omitempty"`
 }
 
-// diag 收集诊断，避免每个分支都写一遍结构体。
+// diag collects diagnostics so that every branch does not have to repeat the struct literal.
 type diag struct {
 	list []Diagnostic
 }
@@ -92,7 +92,7 @@ func (d *diag) hasError() bool {
 // AST
 // ---------------------------------------------------------------------------
 
-// Kind 表达式节点类型，与 `contracts/01` §4.2 的四形态一一对应。
+// Kind is the expression node kind, one-to-one with the four forms in `contracts/01` §4.2.
 type Kind int
 
 const (
@@ -102,13 +102,13 @@ const (
 	KindOp
 )
 
-// Literal DSL 字面量：`{ "type": "decimal", "value": "1000" }`。
+// Literal is a DSL literal: `{ "type": "decimal", "value": "1000" }`.
 type Literal struct {
 	Kind  string // integer / decimal / string / boolean / enum / array / null
 	Value any
 }
 
-// Expr 表达式 AST。四种形态共用一张结构：字段按 Kind 生效。
+// Expr is the expression AST. The four forms share one struct: fields apply according to Kind.
 type Expr struct {
 	Kind    Kind
 	Lit     *Literal
@@ -120,10 +120,10 @@ type Expr struct {
 	Func    string
 }
 
-// IsCall 判断是否为白名单函数调用（`{"op":"call","func":"..."}`）。
+// IsCall reports whether this is an allow-listed function call (`{"op":"call","func":"..."}`).
 func (e *Expr) IsCall() bool { return e != nil && e.Kind == KindOp && e.Op == "call" }
 
-// Depth 表达式深度（叶子 = 1）。
+// Depth is the expression depth (a leaf = 1).
 func (e *Expr) Depth() int {
 	if e == nil {
 		return 0
@@ -140,7 +140,7 @@ func (e *Expr) Depth() int {
 	return max + 1
 }
 
-// NodeCount 节点数。
+// NodeCount is the number of nodes.
 func (e *Expr) NodeCount() int {
 	if e == nil {
 		return 0
@@ -155,7 +155,7 @@ func (e *Expr) NodeCount() int {
 	return n
 }
 
-// Walk 先序遍历。
+// Walk performs a pre-order traversal.
 func (e *Expr) Walk(fn func(*Expr)) {
 	if e == nil {
 		return
@@ -166,7 +166,7 @@ func (e *Expr) Walk(fn func(*Expr)) {
 	}
 }
 
-// Facts 收集引用的字段（出现顺序、去重）。
+// Facts collects the referenced fields (order of appearance, de-duplicated).
 func (e *Expr) Facts() []string {
 	var out []string
 	seen := map[string]bool{}
@@ -179,10 +179,10 @@ func (e *Expr) Facts() []string {
 	return out
 }
 
-// JSON 转回契约形态（`{"op":..,"args":[..]}` / `{"type":..,"value":..}` / `{"fact":..}` / `{"slot":..}`）。
+// JSON converts back to the contract form (`{"op":..,"args":[..]}` / `{"type":..,"value":..}` / `{"fact":..}` / `{"slot":..}`).
 //
-// 用 map 而不是结构体，是为了让编码器按 key 升序输出，得到**字节稳定**的产物
-// （`contracts/01` §5.1 编译确定性）。
+// A map instead of a struct is used so the encoder emits keys in ascending order and the output is
+// **byte-stable** (`contracts/01` §5.1 compile determinism).
 func (e *Expr) JSON() any {
 	switch e.Kind {
 	case KindFact:
@@ -209,10 +209,10 @@ func (e *Expr) JSON() any {
 	return nil
 }
 
-// MarshalJSON 让 AST 直接以契约形态序列化。
+// MarshalJSON serialises the AST directly in its contract form.
 func (e *Expr) MarshalJSON() ([]byte, error) { return json.Marshal(e.JSON()) }
 
-// Equal 结构相等（用于测试与差异分析）。
+// Equal reports structural equality (used by tests and diff analysis).
 func (e *Expr) Equal(o *Expr) bool {
 	if e == nil || o == nil {
 		return e == o
@@ -222,14 +222,14 @@ func (e *Expr) Equal(o *Expr) bool {
 	return string(a) == string(b)
 }
 
-// sortFacts 排序去重后的字段列表（生成物确定性）。
+// sortFacts sorts the de-duplicated field list (artifact determinism).
 func sortFacts(list []string) []string {
 	out := append([]string(nil), list...)
 	sort.Strings(out)
 	return out
 }
 
-// describe 用于诊断里说明「你写的是什么」。
+// describe explains "what you wrote" inside a diagnostic.
 func (e *Expr) describe() string {
 	if e == nil {
 		return "空表达式"

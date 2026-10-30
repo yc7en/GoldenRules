@@ -1,10 +1,10 @@
-// Package contracts 是管理平台（Go）侧对共享契约的绑定。
+// Package contracts is the management platform's (Go) binding of the shared contracts.
 //
-// 契约的**唯一裁判是 JSON 序列化格式**（PLAN.md §2 B0）：Rust 侧 gr-contract 与这里
-// 各自持有绑定，不共享运行时。`go test ./contracts` 会用同一份 `fixtures/` 做往返校验。
+// The **only referee for the contract is the JSON serialisation format** (PLAN.md §2 B0): the Rust-side gr-contract and this package
+// each hold their own binding and share no runtime. `go test ./contracts` round-trips against the same `fixtures/`.
 //
-// 说明：`Expr` 在管理平台侧是**透传**（RawMessage）——表达式语义只由引擎侧解释，
-// 平台只在 B7 做 dry-run 校验时把它交给引擎/校验器，自己不改写结构。
+// Note: on the management platform side `Expr` is a **pass-through** (RawMessage) — expression semantics are interpreted only by the engine side;
+// the platform only hands it to the engine/validator during B7 dry-run validation and never rewrites the structure itself.
 package contracts
 
 import (
@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// RulePackage 规则包（contracts/01 §6）：原子发布单元、不可变。
+// RulePackage is a rule package (contracts/01 §6): the atomic publish unit, immutable.
 type RulePackage struct {
 	PackageID         string          `json:"packageId"`
 	PackageVersion    string          `json:"packageVersion"`
@@ -27,7 +27,7 @@ type RulePackage struct {
 	Metadata          PackageMetadata `json:"metadata"`
 }
 
-// PackageMetadata 发布元数据。
+// PackageMetadata is the publish metadata.
 type PackageMetadata struct {
 	CreatedAt string `json:"createdAt,omitempty"`
 	CreatedBy string `json:"createdBy,omitempty"`
@@ -35,7 +35,7 @@ type PackageMetadata struct {
 	Changelog string `json:"changelog,omitempty"`
 }
 
-// RuleSet 规则集：场景之下、规则之上的模块单位（表达式/决策表只是它的写法）。
+// RuleSet is a ruleset: the unit of modularity below a scene and above rules (expressions/decision tables are merely ways to write it).
 type RuleSet struct {
 	RulesetID           string    `json:"rulesetId"`
 	Version             string    `json:"version,omitempty"`
@@ -49,7 +49,7 @@ type RuleSet struct {
 	SlotTable           []SlotDef `json:"slotTable"`
 }
 
-// Rule 单条规则。When 为 IR 表达式（透传）。
+// Rule is a single rule. When is an IR expression (pass-through).
 type Rule struct {
 	RuleID    string          `json:"ruleId"`
 	Version   string          `json:"version,omitempty"`
@@ -60,7 +60,7 @@ type Rule struct {
 	Then      Then            `json:"then"`
 }
 
-// Then 命中后果：决策 + 理由码 + 输出变量。
+// Then is the hit consequence: decision + reason code + output variables.
 type Then struct {
 	Decision      string   `json:"decision"`
 	ReasonCode    string   `json:"reasonCode"`
@@ -68,27 +68,27 @@ type Then struct {
 	Assign        []Assign `json:"assign,omitempty"`
 }
 
-// Assign 输出变量赋值（派生事实，纯函数）。
+// Assign is an output variable assignment (a derived fact, pure function).
 type Assign struct {
 	Var  string          `json:"var"`
 	Expr json.RawMessage `json:"expr"`
 }
 
-// SlotDef slot 表条目：编译期字段引用解析为数组下标。
+// SlotDef is a slot table entry: field references are resolved into array indices at compile time.
 type SlotDef struct {
 	Name        string `json:"name"`
 	Type        string `json:"type"`
 	FactVersion string `json:"factVersion,omitempty"`
 }
 
-// OutputSchema 场景输出 schema（contracts/03 §5）。
+// OutputSchema is the scene output schema (contracts/03 §5).
 type OutputSchema struct {
 	OutputSchemaID      string                 `json:"outputSchemaId"`
 	OutputSchemaVersion string                 `json:"outputSchemaVersion"`
 	Fields              map[string]OutputField `json:"fields"`
 }
 
-// OutputField 输出变量契约。
+// OutputField is an output variable contract.
 type OutputField struct {
 	Type     string   `json:"type"`
 	Values   []string `json:"values,omitempty"`
@@ -96,12 +96,12 @@ type OutputField struct {
 	Nullable bool     `json:"nullable,omitempty"`
 }
 
-// TestCase 测试用例（规则包一等成员，contracts/01 §6.1）。
+// TestCase is a test case (a first-class member of the rule package, contracts/01 §6.1).
 type TestCase struct {
 	TestID string `json:"testId"`
 	Scene  string `json:"scene"`
-	// RulesetID 用例针对的规则集（`contracts/01` §6.1）。
-	// 场景挂多个规则集时必填，否则引擎侧门禁会以 AMBIGUOUS_SCENE 拒绝执行。
+	// RulesetID is the ruleset this test case targets (`contracts/01` §6.1).
+	// Required when a scene carries several rulesets, otherwise the engine-side gate refuses to run with AMBIGUOUS_SCENE.
 	RulesetID string                     `json:"rulesetId,omitempty"`
 	Input     map[string]json.RawMessage `json:"input"`
 	Expect    Expectation                `json:"expect"`
@@ -109,14 +109,14 @@ type TestCase struct {
 	Status    string                     `json:"status,omitempty"`
 }
 
-// Expectation 期望的决策结果（业务确认此列）。
+// Expectation is the expected decision result (business confirms this column).
 type Expectation struct {
 	Decision   string                     `json:"decision"`
 	ReasonCode string                     `json:"reasonCode"`
 	Outputs    map[string]json.RawMessage `json:"outputs,omitempty"`
 }
 
-// FactSchema 事实契约（contracts/02 §1）。只存契约，不存取数逻辑。
+// FactSchema is a fact contract (contracts/02 §1). It stores contracts only, never fetch logic.
 type FactSchema struct {
 	Fact        string          `json:"fact"`
 	DisplayName string          `json:"displayName,omitempty"`
@@ -141,19 +141,19 @@ type FactSchema struct {
 	OnMissing   string          `json:"onMissing,omitempty"`
 }
 
-// Freshness 时效契约（contracts/02 §5）。
+// Freshness is the freshness contract (contracts/02 §5).
 type Freshness struct {
 	MaxAgeSec int64  `json:"maxAgeSec"`
 	OnStale   string `json:"onStale,omitempty"`
 }
 
-// FactCatalog 事实目录（单一真源，contracts/02 §1.1）。
+// FactCatalog is the fact catalog (single source of truth, contracts/02 §1.1).
 type FactCatalog struct {
 	CatalogVersion string       `json:"catalogVersion"`
 	Facts          []FactSchema `json:"facts"`
 }
 
-// FactSnapshot 输入快照（contracts/02 §3）。
+// FactSnapshot is the input snapshot (contracts/02 §3).
 type FactSnapshot struct {
 	SnapshotID        string                     `json:"snapshotId"`
 	SnapshotVersion   string                     `json:"snapshotVersion,omitempty"`
@@ -168,7 +168,7 @@ type FactSnapshot struct {
 	AssemblerVersion  string                     `json:"assemblerVersion,omitempty"`
 }
 
-// MissingFact 缺失事实（唯一表达方式，contracts/02 §3.2）。
+// MissingFact is a missing fact (the only way to express it, contracts/02 §3.2).
 type MissingFact struct {
 	Fact     string `json:"fact"`
 	Reason   string `json:"reason"`
@@ -176,14 +176,14 @@ type MissingFact struct {
 	Fallback string `json:"fallback,omitempty"`
 }
 
-// DegradedFact 降级事实。
+// DegradedFact is a degraded fact.
 type DegradedFact struct {
 	Fact     string `json:"fact"`
 	Reason   string `json:"reason"`
 	Fallback string `json:"fallback,omitempty"`
 }
 
-// DecisionResult 决策输出（contracts/03 §2）。
+// DecisionResult is the decision output (contracts/03 §2).
 type DecisionResult struct {
 	ResultVersion       string                     `json:"resultVersion"`
 	SnapshotID          string                     `json:"snapshotId"`
@@ -207,7 +207,7 @@ type DecisionResult struct {
 	PackageVersion      string                     `json:"packageVersion,omitempty"`
 }
 
-// HitRule 命中规则（只列命中，无冗余 matched 字段）。
+// HitRule is a hit rule (only hits are listed; no redundant matched field).
 type HitRule struct {
 	RuleID      string `json:"ruleId"`
 	RuleVersion string `json:"ruleVersion,omitempty"`
@@ -216,7 +216,7 @@ type HitRule struct {
 	Decision    string `json:"decision,omitempty"`
 }
 
-// DegradedReason 降级原因（正交于 decision）。
+// DegradedReason is a degrade reason (orthogonal to decision).
 type DegradedReason struct {
 	Fact     string `json:"fact"`
 	Reason   string `json:"reason"`
@@ -225,7 +225,7 @@ type DegradedReason struct {
 	Detail   string `json:"detail,omitempty"`
 }
 
-// ErrorContract 真错误响应（contracts/05 §3.2）。契约违规不走这里，走 REJECT 决策。
+// ErrorContract is a true error response (contracts/05 §3.2). Contract violations do not come here; they become REJECT decisions.
 type ErrorContract struct {
 	ErrorCode string                     `json:"errorCode"`
 	Message   string                     `json:"message"`
@@ -233,11 +233,11 @@ type ErrorContract struct {
 	Details   map[string]json.RawMessage `json:"details,omitempty"`
 }
 
-// GoldenTime 契约里的时间字段统一 RFC3339 UTC（contracts/02 §5）。
+// GoldenTime: time fields in the contract are uniformly RFC3339 UTC (contracts/02 §5).
 const GoldenTimeLayout = time.RFC3339
 
-// DSL / IR / 结果契约版本（`contracts/01` §3.1、§4.1，`contracts/03` §10）。
-// 三个版本独立演进，跨语言必须对齐 Rust 侧 `gr_contract` 的同名常量。
+// DSL / IR / result contract versions (`contracts/01` §3.1, §4.1, `contracts/03` §10).
+// The three versions evolve independently and must stay aligned with the same-named constants in the Rust-side `gr_contract`.
 const (
 	DSLVersion    = "1.0"
 	IRVersion     = "1.0"

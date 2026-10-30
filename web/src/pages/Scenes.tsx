@@ -13,8 +13,8 @@ interface SceneGroup {
 }
 
 export default function Scenes() {
-  // 引擎挂了不该让整页变红：平台侧的规则集才是这页的主体。
-  // 两个后端分别降级，才能一眼看出「是引擎没起」还是「平台没起来」。
+  // A dead engine should not turn the whole page red: the platform-side rulesets are what this page is about.
+  // Degrading the two backends separately is the only way to see at a glance whether "the engine is down" or "the platform is down".
   const state = useAsync(async () => {
     const list = await api.rulesets.list()
     const engine = await api.engine.info().catch(() => null)

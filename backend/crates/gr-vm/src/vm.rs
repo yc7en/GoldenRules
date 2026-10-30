@@ -1,7 +1,7 @@
-//! 栈式 VM（`contracts/01` §4.3）。
+//! Stack-based VM (`contracts/01` §4.3).
 //!
-//! 语义边界（A-7）：无循环、无副作用、白名单算子。因此执行是「一条指令一次 match」，
-//! 唯一的控制流是逻辑短路的跳转。预算按指令数扣减，越界即 `EXEC_STEP_LIMIT`（B11 的底座）。
+//! Semantic boundary (A-7): no loops, no side effects, whitelisted operators. Execution is therefore "one match per instruction",
+//! and the only control flow is logical short-circuit jumps. The budget is charged per instruction; going over is `EXEC_STEP_LIMIT` (the base for B11).
 
 use crate::compile::{BinKind, Chunk, Instr};
 use gr_contract::{ErrorCode, ErrorContract, Func, Value};
@@ -10,7 +10,7 @@ use rust_decimal::{Decimal, RoundingStrategy};
 use std::cmp::Ordering;
 use std::str::FromStr;
 
-/// 除法默认精度（`contracts/01` §3.3：「除法指定精度，默认 8 位，四舍五入」）
+/// Default division precision (`contracts/01` §3.3: "division specifies precision, 8 digits by default, round half up")
 pub const DIV_SCALE: u32 = 8;
 
 #[derive(Clone, Debug)]
@@ -35,7 +35,7 @@ impl From<VmError> for ErrorContract {
     }
 }
 
-/// 执行预算：一次决策共享一份，按指令扣减。
+/// Execution budget: one per decision, charged per instruction.
 #[derive(Clone, Debug)]
 pub struct Budget {
     pub steps_left: u64,
@@ -60,7 +60,7 @@ impl Budget {
     }
 }
 
-/// 执行一个 chunk，返回栈顶值。
+/// Execute one chunk and return the stack top value.
 pub fn run(
     chunk: &Chunk,
     slots: &[Value],
@@ -121,14 +121,14 @@ pub fn run(
                 if stack.len() < argc {
                     return Err(VmError::contract("函数调用栈下溢"));
                 }
-                // 栈里自底向上就是 arg0..argN，split_off 保持原序
+                // the stack holds arg0..argN from bottom to top, split_off preserves that order
                 let args: Vec<Value> = stack.split_off(stack.len() - argc);
                 stack.push(call(func, &args, request_time)?);
             }
             Instr::Return => return pop(&mut stack),
         }
     }
-    // 没有显式 Return：取栈顶
+    // no explicit Return: take the stack top
     pop(&mut stack)
 }
 
@@ -138,7 +138,7 @@ fn pop(stack: &mut Vec<Value>) -> Result<Value, VmError> {
 
 fn binary(kind: BinKind, left: Value, right: Value) -> Result<Value, VmError> {
     use BinKind::*;
-    // 三值逻辑：null 参与比较/算术 → null（`contracts/01` §3.4）
+    // three-valued logic: null in a comparison/arithmetic -> null (`contracts/01` §3.4)
     if matches!(kind, Eq | Ne | Gt | Gte | Lt | Lte | Add | Sub | Mul | Div | Mod) {
         if left.is_null() || right.is_null() {
             return Ok(Value::Null);
@@ -235,7 +235,7 @@ fn arithmetic(kind: BinKind, left: Value, right: Value) -> Result<Value, VmError
         result
     };
 
-    // 整型进整型出：避免 1+1 变成 "2"（字符串）影响下游类型判断
+    // integer in, integer out: keep 1+1 from becoming "2" (a string) and confusing downstream type checks
     if both_int && !matches!(kind, BinKind::Div) {
         if let Some(i) = result.to_i64() {
             if result.fract().is_zero() {
@@ -357,7 +357,7 @@ fn numeric(d: Decimal, original: &Value) -> Value {
     Value::Dec(d)
 }
 
-/// 便捷：把字面量字符串解析成 decimal（编译器数值糖复用）
+/// Convenience: parse a literal string into a decimal (reused by the compiler numeric sugar)
 pub fn parse_decimal(s: &str) -> Option<Decimal> {
     Decimal::from_str(s).ok()
 }

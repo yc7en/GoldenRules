@@ -8,33 +8,33 @@ import (
 	"goldenrules/platform/contracts"
 )
 
-// Definition 是平台侧的规则集定义（DSL 形态，未经编译）。
+// Definition is the platform-side rule set definition (DSL form, not yet compiled).
 //
-// 一条硬约定（`contracts/01` §3.1）：**规则集是模块单位，表达式/决策表只是它的写法**。
-// 所以 `Rules` 与 `Table` **互斥**——同一个规则集只能选一种写法，编译后都变成同一份 IR。
+// One hard rule (`contracts/01` §3.1): **a rule set is the unit of modularity; expressions/decision tables are merely ways to write it**.
+// Therefore `Rules` and `Table` are **mutually exclusive** — a rule set picks exactly one style, and both compile into the same IR.
 type Definition struct {
 	RulesetID string `json:"rulesetId"`
 	Name      string `json:"name,omitempty"`
 	Scene     string `json:"scene"`
 	Version   string `json:"version,omitempty"`
 
-	HitStrategy     string `json:"hitStrategy,omitempty"` // ALL（默认）/ FIRST / PRIORITY
+	HitStrategy     string `json:"hitStrategy,omitempty"` // ALL (default) / FIRST / PRIORITY
 	DefaultDecision string `json:"defaultDecision"`
 
 	OutputSchemaID      string `json:"outputSchemaId,omitempty"`
 	OutputSchemaVersion string `json:"outputSchemaVersion,omitempty"`
 
-	// 写法一：表达式规则（when 可为结构化 JSON 或文本表达式糖）
+	// Style 1: expression rules (when may be structured JSON or textual expression sugar)
 	Rules []contracts.Rule `json:"rules,omitempty"`
 
-	// 写法二：决策表（编译期展开成等价规则列表）
+	// Style 2: decision table (expanded into an equivalent rule list at compile time)
 	Table *Table `json:"table,omitempty"`
 
-	// 场景输出 schema。P0 随规则集携带（还没有注册中心），发布时并入规则包；
-	// P1 迁到注册中心后这里只留 id/version（`contracts/03` §5）。
+	// Scene output schema. In P0 it travels with the rule set (there is no registry yet) and is merged into the rule package on publish;
+	// once it migrates to the registry in P1, only id/version stay here (`contracts/03` §5).
 	OutputSchema *contracts.OutputSchema `json:"outputSchema,omitempty"`
 
-	// 测试用例随规则集存放，发布时并入规则包（`contracts/01` §6.1）
+	// Test cases are stored alongside the rule set and merged into the rule package on publish (`contracts/01` §6.1)
 	Tests []contracts.TestCase `json:"tests,omitempty"`
 
 	UpdatedAt string `json:"updatedAt,omitempty"`
@@ -45,10 +45,10 @@ type Definition struct {
 var identPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\-]*$`)
 var outputVarPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// Table 决策表（`contracts/01` §3.2.4）。
+// Table is a decision table (`contracts/01` §3.2.4).
 //
-// 行 = 一条规则（各列条件取 and），行序即优先级序；`*` 表示该维度通配。
-// 它不是运行时模块，编译期就展开成表达式规则（`设计教训.md` 反模式 2）。
+// A row = one rule (the column conditions are and-ed together), row order is priority order; `*` means that dimension is a wildcard.
+// It is not a runtime module: it is expanded into expression rules at compile time (`设计教训.md` anti-pattern 2).
 type Table struct {
 	TableID    string          `json:"tableId"`
 	Columns    []TableColumn   `json:"columns"`
@@ -56,25 +56,25 @@ type Table struct {
 	DefaultRow *contracts.Then `json:"defaultRow,omitempty"`
 }
 
-// TableColumn 条件维度：一列一个事实字段 + 类型（类型用于给单元格字面量定类型）。
+// TableColumn is a condition dimension: one fact field + type per column (the type types the cell literals).
 type TableColumn struct {
 	Fact string `json:"fact"`
 	Type string `json:"type,omitempty"`
 }
 
-// TableRow 一行：conditions 的 key 是列事实名。
+// TableRow is a single row: the keys of conditions are the column fact names.
 type TableRow struct {
 	Conditions map[string]json.RawMessage `json:"conditions"`
 	Then       contracts.Then             `json:"then"`
 }
 
-// ExpandTable 把决策表展开成等价规则列表（`contracts/01` §3.2.4 / §7.5）。
+// ExpandTable expands a decision table into an equivalent rule list (`contracts/01` §3.2.4 / §7.5).
 //
-// 展开规则固定且可复现：
-//   - 行 i → 规则 ID `<tableId>-R<i+1>`；
-//   - 优先级 = `(行数 - i) * 10`，保证行序即优先级序且留出插行空间；
-//   - `*` 列的单元格不产生条件；字面量单元格 → `eq`；`{op,value}` → 对应比较；
-//   - 所有条件取 `and`，单条件时不套 `and`（IR 更短，语义相同）。
+// The expansion is fixed and reproducible:
+//   - row i → rule ID `<tableId>-R<i+1>`;
+//   - priority = `(row count - i) * 10`, so row order is priority order and there is room to insert rows;
+//   - cells in a `*` column produce no condition; a literal cell → `eq`; `{op,value}` → the corresponding comparison;
+//   - all conditions are and-ed; a single condition is not wrapped in `and` (shorter IR, same semantics).
 func ExpandTable(t *Table, d *diag) []contracts.Rule {
 	if t == nil {
 		return nil
@@ -138,7 +138,7 @@ func ExpandTable(t *Table, d *diag) []contracts.Rule {
 			when = args[0]
 		}
 		if len(args) == 0 {
-			// 全通配行 = 永远命中，保留为显式 true，避免空表达式
+			// an all-wildcard row = always matched; keep it as an explicit true to avoid an empty expression
 			when = &Expr{Kind: KindLiteral, Lit: &Literal{Kind: "boolean", Value: true}}
 		}
 		rules = append(rules, contracts.Rule{
@@ -156,7 +156,7 @@ func isWildcard(raw json.RawMessage) bool {
 	return json.Unmarshal(raw, &s) == nil && s == "*"
 }
 
-// cellExpr 把一个单元格转成条件表达式。
+// cellExpr converts one cell into a condition expression.
 func cellExpr(col TableColumn, raw json.RawMessage, path, ruleID string, d *diag) *Expr {
 	var obj map[string]any
 	if err := json.Unmarshal(raw, &obj); err == nil {
@@ -201,7 +201,7 @@ func cellExpr(col TableColumn, raw json.RawMessage, path, ruleID string, d *diag
 	}}
 }
 
-// literalKindFor 列类型 → 单元格字面量类型。未声明类型时按字符串（最保守，不猜数字）。
+// literalKindFor maps a column type → cell literal kind. Without a declared type it assumes string (most conservative, no guessing numbers).
 func literalKindFor(colType string) string {
 	switch colType {
 	case "integer":

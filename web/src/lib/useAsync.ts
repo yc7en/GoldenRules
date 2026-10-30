@@ -5,16 +5,17 @@ export interface AsyncState<T> {
   data: T | null
   error: ApiError | null
   loading: boolean
-  /** 上次成功取数的时间，用于在界面上说明「这屏数据有多旧」 */
+  /** Time of the last successful fetch, used to tell the user on screen "how stale this data is" */
   loadedAt: number | null
 }
 
 /**
- * 取数 hook：一个页面一个。
+ * Fetch hook: one per page.
  *
- * 为什么不用 React Query：这里只有「拉一次 + 手动重试」，引一个状态机库
- * 反而要解释它的缓存失效语义。用 ref 存 loader 是为了避免调用方每次渲染
- * 都传一个新函数导致无限重取——这个坑在没有依赖数组约束时几乎必然踩到。
+ * Why not React Query: there is only "fetch once + manual retry" here, so pulling in a state machine
+ * library would only force us to explain its cache invalidation semantics. The loader is kept in a ref
+ * so callers do not trigger infinite refetching by passing a new function on every render - a trap you
+ * almost inevitably hit when there is no dependency array constraint.
  */
 export function useAsync<T>(
   loader: () => Promise<T>,
@@ -29,7 +30,7 @@ export function useAsync<T>(
   const loaderRef = useRef(loader)
   loaderRef.current = loader
   const [tick, setTick] = useState(0)
-  // 卸载后不再 setState：切页面时抛弃中的请求回来会报 warning
+  // Stop calling setState after unmount: an abandoned request coming back while switching pages would warn
   const aliveRef = useRef(true)
 
   useEffect(() => {
@@ -62,7 +63,7 @@ export function useAsync<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick])
 
-  // 换操作者等于换了「谁在看」：审批位、自审判定、审计归属都会变，必须重取。
+  // Switching actor means switching "who is looking": approval slots, self-approval checks and audit attribution all change, so a refetch is required.
   useEffect(() => {
     const onChange = () => setTick((t) => t + 1)
     window.addEventListener("gr:actor-changed", onChange)

@@ -12,29 +12,29 @@ import (
 	"goldenrules/platform/persist"
 )
 
-// Service 治理服务：变更单、灰度、审计。
+// Service is the governance service: change requests, canary, audit.
 type Service struct {
 	doc *persist.Store[Doc]
 	pkg *packages.Service
 	now func() time.Time
 }
 
-// NewService 构造服务。`pkg` 是它推进状态/发布/回滚的目标（单向依赖：gov → packages）。
+// NewService builds the service. `pkg` is the target it advances state / publishes / rolls back (one-way dependency: gov → packages).
 func NewService(doc *persist.Store[Doc], pkg *packages.Service) *Service {
 	return &Service{doc: doc, pkg: pkg, now: func() time.Time { return time.Now().UTC() }}
 }
 
-// WithClock 注入时钟（测试确定性）。
+// WithClock injects a clock (for test determinism).
 func (s *Service) WithClock(fn func() time.Time) *Service {
 	s.now = fn
 	return s
 }
 
 // ---------------------------------------------------------------------------
-// 变更单
+// Change requests
 // ---------------------------------------------------------------------------
 
-// SubmitInput 提交变更单的入参。
+// SubmitInput is the input for submitting a change request.
 type SubmitInput struct {
 	PackageID      string
 	PackageVersion string
@@ -47,16 +47,16 @@ type SubmitInput struct {
 	Materials      []string
 }
 
-// Submit 提交变更单。
+// Submit submits a change request.
 //
-// 两件事在提交时定死：矩阵算出要几个人批（固化进单据），以及硬规则拦截（agent 不得提 L4）。
-// 后者必须在**提交**时拦，而不是审批时——让 agent 先把单子写进系统再被拒，单据本身就成了噪音。
+// Two things are nailed down at submit time: the matrix decides how many approvers are required (frozen into the request), and the hard rules fire (an agent must not submit L4).
+// The latter must be blocked at **submit** time rather than at approval time — letting an agent write the request into the system and only then rejecting it just makes the request itself noise.
 func (s *Service) Submit(in SubmitInput) (Change, error) {
 	if strings.TrimSpace(in.PackageID) == "" || strings.TrimSpace(in.PackageVersion) == "" {
 		return Change{}, errf(CodeInvalidArgument, "缺少 packageId 或 packageVersion")
 	}
 	if in.SubmitterType == "" {
-		in.SubmitterType = SubmitterAgent // 最小权限：未声明身份按 agent
+		in.SubmitterType = SubmitterAgent // least privilege: an undeclared identity is treated as an agent
 	}
 	if !validSubmitter(in.SubmitterType) {
 		return Change{}, errf(CodeInvalidArgument, "未知的提交者类型: "+in.SubmitterType)
@@ -84,7 +84,7 @@ func (s *Service) Submit(in SubmitInput) (Change, error) {
 		return Change{}, errf(CodeMatrixRejected, cell.Reason)
 	}
 
-	// 版本必须存在且仍是草稿：变更单是「把草稿推到 approved」的入口，不能指向已发布的包。
+	// The version must exist and still be a draft: a change request is the entry point for "pushing a draft to approved", so it must not point at a published package.
 	v, found := s.pkg.Get(in.PackageID, in.PackageVersion)
 	if !found {
 		return Change{}, &packages.NotFoundError{PackageID: in.PackageID, Version: in.PackageVersion}
@@ -93,7 +93,7 @@ func (s *Service) Submit(in SubmitInput) (Change, error) {
 		return Change{}, errf(CodeChangeStateInvalid,
 			fmt.Sprintf("%s@%s 当前是 %s，变更单只能针对 draft 版本", in.PackageID, in.PackageVersion, v.Status))
 	}
-	// 风险等级以包内声明为准：单据上自报 L1 而包里写 L4 是最典型的降级绕过。
+	// The risk level declared inside the package wins: self-reporting L1 on the request while the package says L4 is the classic downgrade bypass.
 	if v.RiskLevel != "" && v.RiskLevel != in.RiskLevel {
 		return Change{}, errf(CodeInvalidArgument,
 			fmt.Sprintf("变更单风险等级 %s 与规则包声明 %s 不一致；请改包或改单据", in.RiskLevel, v.RiskLevel))
@@ -128,7 +128,7 @@ func (s *Service) Submit(in SubmitInput) (Change, error) {
 			UpdatedAt:      at,
 		}
 		if len(out.Slots) == 0 {
-			// 0 人的格子不存在；真出现说明矩阵配错了，宁可拒绝也不要「零审批直接过」。
+			// A 0-approver cell does not exist; if one shows up the matrix is misconfigured, and refusing is better than "zero approvals passes".
 			return errf(CodeMatrixRejected, "矩阵未给该等级配置审批位")
 		}
 		d.Changes = append(d.Changes, out)
@@ -146,9 +146,9 @@ func (s *Service) Submit(in SubmitInput) (Change, error) {
 	return out, nil
 }
 
-// Approve 一位审批人占用一个待填审批位。
+// Approve lets one approver take one pending approval slot.
 //
-// 全部占满 → 变更单 approved，并**推进规则包版本** draft → approved（`contracts/04` §6）。
+// All slots taken → the change request becomes approved, and the **rule package version is advanced** draft → approved (`contracts/04` §6).
 func (s *Service) Approve(changeID, actor, actorType, role, comment string) (Change, error) {
 	if !validRole(role) {
 		return Change{}, errf(CodeInvalidArgument, "未知的审批角色: "+role)
@@ -202,14 +202,14 @@ func (s *Service) Approve(changeID, actor, actorType, role, comment string) (Cha
 		c.UpdatedAt = now
 		if len(c.Remaining()) == 0 {
 			c.Status = ChangeApproved
-			// 变更单通过 = 版本可发布。这一步放在同一个事务里：单据 approved 而版本还 draft 的中间态
-			// 会让「批了却发不出去」，运维只能手工改库。
+			// A passed change request = a publishable version. This step lives in the same transaction: the intermediate state where the request is approved
+			// while the version is still draft would leave "approved but unpublishable", and ops could only fix the store by hand.
 			if _, err := s.pkg.Approve(c.PackageID, c.PackageVersion, actor); err != nil {
 				var se *packages.StateError
 				if !errors.As(err, &se) || se.Code != packages.CodeBadTransition {
 					return err
 				}
-				// 版本已经是 approved/published（重复提交场景）不阻断审批收尾。
+				// The version is already approved/published (duplicate submission); do not block the approval wrap-up.
 			}
 		}
 		out = *c
@@ -240,7 +240,7 @@ func (s *Service) Approve(changeID, actor, actorType, role, comment string) (Cha
 	return out, nil
 }
 
-// Reject 否决变更单。否决是终态：同一张单子不能「否了再批」，要改就重开一张。
+// Reject refuses a change request. A refusal is final: the same request cannot be "refused and then approved"; to change it, open a new one.
 func (s *Service) Reject(changeID, actor, actorType, role, comment string) (Change, error) {
 	if strings.TrimSpace(comment) == "" {
 		return Change{}, errf(CodeInvalidArgument, "否决必须写理由（contracts/04 §9 留存要求）")
@@ -273,10 +273,10 @@ func (s *Service) Reject(changeID, actor, actorType, role, comment string) (Chan
 	return out, nil
 }
 
-// PermitPublish 发布前的治理检查（`contracts/04` §4 职责分离 + A-8）。
+// PermitPublish is the governance check before publish (`contracts/04` §4 segregation of duties + A-8).
 //
-// 返回的变更单供调用方记审计。这里**不改状态**：发布成功后才由 `MarkPublished` 收尾，
-// 避免「检查通过但发布失败」留下 published 的错误记录。
+// The returned change request lets the caller write the audit. This function **does not change state**: only after a successful publish does `MarkPublished` wrap up,
+// so "check passed but publish failed" cannot leave a bogus published record behind.
 func (s *Service) PermitPublish(changeID, packageID, version, actor, actorType string) (Change, error) {
 	if actorType == SubmitterAgent {
 		return Change{}, errf(CodeAgentCannotPublish, "agent 永远不能发布（A-8），只能提草稿")
@@ -316,7 +316,7 @@ func (s *Service) PermitPublish(changeID, packageID, version, actor, actorType s
 	return c, nil
 }
 
-// MarkPublished 发布成功后收尾：变更单 → published，并审计「谁把哪个包从哪个版本换成哪个版本」。
+// MarkPublished wraps up after a successful publish: the change request → published, plus an audit of "who swapped which package from which version to which version".
 func (s *Service) MarkPublished(changeID string, v packages.Version, actor, actorType, from, validFrom, validUntil string) {
 	if changeID == "" {
 		return
@@ -347,10 +347,10 @@ func (s *Service) MarkPublished(changeID string, v packages.Version, actor, acto
 	})
 }
 
-// Rollback 回滚到旧版本并留痕（`contracts/06` §6 + `contracts/04` §9）。
+// Rollback rolls back to an older version and records the trail (`contracts/06` §6 + `contracts/04` §9).
 //
-// 回滚是「发布动作」，所以同样受 A-8 与职责分离约束：agent 不能回滚，审批人不能回滚自己批的包
-// （否则「批错 → 自己回滚 → 无人发现」可以闭环）。
+// A rollback is a "publish action", so A-8 and segregation of duties apply just the same: an agent cannot roll back, and an approver cannot roll back a package they approved
+// (otherwise "approved it wrong → rolled it back myself → nobody noticed" closes the loop).
 func (s *Service) Rollback(packageID, toVersion, actor, actorType, reason string) (packages.Version, error) {
 	if actorType == SubmitterAgent {
 		return packages.Version{}, errf(CodeAgentCannotPublish, "agent 不能执行回滚（A-8）")
@@ -375,10 +375,10 @@ func (s *Service) Rollback(packageID, toVersion, actor, actorType, reason string
 }
 
 // ---------------------------------------------------------------------------
-// 灰度
+// Canary
 // ---------------------------------------------------------------------------
 
-// GrayInput 调整灰度放量。
+// GrayInput adjusts the canary rollout.
 type GrayInput struct {
 	PackageID  string
 	Version    string
@@ -390,14 +390,14 @@ type GrayInput struct {
 	ActorType  string
 }
 
-// SetGray 调整灰度；返回配置与提示（提示不阻断，例如 L3/L4 建议先影子）。
+// SetGray adjusts the canary; returns the configuration and warnings (warnings do not block, e.g. L3/L4 are advised to run shadow first).
 //
-// 三条硬约束来自 `contracts/06` §5：
-//   - shadow 不改变线上决策 → percentage 必须为 0；
-//   - conditional 必须有 grayTag，否则等于全量；
-//   - L4 禁止一步到 100%（`contracts/04` §6）：必须先有中间档。
+// Three hard constraints come from `contracts/06` §5:
+//   - shadow does not affect online decisions → percentage must be 0;
+//   - conditional requires grayTag, otherwise it amounts to a full rollout;
+//   - L4 must not jump straight to 100% (`contracts/04` §6): an intermediate step is required.
 func (s *Service) SetGray(in GrayInput) (Gray, []string, error) {
-	// 放量是发布动作的一部分（`contracts/04` §4「发布人」职责），agent 不能做。
+	// The rollout is part of the publish action (the "releaser" duty in `contracts/04` §4), so an agent cannot do it.
 	if in.ActorType == SubmitterAgent {
 		return Gray{}, nil, errf(CodeAgentCannotPublish, "agent 不能调整灰度放量（A-8）")
 	}
@@ -461,7 +461,7 @@ func (s *Service) SetGray(in GrayInput) (Gray, []string, error) {
 
 		now := nowString(s.now())
 		if cur.Mode != in.Mode && cur.Mode != "" {
-			// 形态切换是一次新配置，不是「调比例」：历史仍保留，便于「影子里跑过没有」这类审计问题。
+			// A mode switch is a new configuration, not a "percentage tweak": history is kept, so audit questions like "did it ever run in shadow" remain answerable.
 			warns = append(warns, fmt.Sprintf("灰度形态发生切换：%s → %s", cur.Mode, in.Mode))
 		}
 		out = Gray{
@@ -501,7 +501,7 @@ func (s *Service) SetGray(in GrayInput) (Gray, []string, error) {
 	return out, warns, nil
 }
 
-// Gray 读灰度配置。
+// Gray reads the canary configuration.
 func (s *Service) Gray(packageID string) (Gray, bool) {
 	var out Gray
 	var ok bool
@@ -512,10 +512,10 @@ func (s *Service) Gray(packageID string) (Gray, bool) {
 }
 
 // ---------------------------------------------------------------------------
-// 查询
+// Queries
 // ---------------------------------------------------------------------------
 
-// List 列变更单（按创建时间倒序）。
+// List lists change requests (newest creation time first).
 func (s *Service) List(status, packageID string) []Change {
 	var out []Change
 	s.doc.View(func(d *Doc) {
@@ -533,7 +533,7 @@ func (s *Service) List(status, packageID string) []Change {
 	return out
 }
 
-// Get 取变更单。
+// Get returns a change request.
 func (s *Service) Get(changeID string) (Change, bool) {
 	var out Change
 	var ok bool
@@ -548,7 +548,7 @@ func (s *Service) Get(changeID string) (Change, bool) {
 	return out, ok
 }
 
-// Audits 审计事件查询（按时间正序，便于还原一条时间线）。
+// Audits queries audit events (chronological order, so a timeline can be reconstructed).
 func (s *Service) Audits(changeID, packageID string) []AuditEvent {
 	var out []AuditEvent
 	s.doc.View(func(d *Doc) {
@@ -565,18 +565,18 @@ func (s *Service) Audits(changeID, packageID string) []AuditEvent {
 	return out
 }
 
-// Record 由其他域（如 obs 的日志访问/回放）写入一条治理事件。
+// Record lets another domain (e.g. obs's log access / replay) write one governance event.
 //
-// 审计事件流只有一个出口：跨域动作不自己写库，而是回到 gov，
-// 否则「审批/发布」与「日志访问/回放」会变成两套互相对不上的时间线。
+// The audit event stream has exactly one outlet: cross-domain actions do not write the store themselves but come back to gov,
+// otherwise "approval/publish" and "log access/replay" would become two timelines that cannot be reconciled with each other.
 func (s *Service) Record(e AuditEvent) { s.audit(e) }
 
 // ---------------------------------------------------------------------------
-// 内部
+// Internals
 // ---------------------------------------------------------------------------
 
-// audit 追加一条审计事件。审计写失败不能拖垮业务动作——它已经在事务外，
-// 这里只保证「不因审计失败而让已经生效的发布看起来失败」。
+// audit appends one audit event. An audit write failure must not drag down the business action — it is already outside the transaction,
+// so all this guarantees is that "an already effective publish does not look failed because the audit failed".
 func (s *Service) audit(e AuditEvent) {
 	_ = s.doc.Update(func(d *Doc) error {
 		now := s.now()

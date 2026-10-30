@@ -9,7 +9,7 @@ import (
 	"goldenrules/platform/obs"
 )
 
-// 一条引擎形态的决策日志（字段名与 Rust `DecisionLogEntry` 一致，camelCase）。
+// A decision log in engine shape (field names match the Rust `DecisionLogEntry`, camelCase).
 const engineLog = `{
   "snapshotId": "snap-001",
   "traceId": "trace-001",
@@ -34,11 +34,11 @@ const engineLog = `{
   "executedAt": "2026-10-30T11:40:00Z"
 }`
 
-// 决策日志：入库 → 查询 → 详情 → 回放（含审计留痕）。
+// Decision log: ingest → query → detail → replay (including the audit trail).
 func TestDecisionLogsOverHTTP(t *testing.T) {
 	h := newObsTestServer(t, true, true)
 
-	// 1 入库（带原始快照）
+	// 1 ingest (with a raw snapshot)
 	body := `{"log":` + engineLog + `,"rawSnapshot":{"snapshotId":"snap-001","facts":{"request.amount":"1500"}}}`
 	rec, resp := do(t, h, "POST", "/api/v1/logs", body)
 	if rec.Code != http.StatusCreated {
@@ -50,13 +50,13 @@ func TestDecisionLogsOverHTTP(t *testing.T) {
 	logIDs := resp["logIds"].([]any)
 	logID := logIDs[0].(string)
 
-	// 2 幂等
+	// 2 idempotency
 	rec, resp = do(t, h, "POST", "/api/v1/logs", body)
 	if rec.Code != http.StatusCreated || resp["duplicate"] != float64(1) {
 		t.Fatalf("重复入库应幂等: %d %s", rec.Code, rec.Body)
 	}
 
-	// 3 查询：脱敏视图 + 存储能力说明
+	// 3 query: masked view + storage capability description
 	rec, resp = do(t, h, "GET", "/api/v1/logs?scene=withdraw-risk-check&decision=REVIEW", "")
 	if rec.Code != http.StatusOK || resp["total"] != float64(1) {
 		t.Fatalf("查询 = %d %s", rec.Code, rec.Body)
@@ -73,12 +73,12 @@ func TestDecisionLogsOverHTTP(t *testing.T) {
 	if !strings.HasPrefix(item["contentHash"].(string), "sha256:") {
 		t.Fatalf("缺内容摘要: %v", item["contentHash"])
 	}
-	// 脱敏视图里不应出现明文身份证号
+	// the masked view must not contain a plaintext ID card number
 	if strings.Contains(rec.Body.String(), "110101199001011234") {
 		t.Fatalf("响应泄露了未脱敏字段")
 	}
 
-	// 4 详情
+	// 4 detail
 	rec, resp = do(t, h, "GET", "/api/v1/logs/"+logID, "")
 	if rec.Code != http.StatusOK || resp["logId"] != logID {
 		t.Fatalf("详情 = %d %s", rec.Code, rec.Body)
@@ -88,13 +88,13 @@ func TestDecisionLogsOverHTTP(t *testing.T) {
 		t.Fatalf("详情不应返回密文: %v", raw)
 	}
 
-	// 5 统计
+	// 5 stats
 	rec, resp = do(t, h, "GET", "/api/v1/logs/stats?tenantId=t-demo", "")
 	if rec.Code != http.StatusOK || resp["total"] != float64(1) {
 		t.Fatalf("stats = %d %s", rec.Code, rec.Body)
 	}
 
-	// 6 回放
+	// 6 replay
 	rec, resp = do(t, h, "POST", "/api/v1/logs/"+logID+"/replay", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("replay = %d %s", rec.Code, rec.Body)
@@ -107,7 +107,7 @@ func TestDecisionLogsOverHTTP(t *testing.T) {
 		t.Fatalf("回放后端说明缺失: %v", resp["backend"])
 	}
 
-	// 7 回放动作留痕
+	// 7 the replay action is audited
 	rec, resp = do(t, h, "GET", "/api/v1/audit", "")
 	found := false
 	for _, it := range resp["items"].([]any) {
@@ -120,7 +120,7 @@ func TestDecisionLogsOverHTTP(t *testing.T) {
 	}
 }
 
-// 没配密钥：只存脱敏视图，回放 422 且原因明确。
+// No key configured: only the masked view is stored, and replay returns 422 with an explicit reason.
 func TestLogsWithoutCryptoDegrade(t *testing.T) {
 	h := newObsTestServer(t, false, true)
 	body := `{"log":` + engineLog + `,"rawSnapshot":{"a":1}}`
@@ -136,14 +136,14 @@ func TestLogsWithoutCryptoDegrade(t *testing.T) {
 	}
 	logID := resp["logIds"].([]any)[0].(string)
 
-	// 没密钥时连"有没有原文"都判不了，直接报 KEY_MISSING（比 RAW_UNAVAILABLE 更准确）
+	// Without a key even "is there a raw snapshot" cannot be decided, so report KEY_MISSING directly (more accurate than RAW_UNAVAILABLE)
 	rec, resp = do(t, h, "POST", "/api/v1/logs/"+logID+"/replay", "")
 	if rec.Code != http.StatusUnprocessableEntity || resp["errorCode"] != "OBS_KEY_MISSING" {
 		t.Fatalf("无密钥回放应 422 OBS_KEY_MISSING，实际 %d %s", rec.Code, rec.Body)
 	}
 }
 
-// 必填字段缺失 → 422；未知日志 → 404。
+// A missing required field → 422; an unknown log → 404.
 func TestLogsValidationAndNotFound(t *testing.T) {
 	h := newObsTestServer(t, true, true)
 
@@ -164,13 +164,13 @@ func TestLogsValidationAndNotFound(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 
-// 密钥轮换：自述 → 轮换 → 老日志仍可回放 → 重加密 → 审计留痕。
+// Key rotation: self-description → rotate → old logs still replayable → rewrap → audit trail.
 //
-// 这条路径的价值全在「轮换后历史数据还能读」：所以断言里必须真的回放一次老日志。
+// The whole value of this path is "historic data stays readable after rotation": so the assertions must actually replay an old log once.
 func TestLogKeyRotationOverHTTP(t *testing.T) {
 	h := newObsTestServer(t, true, true)
 
-	// 1 自述：当前钥、来源、保留集
+	// 1 self-description: current key, source, retained set
 	rec, resp := do(t, h, "GET", "/api/v1/logs/key", "")
 	if rec.Code != http.StatusOK || resp["configured"] != true {
 		t.Fatalf("密钥自述 = %d %s", rec.Code, rec.Body)
@@ -184,7 +184,7 @@ func TestLogKeyRotationOverHTTP(t *testing.T) {
 		t.Fatal("自述不得返回密钥本身")
 	}
 
-	// 2 入库一条带原始快照的日志
+	// 2 ingest one log with a raw snapshot
 	body := `{"log":` + engineLog + `,"rawSnapshot":{"snapshotId":"snap-001"}}`
 	rec, resp = do(t, h, "POST", "/api/v1/logs", body)
 	if rec.Code != http.StatusCreated {
@@ -192,7 +192,7 @@ func TestLogKeyRotationOverHTTP(t *testing.T) {
 	}
 	logID := resp["logIds"].([]any)[0].(string)
 
-	// 3 轮换到新钥
+	// 3 rotate to a new key
 	newKey := "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 	rec, resp = do(t, h, "POST", "/api/v1/logs/key/rotate", `{"key":"`+newKey+`","reason":"季度轮换"}`)
 	if rec.Code != http.StatusOK {
@@ -207,13 +207,13 @@ func TestLogKeyRotationOverHTTP(t *testing.T) {
 		t.Fatalf("旧钥应在保留集: %v", retained)
 	}
 
-	// 4 关键断言：轮换前写入的日志仍可回放
+	// 4 key assertion: a log written before rotation is still replayable
 	rec, resp = do(t, h, "POST", "/api/v1/logs/"+logID+"/replay", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("轮换后旧日志应可回放，实际 %d %s", rec.Code, rec.Body)
 	}
 
-	// 5 重加密：把历史密文搬到当前钥
+	// 5 rewrap: move the historic ciphertext to the current key
 	rec, resp = do(t, h, "POST", "/api/v1/logs/key/rewrap", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("rewrap = %d %s", rec.Code, rec.Body)
@@ -221,13 +221,13 @@ func TestLogKeyRotationOverHTTP(t *testing.T) {
 	if resp["rewrapped"] != float64(1) {
 		t.Fatalf("应重加密 1 条，实际 %v", resp["rewrapped"])
 	}
-	// 幂等
+	// idempotency
 	rec, resp = do(t, h, "POST", "/api/v1/logs/key/rewrap", "")
 	if rec.Code != http.StatusOK || resp["rewrapped"] != float64(0) {
 		t.Fatalf("重复重加密应为 0，实际 %d %s", rec.Code, rec.Body)
 	}
 
-	// 6 审计：轮换与重加密各留一条
+	// 6 audit: one entry each for rotation and rewrap
 	rec, resp = do(t, h, "GET", "/api/v1/audit?limit=50", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("audit = %d %s", rec.Code, rec.Body)
@@ -240,7 +240,7 @@ func TestLogKeyRotationOverHTTP(t *testing.T) {
 	}
 }
 
-// 轮换入参校验：既没给 key 也没说从托管源取 → 400，而不是「静默不轮换」。
+// Rotate input validation: neither a key nor a request to take one from the managed source → 400, not a silent no-op rotation.
 func TestLogKeyRotateValidation(t *testing.T) {
 	h := newObsTestServer(t, true, true)
 	rec, resp := do(t, h, "POST", "/api/v1/logs/key/rotate", `{}`)
@@ -253,7 +253,7 @@ func TestLogKeyRotateValidation(t *testing.T) {
 	}
 }
 
-// 无密钥部署：自述要说清「只有脱敏视图」，轮换要报 422 而不是 500。
+// Keyless deployment: self-description must state "masked view only", and rotation must return 422 rather than 500.
 func TestLogKeyEndpointsWithoutKey(t *testing.T) {
 	h := newObsTestServer(t, false, true)
 	rec, resp := do(t, h, "GET", "/api/v1/logs/key", "")
@@ -268,8 +268,8 @@ func TestLogKeyEndpointsWithoutKey(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 
-// stubReplayer 模拟决策服务：回放结论取日志里的 decision（= 恒一致），
-// 只用于验证平台侧编排与比对，不验证引擎。
+// stubReplayer mimics the decision service: the replay conclusion is taken from the log's decision (= always consistent),
+// and it only serves to verify the platform-side orchestration and comparison, not the engine.
 type stubReplayer struct{}
 
 func (stubReplayer) Describe() string { return "stub-engine" }
@@ -288,12 +288,12 @@ func (stubReplayer) Decide(snapshot, execCtx json.RawMessage) (json.RawMessage, 
 
 var _ obs.Replayer = stubReplayer{}
 
-// 类型化 nil 的回放后端不能把日志列表打成 500。
+// A typed-nil replay backend must not turn the log list into a 500.
 //
-// 这个坑真实踩过：`NewHTTPReplayer("")` 返回 `*HTTPReplayer(nil)`，装进接口后
-// `deps.Replayer != nil` 为真，handler 一调 Describe 就空指针 panic。
+// This pitfall was hit for real: `NewHTTPReplayer("")` returns `*HTTPReplayer(nil)`; once that is stored in the interface
+// `deps.Replayer != nil` holds, so the handler panics on a nil pointer the moment it calls Describe.
 func TestNilTypedReplayerDoesNotPanic(t *testing.T) {
-	// 用类型化 nil 装配：模拟「没配 --engine-url」的真实结果
+	// Assemble with a typed nil: reproduce the real outcome of "--engine-url not configured"
 	h := newObsEnv(t, true, (*obs.HTTPReplayer)(nil))
 	rec, body := do(t, h, "GET", "/api/v1/logs", "")
 	if rec.Code != http.StatusOK {

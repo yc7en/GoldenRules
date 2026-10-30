@@ -1,10 +1,10 @@
-//! 字节码定义与 IR→字节码编译器（D3：IR + 字节码 VM，不是纯解释）。
+//! Bytecode definition and the IR->bytecode compiler (D3: IR + bytecode VM, not a pure interpreter).
 //!
-//! 为什么编译：千条规则 / 万级 QPS 下，每次决策重复遍历表达式树要反复做
-//! 「判 op 字符串 → 分派」；编译成扁平指令后，执行是一条 `match` 循环。
+//! Why compile: with a thousand rules / tens of thousands of QPS, walking the expression tree on every decision
+//! repeatedly does "match the op string -> dispatch"; once compiled into flat instructions, execution is one `match` loop.
 //!
-//! 指令集刻意保持极小（无循环、无跳转表、无函数调用栈），因为 DSL 语义有界（A-7）：
-//! 没有循环，唯一的跳转来源是 `and`/`or` 短路。
+//! The instruction set is deliberately kept tiny (no loops, no jump table, no call stack), because DSL semantics are bounded (A-7):
+//! there are no loops, and the only source of jumps is `and`/`or` short-circuiting.
 
 use gr_contract::{ErrorCode, ErrorContract, Expr, Func, Literal, Op, Value};
 use gr_ir::{LoadedRuleSet, LoadedRule};
@@ -40,9 +40,9 @@ pub enum Instr {
     IsNull { negated: bool },
     Call { func: Func, argc: u8 },
     Jump(u32),
-    /// 弹出栈顶，假则跳转（null 视为假）
+    /// Pop the stack top, jump if false (null counts as false)
     JumpIfFalse(u32),
-    /// 弹出栈顶，真则跳转
+    /// Pop the stack top, jump if true
     JumpIfTrue(u32),
     PushBool(bool),
     Return,
@@ -60,7 +60,7 @@ impl Chunk {
     }
 }
 
-/// 一条规则编译后的产物：`when` 判命中，`assigns` 出输出变量。
+/// Product of compiling one rule: `when` decides the hit, `assigns` produce the output variables.
 #[derive(Clone, Debug)]
 pub struct RuleProgram {
     pub rule_index: u32,
@@ -71,11 +71,11 @@ pub struct RuleProgram {
     pub reason_message: Option<String>,
     pub decision: gr_contract::Decision,
     pub when: Arc<Chunk>,
-    /// (变量名, 求值 chunk)
+    /// (variable name, evaluation chunk)
     pub assigns: Vec<(String, Arc<Chunk>)>,
 }
 
-/// 一个规则集的编译产物。**顺序与 `LoadedRuleSet.rules` 一致**（已按优先级排好）。
+/// Product of compiling one ruleset. **The order matches `LoadedRuleSet.rules`** (already sorted by priority).
 #[derive(Clone, Debug)]
 pub struct RuleSetProgram {
     pub ruleset_id: String,
@@ -87,7 +87,7 @@ pub struct RuleSetProgram {
     pub programs: Vec<Arc<RuleProgram>>,
     pub output_schema_id: Option<String>,
     pub output_schema_version: Option<String>,
-    /// 总指令数：用于资源预算与容量评估
+    /// Total instruction count: used for the resource budget and capacity estimation
     pub total_instrs: usize,
 }
 
@@ -97,7 +97,7 @@ impl RuleSetProgram {
     }
 }
 
-/// 编译整个规则集。任何非白名单 op / 函数 / 参数个数错误都在这里挡住（发布期语义）。
+/// Compile a whole ruleset. Any non-whitelisted op / function / arity error is stopped here (publish-time semantics).
 pub fn compile_ruleset(rs: &LoadedRuleSet) -> Result<RuleSetProgram, ErrorContract> {
     let mut programs = Vec::with_capacity(rs.rules.len());
     let mut total = 0usize;
@@ -121,14 +121,14 @@ pub fn compile_ruleset(rs: &LoadedRuleSet) -> Result<RuleSetProgram, ErrorContra
     })
 }
 
-/// 编译单个表达式为 chunk（B5 派生事实用）。
+/// Compile a single expression into a chunk (used by B5 derived facts).
 ///
-/// 与规则编译**共用同一个 `Compiler`**，因此白名单（`DSL_OP_NOT_ALLOWED`）、
-/// 函数白名单（`DSL_FN_NOT_FOUND`）、元数与深度校验全部一致——
-/// 「派生事实」不可能比规则多出算力，这是复用而非另写一份的原因。
+/// It shares **the same `Compiler`** with rule compilation, so the op whitelist (`DSL_OP_NOT_ALLOWED`),
+/// the function whitelist (`DSL_FN_NOT_FOUND`), arity and depth checks are all identical -
+/// a "derived fact" can never have more compute than a rule, which is why this is reuse instead of a second implementation.
 ///
-/// 调用方须先把 `Expr::Fact` 解析成 `Expr::Slot`（与 `gr-ir` 同规则：编译期解析，
-/// 运行期不查表），因此这里不接受未解析的字段引用。
+/// Callers must first resolve `Expr::Fact` into `Expr::Slot` (same rule as `gr-ir`: resolve at compile time,
+/// no table lookup at runtime), so unresolved field references are rejected here.
 pub fn compile_expr(expr: &Expr) -> Result<Chunk, ErrorContract> {
     let mut c = Compiler::new("<expr>", "<expr>");
     c.compile(expr)?;
@@ -273,7 +273,7 @@ impl<'a> Compiler<'a> {
             }
             _ => {
                 self.expect_arity(op, 2)?;
-                // 算术类：允许 "0.1" 这种数值字面量糖（contracts/01 §3.2.3 示例写法）
+                // arithmetic ops: allow numeric literal sugar like "0.1" (contracts/01 §3.2.3 example)
                 let left = self.numeric_sugar(kind, &op.args[0]);
                 let right = self.numeric_sugar(kind, &op.args[1]);
                 self.compile(&left)?;
@@ -332,10 +332,10 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    /// 算术语境下，形如 `"0.1"` 的字符串字面量按 decimal 处理。
+    /// In an arithmetic context, a string literal like `"0.1"` is treated as a decimal.
     ///
-    /// 只在**算术**（add/sub/mul/div/mod）生效，不作用于比较——
-    /// 否则枚举/字符串字段和 "1000" 这类字面量比较会被误判。
+    /// It only takes effect for **arithmetic** (add/sub/mul/div/mod), never for comparisons -
+    /// otherwise comparing an enum/string field with a literal such as "1000" would be misjudged.
     fn numeric_sugar(&self, kind: Op, expr: &Expr) -> Expr {
         if !matches!(kind, Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Mod) {
             return expr.clone();
@@ -372,7 +372,7 @@ fn to_bin(kind: Op) -> BinKind {
     }
 }
 
-/// 编译一个规则集里的全部规则，返回 (ruleset_id → program) 映射，便于 B3 直接用。
+/// Compile every rule of a ruleset and return a (ruleset_id -> program) map, convenient for B3.
 pub fn compile_all(
     loaded: &gr_ir::LoadedPackage,
 ) -> Result<BTreeMap<String, Arc<RuleSetProgram>>, ErrorContract> {

@@ -1,8 +1,8 @@
-//! DSL / 规则包结构（`contracts/01` §3.2 / §4.2 / §6）
+//! DSL / rule package structures (`contracts/01` §3.2 / §4.2 / §6)
 //!
-//! 一条硬约定：**规则集是模块单位，表达式/决策表只是它的写法**（`contracts/01` §3.1，
-//! `设计教训.md` 反模式 2）。数据结构里不存在「表模块」和「树模块」，决策表在编译期
-//! 就展开成等价规则列表（B8 做展开，本层只认规则列表）。
+//! One hard rule: **a ruleset is the unit of modularity; expressions/decision tables are merely
+//! its notation** (`contracts/01` §3.1, `设计教训.md` anti-pattern 2). The data structures contain no
+//! "table module" and no "tree module": decision tables are expanded at compile time into an equivalent rule list (B8 does the expansion, this layer only knows rule lists).
 
 use crate::expr::Expr;
 use crate::ty::{FactKind, Literal};
@@ -10,17 +10,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 // ---------------------------------------------------------------------------
-// 决策枚举（`contracts/03` §3 / `contracts/05` §2）
+// Decision enum (`contracts/03` §3 / `contracts/05` §2)
 // ---------------------------------------------------------------------------
 
-/// 业务结论。降级走正交维度 `degraded`，不进这里（`contracts/05` §2）。
+/// Business conclusion. Degradation is an orthogonal dimension (`degraded`) and does not belong here (`contracts/05` §2).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Decision {
     Approve,
     Reject,
     Review,
     Route,
-    /// 场景自定义（须在输出 schema / 注册表登记）
+    /// Scene-defined (must be registered in the output schema / registry)
     Custom(String),
 }
 
@@ -66,17 +66,17 @@ impl<'de> Deserialize<'de> for Decision {
 }
 
 // ---------------------------------------------------------------------------
-// 命中策略（`contracts/01` §3.4.1）
+// Hit strategy (`contracts/01` §3.4.1)
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum HitStrategy {
-    /// 求值全部，收集全部命中（默认，`contracts/01` §3.4.1）
+    /// Evaluate everything and collect all hits (default, `contracts/01` §3.4.1)
     All,
-    /// 按优先级序，首条命中即停
+    /// In priority order, stop at the very first hit
     First,
-    /// 求值后取最高优先级命中
+    /// Evaluate all, then take the highest-priority hit
     Priority,
 }
 
@@ -87,7 +87,7 @@ impl Default for HitStrategy {
 }
 
 // ---------------------------------------------------------------------------
-// 规则
+// Rules
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -126,7 +126,7 @@ pub struct Rule {
 }
 
 // ---------------------------------------------------------------------------
-// slot 表（`contracts/01` §4.2）
+// slot table (`contracts/01` §4.2)
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -142,7 +142,7 @@ pub struct SlotDef {
 pub type SlotTable = Vec<SlotDef>;
 
 // ---------------------------------------------------------------------------
-// 规则集
+// Ruleset
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -168,7 +168,7 @@ pub struct RuleSet {
 }
 
 // ---------------------------------------------------------------------------
-// 测试用例（`contracts/01` §6.1，规则包一等成员）
+// Test cases (`contracts/01` §6.1, a first-class member of the rule package)
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -184,10 +184,10 @@ pub enum TestCaseStatus {
 pub struct TestCase {
     pub test_id: String,
     pub scene: String,
-    /// 用例针对的规则集（`contracts/01` §6.1）。
+    /// The ruleset this test case targets (`contracts/01` §6.1).
     ///
-    /// 场景挂多个规则集时必填：P0 不做多规则集编排，不带就是「不知道该问谁」，
-    /// 门禁会明确拒绝（而不是随便挑一个跑出个看似通过的结果）。
+    /// Required when a scene carries several rulesets: P0 does not orchestrate multiple
+    /// rulesets, so leaving it out means "no idea whom to ask", and the gate rejects it explicitly (instead of picking one at random and producing a seemingly passing result).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ruleset_id: Option<String>,
     pub input: BTreeMap<String, serde_json::Value>,
@@ -208,7 +208,7 @@ pub struct Expectation {
 }
 
 // ---------------------------------------------------------------------------
-// 场景输出 schema（`contracts/03` §5.1）
+// Scene output schema (`contracts/03` §5.1)
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -233,7 +233,7 @@ pub struct OutputSchema {
 }
 
 // ---------------------------------------------------------------------------
-// 规则包（`contracts/01` §6）
+// Rule package (`contracts/01` §6)
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -261,10 +261,10 @@ pub struct RulePackage {
     pub rulesets: Vec<RuleSet>,
     #[serde(default)]
     pub tests: Vec<TestCase>,
-    /// 场景输出 schema（随包冻结，供出口校验；P1 迁注册中心）
+    /// Scene output schema (frozen with the package, used for output validation; moves to the registry at P1)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub output_schemas: Vec<OutputSchema>,
-    /// 包级 slot 表（可选）。规则集自带 slot 表时以规则集为准。
+    /// Package-level slot table (optional). When a ruleset carries its own slot table, the ruleset one wins.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub slot_table: SlotTable,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -293,7 +293,7 @@ impl RulePackage {
     }
 }
 
-/// 便捷：构造字面量表达式
+/// Convenience: build a literal expression
 pub fn lit(l: Literal) -> Expr {
     Expr::Literal(l)
 }

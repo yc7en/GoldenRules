@@ -7,14 +7,14 @@ import (
 	"strings"
 )
 
-// 白名单运算符与函数（`contracts/01` §3.2.1 / §3.6 / 附录 B）。
+// Allow-listed operators and functions (`contracts/01` §3.2.1 / §3.6 / Appendix B).
 //
-// 白名单是**唯一**的合法性判据：不在这里的写法一律 `DSL_OP_NOT_ALLOWED` /
-// `DSL_FN_NOT_FOUND`，物理上不可能出现「未知算子被放过」的情况（A-7）。
+// The allow-list is the **only** legality criterion: anything not listed here is rejected with `DSL_OP_NOT_ALLOWED` /
+// `DSL_FN_NOT_FOUND`, so "an unknown operator slipping through" is physically impossible (A-7).
 
 type opSpec struct {
 	minArgs int
-	maxArgs int // -1 = 不限
+	maxArgs int // -1 = unlimited
 }
 
 var opSpecs = map[string]opSpec{
@@ -54,31 +54,31 @@ var funcSpecs = map[string]opSpec{
 	"coalesce":  {1, -1},
 }
 
-// IsAllowedOp 运算符是否在白名单内。
+// IsAllowedOp reports whether the operator is on the allow-list.
 func IsAllowedOp(op string) bool {
 	_, ok := opSpecs[op]
 	return ok
 }
 
-// OpArity 返回运算符参数个数区间。
+// OpArity returns the allowed argument-count range of an operator.
 func OpArity(op string) (int, int) {
 	s := opSpecs[op]
 	return s.minArgs, s.maxArgs
 }
 
-// IsAllowedFunc 函数是否在白名单内。
+// IsAllowedFunc reports whether the function is on the allow-list.
 func IsAllowedFunc(fn string) bool {
 	_, ok := funcSpecs[fn]
 	return ok
 }
 
-// FuncArity 返回函数参数个数区间。
+// FuncArity returns the allowed argument-count range of a function.
 func FuncArity(fn string) (int, int) {
 	s := funcSpecs[fn]
 	return s.minArgs, s.maxArgs
 }
 
-// AllowedOps 白名单运算符（排序后，用于诊断建议）。
+// AllowedOps lists the allow-listed operators (sorted, used in diagnostic suggestions).
 func AllowedOps() []string {
 	out := make([]string, 0, len(opSpecs))
 	for k := range opSpecs {
@@ -88,7 +88,7 @@ func AllowedOps() []string {
 	return out
 }
 
-// AllowedFuncs 白名单函数（排序后）。
+// AllowedFuncs lists the allow-listed functions (sorted).
 func AllowedFuncs() []string {
 	out := make([]string, 0, len(funcSpecs))
 	for k := range funcSpecs {
@@ -99,7 +99,7 @@ func AllowedFuncs() []string {
 }
 
 // ---------------------------------------------------------------------------
-// 文本表达式（语法糖）词法
+// Text expression (syntactic sugar) lexer
 // ---------------------------------------------------------------------------
 
 type tokKind int
@@ -178,7 +178,7 @@ func lex(s string) ([]token, error) {
 					i++
 					continue
 				}
-				// 命名空间分隔：`request.amount`（点后必须紧跟标识符起始字符）
+				// namespace separator: `request.amount` (the dot must be followed by an identifier-start character)
 				if s[i] == '.' && i+1 < len(s) && isIdentStart(s[i+1]) {
 					i++
 					continue
@@ -219,7 +219,7 @@ func isIdentPart(c byte) bool {
 }
 
 // ---------------------------------------------------------------------------
-// 文本表达式语法（递归下降）
+// Text expression grammar (recursive descent)
 // ---------------------------------------------------------------------------
 
 type textParser struct {
@@ -227,10 +227,10 @@ type textParser struct {
 	i    int
 }
 
-// parseText 把文本表达式糖解析成 AST。
+// parseText parses textual expression sugar into an AST.
 //
-// 展开规则固定、可复现（`contracts/01` §5.3）：同一段文本永远得到同一棵 AST，
-// 进而得到同一份 IR；不做任何隐式类型转换。
+// The expansion is fixed and reproducible (`contracts/01` §5.3): the same text always yields the same AST,
+// hence the same IR; no implicit type conversion is performed.
 func parseText(src string) (*Expr, error) {
 	toks, err := lex(src)
 	if err != nil {
@@ -371,7 +371,7 @@ func (p *textParser) parseCmp() (*Expr, error) {
 			if err != nil {
 				return nil, err
 			}
-			// 禁止连续比较（a > b > c），否则语义有歧义
+			// Reject chained comparisons (a > b > c), otherwise the semantics are ambiguous
 			if t2 := p.peek(); t2.kind == tokPunct {
 				if _, again := ops[t2.val]; again {
 					return nil, fmt.Errorf("不支持连续比较（位置 %d），请用 && 显式连接", t2.pos)
@@ -432,7 +432,7 @@ func (p *textParser) parseUnary() (*Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		// 只允许字面量取负，避免引入不在白名单里的「一元负号」节点
+		// Only literals may be negated, so no "unary minus" node outside the allow-list is introduced
 		if inner.Kind == KindLiteral && inner.Lit.Kind == "integer" {
 			if i, ok := inner.Lit.Value.(int64); ok {
 				return &Expr{Kind: KindLiteral, Lit: &Literal{Kind: "integer", Value: -i}}, nil
@@ -484,7 +484,7 @@ func (p *textParser) parsePrimary() (*Expr, error) {
 			return &Expr{Kind: KindLiteral, Lit: &Literal{Kind: "null", Value: nil}}, nil
 		}
 		p.next()
-		// 函数调用
+		// function call
 		if p.peek().kind == tokPunct && p.peek().val == "(" {
 			p.next()
 			var args []*Expr
@@ -530,7 +530,7 @@ func (p *textParser) parseList() (*Expr, error) {
 			case tokNumber:
 				p.next()
 				if strings.ContainsAny(t.val, ".") {
-					v = t.val // decimal 落地为字符串
+					v = t.val // decimals land as strings
 				} else {
 					i, err := strconv.ParseInt(t.val, 10, 64)
 					if err != nil {

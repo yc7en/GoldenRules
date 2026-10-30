@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// 审批时效（contracts/04 §8）与紧急通道（contracts/04 §7）。
+// Approval SLA (contracts/04 §8) and the emergency channel (contracts/04 §7).
 
 func codeOf(t *testing.T, err error) string {
 	t.Helper()
@@ -21,7 +21,7 @@ func codeOf(t *testing.T, err error) string {
 }
 
 // ---------------------------------------------------------------------------
-// 审批时效
+// Approval SLA
 // ---------------------------------------------------------------------------
 
 func TestSLAPolicyPerLevel(t *testing.T) {
@@ -46,12 +46,12 @@ func TestSLAPolicyPerLevel(t *testing.T) {
 		t.Fatalf("应给出截止与升级时点: %+v", sla)
 	}
 
-	// 超目标未超升级线
+	// Past the target but not yet past the escalation line
 	mid := c.SLA(e.now.Add(time.Duration(slaTargetL12+1) * time.Hour))
 	if !mid.Overdue || mid.Escalated {
 		t.Fatalf("超目标 1h 应 Overdue 未 Escalated: %+v", mid)
 	}
-	// 超升级线
+	// Past the escalation line
 	late := c.SLA(e.now.Add(time.Duration(slaEscalateL12+1) * time.Hour))
 	if !late.Overdue || !late.Escalated || late.EscalateTo == "" {
 		t.Fatalf("超升级线应 Escalated 且给出升级对象: %+v", late)
@@ -86,7 +86,7 @@ func TestSLAHasZeroPolicyForUnknownLevel(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 紧急通道
+// Emergency channel
 // ---------------------------------------------------------------------------
 
 func (e *env) l3Change(t *testing.T) Change {
@@ -102,7 +102,7 @@ func (e *env) l3Change(t *testing.T) Change {
 	return c
 }
 
-// L3 可以走紧急通道：跳过等待审批，但必须落下「24h 内补审」的欠账。
+// L3 may use the emergency channel: it skips waiting for approval, but must book the "makeup review within 24h" debt.
 func TestEmergencyPublishL3RecordsMakeupReviewDebt(t *testing.T) {
 	e := newEnv(t)
 	c := e.l3Change(t)
@@ -120,12 +120,12 @@ func TestEmergencyPublishL3RecordsMakeupReviewDebt(t *testing.T) {
 	if out.MakeupReviewDueAt == "" || !out.MakeupReviewMissing() {
 		t.Fatalf("必须记下补审截止且处于待补审: %+v", out)
 	}
-	// 版本真的发布了
+	// the version really is published
 	active, ok := e.pkg.Active("pkg-withdraw")
 	if !ok || active.PackageVersion != "v1" {
 		t.Fatalf("规则包应已生效: %+v", active)
 	}
-	// 巡检能看到这笔欠账
+	// the patrol can see this debt
 	if got := len(e.svc.PendingMakeupReviews()); got != 1 {
 		t.Fatalf("待补审应有 1 条，实际 %d", got)
 	}
@@ -205,7 +205,7 @@ func TestMakeupReviewRejectsSelfAndDuplicate(t *testing.T) {
 		t.Fatalf("emergency: %v", err)
 	}
 
-	// 自己发、自己补审 = 没有补审
+	// publishing yourself and reviewing yourself = no review
 	_, err := e.svc.MakeupReview(c.ChangeID, "release.R", SubmitterEngineer, RoleEngineer, "我已复核")
 	if code := codeOf(t, err); code != CodeMakeupReviewSelf {
 		t.Fatalf("发布人自审应被拒，实际 %s", code)
@@ -228,7 +228,7 @@ func TestMakeupReviewRejectsSelfAndDuplicate(t *testing.T) {
 	}
 }
 
-// 超期补审不阻断，但必须标记 Late —— 拒绝会让「已发出去的变更」永远处于未补审状态。
+// An overdue makeup review is not blocked, but must be marked Late — refusing would leave "a change that already shipped" permanently unreviewed.
 func TestMakeupReviewMarksLateButStillSucceeds(t *testing.T) {
 	e := newEnv(t)
 	c := e.l3Change(t)
@@ -248,7 +248,7 @@ func TestMakeupReviewMarksLateButStillSucceeds(t *testing.T) {
 	}
 }
 
-// 普通（非紧急）变更单不允许补审：避免「先发布、后补一个假补审」。
+// A normal (non-emergency) change request does not allow a makeup review: this avoids "publish first, then add a fake makeup review".
 func TestMakeupReviewOnlyForEmergencyChanges(t *testing.T) {
 	e := newEnv(t)
 	c := e.l3Change(t)
@@ -258,7 +258,7 @@ func TestMakeupReviewOnlyForEmergencyChanges(t *testing.T) {
 	}
 }
 
-// 紧急通道一样要留审计：紧急发布与常规发布各一条事件，发布史不能有空洞。
+// The emergency channel is audited just the same: one event for the emergency publish and one for the regular publish, so the publish history has no hole.
 func TestEmergencyPublishIsAudited(t *testing.T) {
 	e := newEnv(t)
 	c := e.l3Change(t)

@@ -84,7 +84,7 @@ func (s *Server) deprecateFact(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"fact": f, "issues": orEmpty(issues)})
 }
 
-// GET /api/v1/facts/artifacts —— 只读预览生成物摘要（不落盘）
+// GET /api/v1/facts/artifacts —— read-only preview of the generated artifact digest (nothing written to disk)
 func (s *Server) getFactArtifacts(w http.ResponseWriter, r *http.Request) {
 	arts, err := s.deps.Facts.Artifacts()
 	if err != nil {
@@ -102,7 +102,7 @@ func (s *Server) getFactArtifacts(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// POST /api/v1/facts/artifacts —— 幂等生成（内容相同不落盘）
+// POST /api/v1/facts/artifacts —— idempotent generation (identical content is not written to disk)
 func (s *Server) writeFactArtifacts(w http.ResponseWriter, r *http.Request) {
 	if s.deps.ArtifactsDir == "" {
 		writeError(w, r, http.StatusServiceUnavailable, "ARTIFACTS_DIR_UNSET", "未配置产物目录", nil)
@@ -119,7 +119,7 @@ func (s *Server) writeFactArtifacts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"dir": s.deps.ArtifactsDir, "changed": changed})
 }
 
-// GET /api/v1/facts/artifacts/verify —— CI 门禁：生成物是否过期
+// GET /api/v1/facts/artifacts/verify —— CI gate: have the generated artifacts gone stale
 func (s *Server) verifyFactArtifacts(w http.ResponseWriter, r *http.Request) {
 	if s.deps.ArtifactsDir == "" {
 		writeError(w, r, http.StatusServiceUnavailable, "ARTIFACTS_DIR_UNSET", "未配置产物目录", nil)

@@ -1,8 +1,8 @@
-//! B2 验收：
-//! - 千条规则全扫 < 300μs（release 下断言）；
-//! - decimal 运算无浮点误差；
-//! - FIRST / ALL / PRIORITY 三种命中策略单测覆盖；
-//! - 白名单与短路语义。
+//! B2 acceptance:
+//! - full scan of a thousand rules < 300μs (asserted in release);
+//! - decimal arithmetic has no float error;
+//! - unit coverage for all three hit strategies, FIRST / ALL / PRIORITY;
+//! - whitelist and short-circuit semantics.
 
 use gr_contract::*;
 use gr_ir::{load, load_from_json, LoadLimits};
@@ -24,7 +24,7 @@ fn slots(values: &[(&str, Value)]) -> Vec<Value> {
 }
 
 // ---------------------------------------------------------------------------
-// 真实规则包
+// Real rule packages
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -50,7 +50,7 @@ fn evaluates_amount_limit_ruleset_with_all_strategy() {
     assert_eq!(outcome.decision, Decision::Review);
     assert_eq!(outcome.reason_code, "AMOUNT_REVIEW");
 
-    // assign：riskLevel = "MEDIUM"
+    // assign: riskLevel = "MEDIUM"
     let assigns = run_assigns(&program, 1, &slot_values, "2026-10-30T10:00:00Z", &mut budget)
         .expect("assign");
     assert_eq!(assigns, vec![("riskLevel".to_string(), Value::Str("MEDIUM".into()))]);
@@ -62,7 +62,7 @@ fn first_strategy_stops_at_first_hit() {
     let rs = pkg.ruleset("rs-list-check").unwrap();
     let program = compile_ruleset(rs).expect("compile");
 
-    // 命中制裁 → 只求值 1 条（R1001 优先级最高）
+    // sanctions hit -> only 1 rule is evaluated (R1001 has the highest priority)
     let hit = slots(&[("sanctions.hit", Value::Bool(true)), ("request.currency", Value::Str("CNY".into()))]);
     let mut budget = Budget::new(1000);
     let out = evaluate(&program, &hit, "", &[0, 1], &mut budget).unwrap();
@@ -70,7 +70,7 @@ fn first_strategy_stops_at_first_hit() {
     assert_eq!(out.reason_code, "LIST_SANCTION_HIT");
     assert_eq!(out.decision, Decision::Reject);
 
-    // 未命中 → 走 defaultDecision（APPROVE），reasonCode 为 DEFAULT_NO_RULE_MATCHED
+    // no hit -> the defaultDecision fallback (APPROVE) is used, reasonCode is DEFAULT_NO_RULE_MATCHED
     let miss = slots(&[("sanctions.hit", Value::Bool(false)), ("request.currency", Value::Str("CNY".into()))]);
     let mut budget = Budget::new(1000);
     let out = evaluate(&program, &miss, "", &[0, 1], &mut budget).unwrap();
@@ -86,7 +86,7 @@ fn priority_and_all_pick_highest_priority_hit() {
     let rs = pkg.ruleset("rs-amount-limit").unwrap();
     let program = compile_ruleset(rs).expect("compile");
 
-    // VIP + 6000：R2002(REVIEW,80) 与 R2003(APPROVE,60) 同时命中 → 取 R2002
+    // VIP + 6000: R2002(REVIEW,80) and R2003(APPROVE,60) both hit -> take R2002
     let v = slots(&[
         ("request.amount", Value::Dec("6000".parse().unwrap())),
         ("config.withdrawDailyLimit", Value::Dec("100000".parse().unwrap())),
@@ -98,7 +98,7 @@ fn priority_and_all_pick_highest_priority_hit() {
     assert_eq!(out.hits, vec![1, 2]);
     assert_eq!(out.reason_code, "AMOUNT_REVIEW");
 
-    // ALL 与 PRIORITY 在命中集合与结论上等价（契约 §3.4.1 的两种写法）
+    // ALL and PRIORITY are equivalent in hit set and conclusion (the two spellings in contract §3.4.1)
     let mut pkg2 = load_pkg();
     let rs2 = pkg2.rulesets.get_mut("rs-amount-limit").unwrap();
     std::sync::Arc::get_mut(rs2).unwrap().hit_strategy = HitStrategy::Priority;
@@ -110,7 +110,7 @@ fn priority_and_all_pick_highest_priority_hit() {
 }
 
 // ---------------------------------------------------------------------------
-// 精度与求值语义
+// Precision and evaluation semantics
 // ---------------------------------------------------------------------------
 
 fn program_from(rules: serde_json::Value, strategy: &str, default: &str, slots_def: serde_json::Value) -> RuleSetProgram {
@@ -183,7 +183,7 @@ fn division_rounds_to_8_places() {
 
 #[test]
 fn numeric_string_literal_sugar_works_in_arithmetic() {
-    // contracts/01 §3.2.3 示例用 "0.1" 这类字符串字面量做乘法
+    // the contracts/01 §3.2.3 example multiplies by a string literal such as "0.1"
     let program = program_from(
         json!([rule(
             json!([{ "var": "cut", "expr": { "op": "mul", "args": [
@@ -203,7 +203,7 @@ fn numeric_string_literal_sugar_works_in_arithmetic() {
 
 #[test]
 fn logical_operators_short_circuit() {
-    // 右支是类型错误（字符串和数字比大小），但左支为假 → 不应求值右支
+    // the right branch is a type error (comparing a string with a number), but the left branch is false -> the right branch must not be evaluated
     let program = program_from(
         json!([{
             "ruleId": "R1",
@@ -243,7 +243,7 @@ fn whitelist_is_enforced_at_compile_time() {
             }]
         }]
     });
-    // 未知 op
+    // unknown op
     let mut bad = pkg.clone();
     bad["rulesets"][0]["rules"][0]["when"] =
         json!({ "op": "evalJs", "args": [{ "fact": "request.amount" }] });
@@ -251,14 +251,14 @@ fn whitelist_is_enforced_at_compile_time() {
     let err = compile_ruleset(loaded.ruleset("rs").unwrap()).unwrap_err();
     assert_eq!(err.error_code, ErrorCode::DslOpNotAllowed);
 
-    // 未知函数
+    // unknown function
     let mut bad = pkg.clone();
     bad["rulesets"][0]["rules"][0]["when"] = json!({ "op": "call", "func": "httpGet", "args": [] });
     let loaded = load_from_json(&bad.to_string(), &LoadLimits::default()).unwrap();
     let err = compile_ruleset(loaded.ruleset("rs").unwrap()).unwrap_err();
     assert_eq!(err.error_code, ErrorCode::DslFnNotFound);
 
-    // 参数个数错
+    // wrong argument count
     let mut bad = pkg;
     bad["rulesets"][0]["rules"][0]["when"] = json!({ "op": "call", "func": "abs", "args": [] });
     let loaded = load_from_json(&bad.to_string(), &LoadLimits::default()).unwrap();
@@ -313,7 +313,7 @@ fn whitelist_functions_behave() {
 }
 
 // ---------------------------------------------------------------------------
-// 性能：千条规则全扫 < 300μs（release）
+// Performance: full scan of a thousand rules < 300μs (release)
 // ---------------------------------------------------------------------------
 
 fn bench_program(n: usize) -> RuleSetProgram {
@@ -350,7 +350,7 @@ fn thousand_rules_scan_under_300_micros() {
     let plan: Vec<u32> = (0..1000).collect();
     let slot_values = [Value::Dec("99999.99".parse().unwrap())];
     let mut budget = Budget::new(10_000_000);
-    // 预热
+    // warm-up
     for _ in 0..3 {
         let _ = evaluate(&program, &slot_values, "", &plan, &mut budget).unwrap();
         budget = Budget::new(10_000_000);
@@ -379,7 +379,7 @@ fn pruned_plan_is_cheaper_than_full_scan() {
     let pkg = load_pkg();
     let rs = pkg.ruleset("rs-amount-limit").unwrap();
     let program = compile_ruleset(rs).unwrap();
-    // amount 缺失（slot 0 missing）→ 前置事实为 amount 的规则全被跳过
+    // amount is missing (slot 0 missing) -> every rule gated on amount is skipped
     let mut missing = std::collections::BTreeSet::new();
     missing.insert(0u32);
     missing.insert(1u32);
@@ -397,7 +397,7 @@ fn pruned_plan_is_cheaper_than_full_scan() {
 
 #[test]
 fn loads_1000_rules_via_ir_then_vm() {
-    // B1 + B2 联合验收：千条规则能加载、能编译
+    // B1 + B2 joint acceptance: a thousand rules can be loaded and compiled
     let program = bench_program(1000);
     assert_eq!(program.programs.len(), 1000);
     assert!(program.total_instrs > 0);

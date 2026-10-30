@@ -1,22 +1,22 @@
-//! Assemble 组装器：业务入参 → 调 Provider → `FactSnapshot`（入口层，不进执行内核）。
+//! Assemble assembler: business inputs -> call Providers -> `FactSnapshot` (entry layer, never enters the execution kernel).
 //!
-//! ## 边界（`ARCHITECTURE.md` §2.2 / A-2）
+//! ## Boundary (`ARCHITECTURE.md` §2.2 / A-2)
 //!
-//! 执行内核只认「装好的快照」。取数、拼装、降级登记全在这一层完成；
-//! 组装器**不判断业务**，也**不做决策**——出了什么问题，都表达成快照里的
-//! `missingFacts` / `degradedFacts`，由 B4 的 `onMissing` / `onStale` 策略收口。
+//! The execution kernel only accepts an "assembled snapshot". Fetching, assembling and degradation bookkeeping all happen in this layer;
+//! the assembler **does not judge business** and **does not decide** -- whatever goes wrong is expressed as
+//! `missingFacts` / `degradedFacts` in the snapshot, and closed out by B4's `onMissing` / `onStale` strategies.
 //!
-//! ## 三条装配规则（确定性来自这里）
+//! ## Three assembly rules (this is where determinism comes from)
 //!
-//! 1. **入参优先**：调用方显式传的事实不被 Provider 覆盖（入参是「我知道的值」）。
-//! 2. **声明顺序即执行顺序**：Provider 按配置顺序执行，派生 Provider 只能看到更早的结果。
-//! 3. **同一场景内不允许两个 Provider 声明同一事实**：装载期直接报错，不做运行期隐式覆盖。
+//! 1. **Inputs win**: facts passed explicitly by the caller are not overwritten by Providers (inputs are "values I already know").
+//! 2. **Declaration order is execution order**: Providers run in config order, and a derived Provider only sees earlier results.
+//! 3. **Two Providers in the same scene may not declare the same fact**: rejected at load time, with no implicit runtime overwrite.
 //!
-//! ## 入参里的 `null`
+//! ## `null` in inputs
 //!
-//! 一律按「未提供」处理（落 `missingFacts` + `NOT_PROVIDED`），不进 `facts`。
-//! 理由：`contracts/02` §3.2 明确禁止用 `null` 表达缺失，且快照里出现 `null` 会让
-//! 「没取到」与「取到了空值」无法区分，回放时分不清。
+//! Always treated as "not provided" (lands in `missingFacts` + `NOT_PROVIDED`) and never enters `facts`.
+//! Reason: `contracts/02` §3.2 explicitly forbids expressing absence with `null`, and a `null` in the snapshot would make
+//! "not fetched" and "fetched an empty value" indistinguishable, which breaks replay analysis.
 
 use crate::constant::ConstantProvider;
 use crate::derived::DerivedProvider;
@@ -32,14 +32,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// 组装器版本，落进快照的 `assemblerVersion`（排障用，不参与时效判定）。
+/// Assembler version, written into the snapshot's `assemblerVersion` (for troubleshooting, not used in freshness checks).
 pub const ASSEMBLER_VERSION: &str = "gr-provider/0.1";
 
 const DEFAULT_TIMEOUT_MS: u64 = 50;
 
 pub struct Assembler {
     catalog: Arc<FactCatalog>,
-    /// 场景 → Provider 链（Vec 顺序即执行顺序）
+    /// Scene -> Provider chain (the Vec order is the execution order)
     scenes: BTreeMap<String, Vec<Arc<dyn Provider>>>,
     version: String,
     seq: AtomicU64,
@@ -64,7 +64,7 @@ impl Assembler {
         }
     }
 
-    /// 从声明式配置构建，**装载期完成全部校验**（目录存在 / 无重复供给 / 依赖已声明）。
+    /// Build from the declarative config, with **all validation done at load time** (catalog exists / no duplicate supply / dependencies declared).
     pub fn from_spec(
         catalog: &FactCatalog,
         spec: &AssemblerSpec,
@@ -99,7 +99,7 @@ impl Assembler {
         &self.catalog
     }
 
-    /// 已配置的场景与 Provider 名（健康检查 / 自测用）
+    /// Configured scenes and Provider names (for health checks / self-test)
     pub fn describe(&self) -> Vec<(String, Vec<String>)> {
         self.scenes
             .iter()
@@ -113,7 +113,7 @@ impl Assembler {
         self.scenes.contains_key(scene)
     }
 
-    /// Assemble 模式入口：组装快照。返回的快照可直接喂 `Engine::decide`。
+    /// Assemble-mode entry point: assemble the snapshot. The returned snapshot can be fed straight into `Engine::decide`.
     pub fn assemble(
         &self,
         ctx: &ExecutionContext,
@@ -133,7 +133,7 @@ impl Assembler {
         let mut missing: BTreeMap<String, MissingFact> = BTreeMap::new();
         let mut degraded: BTreeMap<String, gr_contract::DegradedFact> = BTreeMap::new();
 
-        // ① 入参先落：显式值优先，且定义 null 的语义
+        // (1) Inputs land first: explicit values win, and this defines the semantics of null
         for (fact, raw) in &inputs {
             if raw.is_null() {
                 missing.insert(fact.clone(), self.missing_fact(fact, MissingReason::NotProvided));
@@ -142,7 +142,7 @@ impl Assembler {
             }
         }
 
-        // ② Provider 按声明顺序装（派生只能看到更早的结果）
+        // (2) Providers are applied in declaration order (a derivation only sees earlier results)
         for provider in chain {
             let view = ProviderCtx {
                 tenant_id: &ctx.tenant_id,
@@ -166,16 +166,16 @@ impl Assembler {
         snapshot.fact_meta = meta;
         snapshot.missing_facts = missing.into_values().collect();
         snapshot.degraded_facts = degraded.into_values().collect();
-        // assembledAt 取调用方时间基准而不是系统时钟：回放与测试要可复现（A-5）。
+        // assembledAt uses the caller's time baseline instead of the system clock: replay and tests must be reproducible (A-5).
         snapshot.assembled_at = Some(ctx.request_time.clone());
         snapshot.assembler_version = Some(self.version.clone());
         Ok(snapshot)
     }
 
-    /// 合并一个样本。**先到者胜**（入参 > 更早的 Provider）。
+    /// Merge one sample. **First one wins** (inputs > earlier Providers).
     ///
-    /// 同场景内「两个 Provider 抢同一事实」已在装载期拒绝，所以这里只需处理
-    /// 「入参 vs Provider」这一种竞争，规则简单到可解释。
+    /// "Two Providers fighting over the same fact" within a scene is already rejected at load time, so here we only handle
+    /// the "inputs vs Provider" race, which keeps the rule simple enough to explain.
     fn merge(
         &self,
         fact: String,
@@ -202,7 +202,7 @@ impl Assembler {
                 }
             }
             FactSample::Degraded { value, reason, fallback, meta: sample_meta } => {
-                // 降级也要带值进快照（`contracts/02` §3.2：降级 = 值在 facts + 登记 degradedFacts）
+                // A degraded fact still carries its value into the snapshot (`contracts/02` §3.2: degraded = value in facts + registered in degradedFacts)
                 if !value.is_null() {
                     facts.insert(fact.clone(), value);
                 }
@@ -221,13 +221,13 @@ impl Assembler {
         MissingFact {
             fact: fact.to_string(),
             reason,
-            // 必填性以事实目录为准：Provider 不该自己决定「缺了要不要紧」
+            // Requiredness comes from the fact catalog: a Provider must not decide for itself whether "missing" matters
             required: self.catalog.get(fact).map(|s| s.required).unwrap_or(false),
             fallback: None,
         }
     }
 
-    /// `fs-<时间戳>-<序号>`：时间来自 `requestTime`（可复现），序号保证同秒内唯一。
+    /// `fs-<timestamp>-<seq>`: the time comes from `requestTime` (reproducible), and the seq keeps it unique within one second.
     fn next_snapshot_id(&self, request_time: &str) -> String {
         let stamp: String = request_time.chars().filter(|c| c.is_ascii_alphanumeric()).take(16).collect();
         let seq = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
@@ -247,7 +247,7 @@ fn build_chain(
         let default_name = format!("{}#{}", spec.kind(), idx);
         let name = spec.name().unwrap_or(&default_name).to_string();
 
-        // ① 目录校验：Provider 供一个目录里没有的事实 = 配置 bug，装载期就报
+        // (1) Catalog validation: a Provider supplying a fact absent from the catalog = config bug, reported at load time
         for fact in spec.declared_facts() {
             if catalog.get(&fact).is_none() {
                 return Err(ErrorContract::new(
@@ -257,7 +257,7 @@ fn build_chain(
                 .with_detail("scene", serde_json::json!(scene.scene))
                 .with_detail("provider", serde_json::json!(name)));
             }
-            // ② 重复供给：同场景内不允许两个 Provider 抢同一事实
+            // (2) Duplicate supply: two Providers in the same scene may not fight over the same fact
             if let Some(prev) = owner.insert(fact.clone(), name.clone()) {
                 return Err(config_error(format!(
                     "场景 {} 中事实 {fact} 同时由 {prev} 与 {name} 供给（隐式覆盖会掩盖配置错误）",
@@ -277,7 +277,7 @@ fn build_chain(
                             format!("派生 Provider {name} 的 dependsOn 含目录中不存在的事实 {fact}"),
                         )
                     })?;
-                    // 同名重复声明会被解析到同一个 slot 下标，属误配
+                    // A duplicate declaration of the same name resolves to the same slot index, which is a misconfiguration
                     if deps.iter().any(|(f, _): &(String, gr_contract::FactKind)| f == fact) {
                         return Err(config_error(format!(
                             "派生 Provider {name} 的 dependsOn 重复声明 {fact}"
@@ -302,7 +302,7 @@ fn build_chain(
 }
 
 fn config_error(msg: String) -> ErrorContract {
-    // 配置错误复用 IR_INVALID：它是「装载期结构错误」这一类的语义位，
-    // 不新造错误码是因为错误码表属契约（`contracts/05` §1），加一个要同步治理侧。
+    // Config errors reuse IR_INVALID: it is the semantic slot for "load-time structural error";
+    // we do not mint a new error code because the error code table is part of the contract (`contracts/05` §1), and adding one means syncing the governance side.
     ErrorContract::new(ErrorCode::IrInvalid, msg)
 }

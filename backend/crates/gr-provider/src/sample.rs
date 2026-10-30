@@ -1,15 +1,15 @@
-//! Provider 契约：取数的输入视图 + 单事实结果 + `Provider` trait。
+//! Provider contract: the read-only input view for fetching + the per-fact result + the `Provider` trait.
 //!
-//! ## 为什么 `fetch` 不返回 `Result`
+//! ## Why `fetch` does not return `Result`
 //!
-//! 取数失败在契约里**不是一个错误，是一个事实状态**（`contracts/02` §3.2）：
-//! 超时要落 `missingFacts` + `PROVIDER_TIMEOUT`，由 `onMissing` 策略决定后果
-//! （`ERROR` → REJECT / `DEFAULT` → 兜底 / `SKIP` → 跳过规则 / `FALLBACK_DECISION`）。
-//! 如果 `fetch` 能返回 `Err`，调用方就会想「整个请求失败」，那恰好绕过了
-//! fail-closed 的分级降级——所以失败被强制表达成 `FactSample::Missing`。
+//! In the contract, a fetch failure **is not an error but a fact state** (`contracts/02` §3.2):
+//! a timeout must land in `missingFacts` + `PROVIDER_TIMEOUT`, and the `onMissing` strategy decides the consequence
+//! (`ERROR` -> REJECT / `DEFAULT` -> fallback / `SKIP` -> skip the rule / `FALLBACK_DECISION`).
+//! If `fetch` could return `Err`, callers would think "the whole request failed", which is exactly the bypass of
+//! fail-closed's tiered degradation -- so failures are forced into `FactSample::Missing`.
 //!
-//! 只有**装配器自身**的配置错误（场景不存在、Provider 声称供一个目录里没有的事实）
-//! 才是 `ErrorContract`，因为那是装载期 bug，不是运行期事实状态。
+//! Only configuration errors of the **assembler itself** (scene does not exist, a Provider claims a fact that is not in the catalog)
+//! are `ErrorContract`, because those are load-time bugs, not runtime fact states.
 
 use gr_contract::{DegradeReason, MissingReason};
 use std::collections::BTreeMap;
@@ -17,28 +17,28 @@ use std::collections::BTreeMap;
 pub type JsonMap = BTreeMap<String, serde_json::Value>;
 pub type FactMeta = BTreeMap<String, serde_json::Value>;
 
-/// 一次取数能看到的只读视图。
+/// Read-only view visible to one fetch.
 #[derive(Clone, Copy, Debug)]
 pub struct ProviderCtx<'a> {
     pub tenant_id: &'a str,
     pub scene: &'a str,
-    /// 唯一时间基准，取自 `ExecutionContext.request_time`（引擎不读系统时钟，A-5）。
-    /// Provider 要取「近 24 小时」这类窗口，也只能按这个时间算。
+    /// The single time baseline, taken from `ExecutionContext.request_time` (the engine does not read the system clock, A-5).
+    /// Providers needing a window such as "the last 24 hours" may only compute it against this time.
     pub request_time: &'a str,
-    /// 调用方业务入参（Assemble 模式的原始输入）。
+    /// Caller business inputs (the raw input of Assemble mode).
     pub inputs: &'a JsonMap,
-    /// **此前已装配**的事实。派生 Provider 依赖它，因此 Provider 顺序是语义的一部分。
+    /// Facts **already assembled** so far. Derived Providers depend on it, so Provider order is part of the semantics.
     pub facts: &'a JsonMap,
 }
 
-/// 单个事实的供给结果（三态，与 `contracts/02` §3.2 一一对应）。
+/// Supply result for a single fact (three states, in one-to-one correspondence with `contracts/02` §3.2).
 #[derive(Clone, Debug, PartialEq)]
 pub enum FactSample {
-    /// 正常供给。`meta` 用于携带 `eventTime` / `sourceTimestamp` 等（时效计算原料）。
+    /// Supplied normally. `meta` carries `eventTime` / `sourceTimestamp` etc. (the raw material for freshness checks).
     Value { value: serde_json::Value, meta: Option<FactMeta> },
-    /// 没取到。落 `missingFacts`。
+    /// Not fetched. Lands in `missingFacts`.
     Missing(MissingReason),
-    /// 取到了但不可信（超期、上游部分降级）。值仍进 `facts`，同时落 `degradedFacts`。
+    /// Fetched but untrustworthy (expired, partially degraded upstream). The value still goes into `facts`, and lands in `degradedFacts` as well.
     Degraded {
         value: serde_json::Value,
         reason: DegradeReason,
@@ -52,7 +52,7 @@ impl FactSample {
         FactSample::Value { value, meta: None }
     }
 
-    /// 附带元数据（如 `eventTime`）。未声明的 meta 键告警不拒绝（`contracts/02` §4）。
+    /// Attach metadata (e.g. `eventTime`). An undeclared meta key warns but is not rejected (`contracts/02` §4).
     pub fn with_meta(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         let key = key.into();
         match &mut self {
@@ -73,13 +73,13 @@ impl FactSample {
     }
 }
 
-/// 取数单元。实现者只做「我负责的事实现在是什么值」，不做决策、不改快照。
+/// A fetch unit. Implementors only answer "what is the current value of the facts I own"; they never decide and never touch the snapshot.
 pub trait Provider: Send + Sync {
     fn name(&self) -> &str;
 
-    /// 本 Provider 负责的事实名。装配器在装载期用它做目录校验与重复供给检测。
+    /// The fact names this Provider owns. The assembler uses it at load time for catalog validation and duplicate-supply detection.
     fn provides(&self) -> &[String];
 
-    /// 取数。返回顺序即装配顺序（同事实先到先得）。
+    /// Fetch. The returned order is the assembly order (for the same fact, first one wins).
     fn fetch(&self, ctx: &ProviderCtx<'_>) -> Vec<(String, FactSample)>;
 }

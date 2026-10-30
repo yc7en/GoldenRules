@@ -1,13 +1,13 @@
-// Command platformd 是 BRMS 管理平台（Go）进程。
+// Command platformd is the BRMS management platform (Go) process.
 //
-// 职责边界（`ARCHITECTURE.md` §2.1）：平台产出规则包与治理记录，**不依赖决策服务的
-// 运行时状态**；决策执行永远在 Rust 决策服务里，本进程不内嵌执行器。
+// Responsibility boundary (`ARCHITECTURE.md` §2.1): the platform produces rule packages and governance records and **does not depend on the
+// runtime state of the decision service**; decision execution always lives in the Rust decision service, and this process embeds no executor.
 //
-// 已实现工作包：
+// Work packages implemented:
 //
-//	B6 事实目录（facts）—— CRUD、单一真源、幂等生成物、CI 过期校验
+//	B6 fact catalog (facts) — CRUD, single source of truth, idempotent artifacts, CI staleness check
 //
-// 数据落在 -data 指定的目录（一份 JSON 文档一个文件），P0 不引入数据库。
+// Data lands in the directory given by -data (one JSON document per file); P0 introduces no database.
 package main
 
 import (
@@ -70,9 +70,9 @@ func main() {
 		log.Fatalf("打开规则包仓库失败: %v", err)
 	}
 	packageSvc := packages.NewService(packageStore)
-	// 发布门禁执行器（F-PKG06）：只有引擎那台 VM 能证明用例真的会得出那个结论。
-	// 没配 --engine-url 且包里有 approved 用例时，发布会被拦下（fail-closed），
-	// 而不是「反正验不了就先放行」——那等于把「已验证」变成一句没人核实过的话。
+	// Publish gate executor (F-PKG06): only the VM inside the engine can prove a test case really reaches that conclusion.
+	// With no --engine-url and approved test cases in the package, publish is blocked (fail-closed),
+	// rather than "we cannot verify it, so let it through" — which would turn "verified" into a claim nobody checked.
 	if *noVerify {
 		log.Printf("警告：已关闭 approved 用例发布门禁（--no-verify-gate），仅限演练环境")
 	} else if *engineURL != "" {
@@ -87,8 +87,8 @@ func main() {
 	}
 	govSvc := gov.NewService(govStore, packageSvc)
 
-	// 事实目录删除前问规则集仓库「这个字段还有人用吗」：注入回调，
-	// 让 facts 包不反向依赖 dsl 包（依赖方向单向，A-1）。
+	// Before deleting a fact, ask the ruleset repository "is this field still used": a callback is injected
+	// so the facts package does not depend on the dsl package in reverse (dependencies stay one-way, A-1).
 	factSvc.WithRefChecker(rulesetSvc.ReferencingFact)
 
 	if *seed != "" {
@@ -100,7 +100,7 @@ func main() {
 		}
 	}
 
-	// 决策日志分两套存储：logs.json 是脱敏视图，raw.json 是原始快照密文（`contracts/03` §8.2）。
+	// Decision logs use two stores: logs.json holds the masked view, raw.json holds the raw snapshot ciphertext (`contracts/03` §8.2).
 	logStore, err := persist.Open(filepath.Join(*dataDir, "logs.json"), func() obs.LogDoc {
 		return obs.LogDoc{Seq: map[string]int{}}
 	})
@@ -115,17 +115,17 @@ func main() {
 	}
 	box, err := obs.NewBoxFromEnv(*logKey)
 	if err != nil {
-		// 没有密钥不是致命错误：降级为「只存脱敏视图」，但要吼一声，别让人以为回放能用。
+		// A missing key is not fatal: degrade to "store the masked view only", but say it loudly so nobody assumes replay works.
 		log.Printf("警告：%v —— 原始快照不落盘，回放不可用", err)
 		box = nil
 	} else {
-		// 挂上托管密钥源：本地缺某把历史钥时按需向 KMS 取（本轮实现为环境变量源，
-		// KMS 实现只需满足 obs.KeyProvider 接口即可替换）。
+		// Attach a managed key source: when a historic key is missing locally, fetch it from the KMS on demand (this round it is an env-var source;
+		// a KMS implementation only has to satisfy the obs.KeyProvider interface to be swapped in).
 		box.WithKeyProvider(obs.NewEnvKeyProvider())
 	}
 	obsSvc := obs.New(logStore, rawStore, box).WithRetention(*retention)
-	// 注意：必须显式声明为接口类型再赋值。直接把可能为 nil 的 *HTTPReplayer 塞进
-	// Deps.Replayer，会得到一个「非 nil 的接口包着 nil 指针」，handler 里 != nil 判断失效。
+	// Note: it must be declared as the interface type explicitly before assignment. Stuffing a possibly-nil *HTTPReplayer straight into
+	// Deps.Replayer yields a "non-nil interface wrapping a nil pointer", and the != nil check in the handler stops working.
 	var replayer obs.Replayer
 	if r := obs.NewHTTPReplayer(*engineURL); r != nil {
 		replayer = r
@@ -155,7 +155,7 @@ func main() {
 	}
 }
 
-// seedFacts 只在目录为空时导入，避免重启覆盖人工改动。
+// seedFacts imports only when the catalog is empty, so a restart never overwrites manual edits.
 func seedFacts(svc *facts.Service, path string) error {
 	if len(svc.Catalog().Facts) > 0 {
 		return nil
@@ -177,10 +177,10 @@ func seedFacts(svc *facts.Service, path string) error {
 	return nil
 }
 
-// seedRulesets 把 fixtures 里的规则包拆成规则集定义导入（仅首启、且仓库为空时）。
+// seedRulesets splits the rule package in fixtures into ruleset definitions and imports them (first start only, and only when the repository is empty).
 //
-// fixtures 里的规则集已经带 slotTable（IR 形态的残留），这里**丢掉**它——
-// 平台侧的真源是 DSL（字段名），slot 表是编译产物，不能反过来当真源导入。
+// The rulesets in fixtures already carry a slotTable (a leftover of the IR form); it is **discarded** here —
+// the source of truth on the platform side is the DSL (field names), and the slot table is a compile product that must not be imported as truth.
 func seedRulesets(store *dsl.Store, path string) error {
 	if len(store.List("")) > 0 {
 		return nil

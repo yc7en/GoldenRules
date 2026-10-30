@@ -93,7 +93,7 @@ func mustDraft(t *testing.T, svc *Service, cat contracts.FactCatalog, version st
 	return v
 }
 
-// 验收 1：发布后产物不可变；二次发布生成新版本号；旧版本可回滚。
+// Acceptance 1: the artifact is immutable after publish; a second publish creates a new version number; the old version can be rolled back.
 func TestPublishImmutableAndVersioned(t *testing.T) {
 	cat := loadCatalog(t)
 	svc := newSvc(t)
@@ -109,7 +109,7 @@ func TestPublishImmutableAndVersioned(t *testing.T) {
 		t.Fatalf("统计不对: rules=%d pendingTC=%d", v1.RuleCount, v1.UnconfirmedTC)
 	}
 
-	// 未批准不能发布
+	// an unapproved version cannot be published
 	if _, err := svc.Publish("pkg-withdraw-risk", "v1", "release.A", "", ""); err == nil {
 		t.Fatal("draft 不应能直接发布")
 	}
@@ -120,7 +120,7 @@ func TestPublishImmutableAndVersioned(t *testing.T) {
 		t.Fatalf("publish: %v", err)
 	}
 
-	// 重复发布幂等：仍是 v1，不产生新版本
+	// idempotent re-publish: still v1, no new version created
 	again, err := svc.Publish("pkg-withdraw-risk", "v1", "release.A", "", "")
 	if err != nil {
 		t.Fatalf("幂等发布应成功: %v", err)
@@ -132,7 +132,7 @@ func TestPublishImmutableAndVersioned(t *testing.T) {
 		t.Fatalf("版本数 = %d", n)
 	}
 
-	// 已发布版本不可再改：同版本号再建草稿必须被拒
+	// a published version cannot be modified: drafting the same version number again must be refused
 	_, _, err = svc.CreateDraft(BuildInput{
 		PackageID: "pkg-withdraw-risk", Version: "v1",
 		Rulesets: []dsl.Definition{defAmount(cat)}, Catalog: cat, Actor: "engineer.A",
@@ -142,7 +142,7 @@ func TestPublishImmutableAndVersioned(t *testing.T) {
 		t.Fatalf("期望 %s，得到 %v", CodeVersionExists, err)
 	}
 
-	// 第二次发布 → 新版本号 v2，v1 被取代退役
+	// second publish → new version number v2, and v1 retires as superseded
 	v2 := mustDraft(t, svc, cat, "")
 	if v2.PackageVersion != "v2" {
 		t.Fatalf("第二个版本号 = %q", v2.PackageVersion)
@@ -164,7 +164,7 @@ func TestPublishImmutableAndVersioned(t *testing.T) {
 		t.Fatalf("生效版本 = %s", act.PackageVersion)
 	}
 
-	// 回滚：切回 v1，不产生新版本号
+	// rollback: switch back to v1 without creating a new version number
 	rolled, err := svc.Rollback("pkg-withdraw-risk", "v1", "release.B", "线上误拒")
 	if err != nil {
 		t.Fatalf("rollback: %v", err)
@@ -184,7 +184,7 @@ func TestPublishImmutableAndVersioned(t *testing.T) {
 	}
 }
 
-// 验收 2：签名可校验，改一个字符即失效。
+// Acceptance 2: the signature verifies, and changing a single character invalidates it.
 func TestSignatureDetectsTampering(t *testing.T) {
 	cat := loadCatalog(t)
 	svc := newSvc(t)
@@ -200,7 +200,7 @@ func TestSignatureDetectsTampering(t *testing.T) {
 	}
 }
 
-// 验收 3：任何一个规则集不合法，整包不构建（原子性）。
+// Acceptance 3: if any single ruleset is invalid, the whole package is not built (atomicity).
 func TestBuildIsAllOrNothing(t *testing.T) {
 	cat := loadCatalog(t)
 	svc := newSvc(t)
@@ -227,7 +227,7 @@ func TestBuildIsAllOrNothing(t *testing.T) {
 	}
 }
 
-// 产物就是交付给引擎的 RulePackage：字段齐全、IR 已解析成 slot。
+// The artifact is exactly the RulePackage handed to the engine: all fields present, the IR already resolved into slots.
 func TestArtifactIsEngineReady(t *testing.T) {
 	cat := loadCatalog(t)
 	svc := newSvc(t)
@@ -258,7 +258,7 @@ func TestArtifactIsEngineReady(t *testing.T) {
 	}
 }
 
-// 定时发布：published 但未到 validFrom 时不生效。
+// Scheduled publish: published, but not effective until validFrom arrives.
 func TestScheduledPublish(t *testing.T) {
 	cat := loadCatalog(t)
 	svc := newSvc(t)

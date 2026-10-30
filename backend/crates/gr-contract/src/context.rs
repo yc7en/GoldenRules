@@ -1,6 +1,6 @@
-//! 执行上下文（`contracts/02` §5 / §6.2）
+//! Execution context (`contracts/02` §5 / §6.2)
 //!
-//! `requestTime` 是唯一时间基准（A-5）：引擎不读系统时钟，回放与测试因此可复现。
+//! `requestTime` is the single time baseline (A-5): the engine never reads the system clock, so replay and tests stay reproducible.
 
 use serde::{Deserialize, Serialize};
 
@@ -9,18 +9,18 @@ use serde::{Deserialize, Serialize};
 pub struct ExecutionContext {
     pub tenant_id: String,
     pub scene: String,
-    /// RFC3339（UTC），唯一时间基准
+    /// RFC3339 (UTC), the single time baseline
     pub request_time: String,
-    /// 只选规则集（场景挂多个规则集时必须显式指定，P0 不做多规则集编排）
+    /// Select the ruleset only (must be given explicitly when a scene has several rulesets attached; P0 does not orchestrate multiple rulesets)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ruleset_id: Option<String>,
-    /// 只选规则集版本（不可与 grayTag 同传，`contracts/02` §6.2）
+    /// Select the ruleset version only (cannot be passed together with grayTag, `contracts/02` §6.2)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ruleset_version: Option<String>,
-    /// 灰度标签（与 rulesetVersion 互斥）
+    /// Canary tag (mutually exclusive with rulesetVersion)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gray_tag: Option<String>,
-    /// 指定规则包版本（缺省=当前激活版本）
+    /// Pin the rule package version (default = currently active version)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -1,4 +1,4 @@
-//! B3 验收：注入快照返回完整 DecisionResult + 命中路径；assign 输出变量正确合并；日志满足 A-4。
+//! B3 acceptance: an injected snapshot returns a complete DecisionResult + hit path; assign outputs merge correctly; the log satisfies A-4.
 
 use gr_contract::*;
 use gr_engine::{engine_from_json, DecisionOutcome, Engine, EngineConfig};
@@ -62,7 +62,7 @@ fn snapshot_mode_returns_full_decision_result() {
 #[test]
 fn assign_outputs_use_exact_decimal() {
     let mut snap = snapshot();
-    // amount 200000 > limit 100000 → R2001 命中，excessAmount = 100000
+    // amount 200000 > limit 100000 -> R2001 hits, excessAmount = 100000
     snap.facts.insert("request.amount".into(), json!("200000.55"));
     let e = engine();
     let mut c = ctx("withdraw-risk-check", Some("rs-amount-limit"));
@@ -75,14 +75,14 @@ fn assign_outputs_use_exact_decimal() {
         "金额必须精确，不能出现浮点尾数"
     );
 
-    // VIP + 6000：R2002 与 R2003 同时命中，同名 riskLevel 冲突取高优先级（R2002 = MEDIUM）
+    // VIP + 6000: R2002 and R2003 hit simultaneously; the conflicting riskLevel same-name value takes the higher priority (R2002 = MEDIUM)
     snap.facts.insert("request.amount".into(), json!("6000"));
     snap.facts.insert("customer.level".into(), json!("VIP"));
     c.request_time = "2026-10-30T10:00:01Z".into();
     let out = e.decide(&snap, &c).expect("decide");
     assert_eq!(out.result.hit_rules.len(), 2);
     assert_eq!(out.result.outputs["riskLevel"], Value::Str("MEDIUM".into()));
-    // R2003 独有的变量仍然合并进来
+    // Variables unique to R2003 are still merged in
     assert_eq!(out.result.outputs["discountAmount"].to_string(), "600.0");
 }
 
@@ -136,7 +136,7 @@ fn decision_log_satisfies_a4_and_masks_pii() {
     let out = decide_basic();
     let log = &out.log;
 
-    // A-4 必含：快照(脱敏) + 事实目录版本 + 规则包版本 + 命中规则 + 输出 + 降级标记 + 引擎版本 + 耗时
+    // A-4 requires: snapshot (masked) + fact catalog version + rule package version + hit rules + outputs + degraded flag + engine version + elapsed time
     assert_eq!(log.fact_schema_version, "catalog-v2026.10");
     assert_eq!(log.package_version, "v12");
     assert_eq!(log.ruleset_version, "rs-20261030-5");
@@ -146,10 +146,10 @@ fn decision_log_satisfies_a4_and_masks_pii() {
     assert_eq!(log.engine_version, ENGINE_VERSION);
     assert!(log.execution_time_ms >= 0.0);
 
-    // PII 掩码：request.amount 是 PII → 前两位 + ***
+    // PII mask: request.amount is PII -> first two characters + ***
     assert!(log.masked_fields.contains(&"request.amount".to_string()));
     assert_eq!(log.masked_facts["request.amount"], json!("15***"));
-    // 非 PII 字段原样保留
+    // Non-PII fields are kept verbatim
     assert_eq!(log.masked_facts["customer.level"], json!("NORMAL"));
     assert_eq!(log.masked_facts["customer.withdrawCount24h"], json!(2));
 }
@@ -175,7 +175,7 @@ fn snapshot_degraded_facts_flow_into_result() {
 
 #[test]
 fn ruleset_outputs_are_merged_deterministically() {
-    // 自造两个规则同时 assign 同一个变量，验证「同名冲突取最高优先级」
+    // Hand-build two rules that both assign the same variable, verifying "the same-name conflict takes the highest priority"
     let catalog = json!({
         "catalogVersion": "c",
         "facts": [

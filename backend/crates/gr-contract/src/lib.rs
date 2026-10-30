@@ -1,10 +1,10 @@
-//! GoldenRules 共享契约（B0）
+//! GoldenRules shared contracts (B0)
 //!
-//! 与 `contracts/01/02/03/05` 对齐的**数据形状**，是 Rust 决策服务与 Go 管理平台之间
-//! 唯一的共享面。共享以 **JSON 序列化格式**为准（`PLAN.md` §2 B0）：两语言各持绑定，
-//! 不共享运行时、不共享进程。
+//! The **data shapes** aligned with `contracts/01/02/03/05`, the only shared surface between the Rust decision
+//! service and the Go management platform. Sharing is defined by the **JSON serialization format**
+//! (`PLAN.md` §2 B0): each language keeps its own bindings, no shared runtime, no shared process.
 //!
-//! 本 crate 只定义结构，不含任何求值/加载逻辑——那是 B1（gr-ir）与 B2（gr-vm）的事。
+//! This crate defines structures only and holds no evaluation/loading logic - that is the job of B1 (gr-ir) and B2 (gr-vm).
 
 pub mod context;
 pub mod decision;
@@ -33,11 +33,11 @@ pub use fact::{
 pub use ty::{CoerceError, FactKind, Literal};
 pub use value::Value;
 
-/// DSL / IR 版本（`contracts/01` §3.1 / §4.1）
+/// DSL / IR versions (`contracts/01` §3.1 / §4.1)
 pub const DSL_VERSION: &str = "1.0";
 pub const IR_VERSION: &str = "1.0";
 
-/// 调用方可以按 `resultVersion` 解析（`contracts/03` §9.1）
+/// Callers can parse by `resultVersion` (`contracts/03` §9.1)
 pub fn supported_result_version(v: &str) -> bool {
     v == RESULT_VERSION
 }
