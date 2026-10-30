@@ -11,10 +11,19 @@ import (
 
 	"goldenrules/platform/dsl"
 	"goldenrules/platform/facts"
+	"goldenrules/platform/packages"
 	"goldenrules/platform/persist"
 )
 
+// newTestServer 供只关心 HTTP 行为的用例使用；需要直接操纵领域服务的用例走 newTestEnv。
 func newTestServer(t *testing.T) http.Handler {
+	t.Helper()
+	h, _ := newTestEnv(t)
+	return h
+}
+
+// newTestEnv 返回 handler 与其依赖，方便用例绕过 HTTP 造前置状态。
+func newTestEnv(t *testing.T) (http.Handler, Deps) {
 	t.Helper()
 	dir := t.TempDir()
 	st, err := persist.Open(filepath.Join(dir, "facts.json"), func() facts.Catalog {
@@ -34,7 +43,26 @@ func newTestServer(t *testing.T) http.Handler {
 	rs := dsl.NewStore(rsStore)
 	svc.WithRefChecker(rs.ReferencingFact)
 
-	return New(Deps{Facts: svc, Rulesets: rs, ArtifactsDir: filepath.Join(dir, "artifacts")})
+	pkStore, err := persist.Open(filepath.Join(dir, "packages.json"), func() packages.Repo { return packages.Repo{} })
+	if err != nil {
+		t.Fatalf("open packages: %v", err)
+	}
+	pk := packages.NewService(pkStore).WithClock(func() time.Time {
+		return time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	})
+
+	deps := Deps{Facts: svc, Rulesets: rs, Packages: pk, ArtifactsDir: filepath.Join(dir, "artifacts")}
+	return New(deps), deps
+}
+
+// doRaw 返回原始响应（产物是裸 JSON 文档，不是包装对象）。
+func doRaw(t *testing.T, h http.Handler, method, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(""))
+	req.Header.Set("X-Actor", "engineer.A")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
 }
 
 func do(t *testing.T, h http.Handler, method, path, body string) (*httptest.ResponseRecorder, map[string]any) {

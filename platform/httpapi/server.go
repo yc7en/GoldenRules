@@ -15,12 +15,14 @@ import (
 	"goldenrules/platform/contracts"
 	"goldenrules/platform/dsl"
 	"goldenrules/platform/facts"
+	"goldenrules/platform/packages"
 )
 
 // Deps 是平台依赖的领域服务集合。B6 起逐包填充。
 type Deps struct {
 	Facts        *facts.Service
 	Rulesets     *dsl.Store
+	Packages     *packages.Service
 	ArtifactsDir string
 }
 
@@ -64,6 +66,17 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/v1/rulesets/{id}", s.putRuleset)
 	s.mux.HandleFunc("DELETE /api/v1/rulesets/{id}", s.deleteRuleset)
 	s.mux.HandleFunc("POST /api/v1/rulesets/{id}/validate", s.validateRuleset)
+
+	// ---- B8 编译与规则包发布 ----
+	s.mux.HandleFunc("GET /api/v1/packages", s.listPackages)
+	s.mux.HandleFunc("POST /api/v1/packages", s.createPackage)
+	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/active", s.activePackage)
+	s.mux.HandleFunc("POST /api/v1/packages/{pkg}/rollback", s.rollbackPackage)
+	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/versions/{version}", s.getPackageVersion)
+	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/versions/{version}/artifact", s.packageArtifact)
+	s.mux.HandleFunc("GET /api/v1/packages/{pkg}/versions/{version}/verify", s.verifyPackage)
+	s.mux.HandleFunc("POST /api/v1/packages/{pkg}/versions/{version}/approve", s.approvePackage)
+	s.mux.HandleFunc("POST /api/v1/packages/{pkg}/versions/{version}/publish", s.publishPackage)
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +109,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	var nErr *facts.NotFoundError
 	var iErr *facts.InUseError
 	var neErr *dsl.NotExistError
+	var pkErr *packages.NotFoundError
+	var stErr *packages.StateError
 
 	switch {
 	case errors.As(err, &vErr):
@@ -113,6 +128,10 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusNotFound, facts.CodeNotFound, nErr.Error(), nil)
 	case errors.As(err, &neErr):
 		writeError(w, r, http.StatusNotFound, "NOT_FOUND", neErr.Error(), nil)
+	case errors.As(err, &pkErr):
+		writeError(w, r, http.StatusNotFound, packages.CodeNotFound, pkErr.Error(), nil)
+	case errors.As(err, &stErr):
+		writeError(w, r, http.StatusConflict, stErr.Code, stErr.Message, nil)
 	case errors.As(err, &iErr):
 		body, _ := json.Marshal(iErr.Referers)
 		writeError(w, r, http.StatusConflict, facts.CodeInUse, iErr.Error(), map[string]json.RawMessage{

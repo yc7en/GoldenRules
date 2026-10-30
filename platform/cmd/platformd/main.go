@@ -24,6 +24,7 @@ import (
 	"goldenrules/platform/dsl"
 	"goldenrules/platform/facts"
 	"goldenrules/platform/httpapi"
+	"goldenrules/platform/packages"
 	"goldenrules/platform/persist"
 )
 
@@ -54,6 +55,14 @@ func main() {
 	}
 	rulesetSvc := dsl.NewStore(rulesetStore)
 
+	packageStore, err := persist.Open(filepath.Join(*dataDir, "packages.json"), func() packages.Repo {
+		return packages.Repo{Active: map[string]string{}}
+	})
+	if err != nil {
+		log.Fatalf("打开规则包仓库失败: %v", err)
+	}
+	packageSvc := packages.NewService(packageStore)
+
 	// 事实目录删除前问规则集仓库「这个字段还有人用吗」：注入回调，
 	// 让 facts 包不反向依赖 dsl 包（依赖方向单向，A-1）。
 	factSvc.WithRefChecker(rulesetSvc.ReferencingFact)
@@ -70,6 +79,7 @@ func main() {
 	handler := httpapi.New(httpapi.Deps{
 		Facts:        factSvc,
 		Rulesets:     rulesetSvc,
+		Packages:     packageSvc,
 		ArtifactsDir: *artifactsDir,
 	})
 

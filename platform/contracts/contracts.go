@@ -232,3 +232,11 @@ type ErrorContract struct {
 
 // GoldenTime 契约里的时间字段统一 RFC3339 UTC（contracts/02 §5）。
 const GoldenTimeLayout = time.RFC3339
+
+// DSL / IR / 结果契约版本（`contracts/01` §3.1、§4.1，`contracts/03` §10）。
+// 三个版本独立演进，跨语言必须对齐 Rust 侧 `gr_contract` 的同名常量。
+const (
+	DSLVersion    = "1.0"
+	IRVersion     = "1.0"
+	ResultVersion = "v1"
+)
