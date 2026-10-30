@@ -307,11 +307,116 @@ func (s *Service) RawSnapshot(logID string) (json.RawMessage, *Error) {
 	if !found || strings.TrimSpace(blob.Ciphertext) == "" {
 		return nil, errf(CodeRawPurged, "原始快照密文已不存在（可能已过期清理）")
 	}
-	plain, err := s.box.Open(blob.Nonce, blob.Ciphertext, logID)
+	// 按密文自述的 keyID 选钥：轮换后老密文仍用旧钥解，新密文用新钥解。
+	// blob.KeyID 为空是历史数据（轮换前写入），此时 OpenWithKeyID 会依次尝试全部钥。
+	plain, err := s.box.OpenWithKeyID(blob.Nonce, blob.Ciphertext, logID, blob.KeyID)
 	if err != nil {
 		return nil, &Error{Code: CodeDecryptFailed, Message: err.Error()}
 	}
 	return json.RawMessage(plain), nil
+}
+
+// ---------------------------------------------------------------------------
+// 密钥轮换与 KMS 托管（`contracts/03` §8.2）
+
+// KeyInfo 密钥自述（运维面板 / 轮换前后核对用）。
+type KeyInfo struct {
+	KeyID     string   `json:"keyId"`
+	Source    string   `json:"source"`
+	Provider  string   `json:"provider,omitempty"`
+	Retained  []string `json:"retainedKeyIds"`
+	RawEnable bool     `json:"rawEnabled"`
+	Algo      string   `json:"algo"`
+}
+
+// KeyInfo 当前密钥状态。没配密钥时返回 nil（明确「没有」而不是给个空壳）。
+func (s *Service) KeyInfo() *KeyInfo {
+	if s.box == nil {
+		return nil
+	}
+	return &KeyInfo{
+		KeyID:     s.box.KeyID(),
+		Source:    s.box.KeySource(),
+		Provider:  s.box.ProviderName(),
+		Retained:  s.box.RetainedKeyIDs(),
+		RawEnable: s.RawEnabled(),
+		Algo:      "AES-256-GCM",
+	}
+}
+
+// RotateKey 轮换到显式给定的密钥。返回轮换后的 keyID。
+//
+// 只影响「此后新写入的密文用哪把钥匙」，历史密文继续用旧钥解密。
+func (s *Service) RotateKey(encoded string) (string, *Error) {
+	if s.box == nil {
+		return "", errf(CodeKeyMissing, "未配置加密密钥，无可轮换对象")
+	}
+	if err := s.box.Rotate(encoded); err != nil {
+		return "", asOBS(err)
+	}
+	return s.box.KeyID(), nil
+}
+
+// RotateKeyFromProvider 从托管源（KMS）拉当前钥并轮换。
+func (s *Service) RotateKeyFromProvider() (string, *Error) {
+	if s.box == nil {
+		return "", errf(CodeKeyMissing, "未配置加密密钥，无可轮换对象")
+	}
+	id, err := s.box.RotateFromProvider()
+	if err != nil {
+		return "", asOBS(err)
+	}
+	return id, nil
+}
+
+// WithKeyProvider 挂托管密钥源。
+func (s *Service) WithKeyProvider(p KeyProvider) *Service {
+	if s.box != nil {
+		s.box.WithKeyProvider(p)
+	}
+	return s
+}
+
+// RewrapRaw 把历史密文重加密到当前钥（下线旧钥的前置动作）。
+//
+// 为什么必须有这个：不重加密就删旧钥 = 历史原始快照永久不可读。
+// 本函数逐条解旧密文、用当前钥重封，任一条失败即止并返回已处理条数——
+// 半途失败时旧密文仍在（我们只在单条成功后覆盖），可安全重跑。
+func (s *Service) RewrapRaw() (int, *Error) {
+	if s.box == nil {
+		return 0, errf(CodeKeyMissing, "未配置加密密钥，无可重加密对象")
+	}
+	cur := s.box.KeyID()
+	done := 0
+	var firstErr *Error
+	err := s.raw.Update(func(d *RawDoc) error {
+		for id, blob := range d.Blobs {
+			if blob.KeyID == cur || strings.TrimSpace(blob.Ciphertext) == "" {
+				continue
+			}
+			plain, oerr := s.box.OpenWithKeyID(blob.Nonce, blob.Ciphertext, id, blob.KeyID)
+			if oerr != nil {
+				firstErr = asOBS(oerr)
+				return oerr
+			}
+			nonce, ct, serr := s.box.Seal(plain, id)
+			if serr != nil {
+				firstErr = asOBS(serr)
+				return serr
+			}
+			blob.Nonce, blob.Ciphertext, blob.KeyID = nonce, ct, cur
+			d.Blobs[id] = blob
+			done++
+		}
+		return nil
+	})
+	if firstErr != nil {
+		return done, firstErr
+	}
+	if err != nil {
+		return done, asOBS(err)
+	}
+	return done, nil
 }
 
 // ---------------------------------------------------------------------------

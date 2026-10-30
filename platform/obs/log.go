@@ -136,6 +136,8 @@ const (
 	CodeRawUnavailable    = "OBS_RAW_UNAVAILABLE"
 	CodeRawPurged         = "OBS_RAW_PURGED"
 	CodeKeyMissing        = "OBS_KEY_MISSING"
+	CodeKeyUnknown        = "OBS_KEY_UNKNOWN"
+	CodeKeyInvalid        = "OBS_KEY_INVALID"
 	CodeDecryptFailed     = "OBS_DECRYPT_FAILED"
 	CodeReplayUnavailable = "OBS_REPLAY_UNAVAILABLE"
 	CodeReplayFailed      = "OBS_REPLAY_FAILED"
