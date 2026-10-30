@@ -1,0 +1,12 @@
+[package]
+name = "gr-vm"
+version.workspace = true
+edition.workspace = true
+description = "GoldenRules B2：IR→字节码编译、VM 执行、命中策略、精确 decimal"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+rust_decimal.workspace = true
+gr-contract.workspace = true
+gr-ir.workspace = true

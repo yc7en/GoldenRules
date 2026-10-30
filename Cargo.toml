@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/gr-contract",
   "crates/gr-ir",
+  "crates/gr-vm",
 ]
 
 [workspace.package]
