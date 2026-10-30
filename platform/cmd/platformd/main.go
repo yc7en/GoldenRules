@@ -40,6 +40,7 @@ func main() {
 	engineURL := flag.String("engine-url", "", "决策服务地址（用于回放/试跑编排与发布门禁，不参与决策路径）；不给则回放与门禁不可用")
 	engineToken := flag.String("engine-token", "", "调用决策服务管理端点（/v1/admin/*）的 X-Reload-Token；引擎启用 token 时必须给")
 	noVerify := flag.Bool("no-verify-gate", false, "关闭 approved 用例发布门禁（仅限演练环境；生产不许关）")
+	corsOrigin := flag.String("cors-origin", "", "允许跨源访问的来源（如 * 或 http://localhost:5173），供本地联调控制台直接调接口；默认不启用")
 	flag.Parse()
 
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
@@ -138,6 +139,7 @@ func main() {
 		Obs:          obsSvc,
 		Replayer:     replayer,
 		ArtifactsDir: *artifactsDir,
+		CORSOrigin:   *corsOrigin,
 	})
 
 	srv := &http.Server{

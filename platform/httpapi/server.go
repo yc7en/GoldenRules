@@ -32,6 +32,9 @@ type Deps struct {
 	Obs          *obs.Service
 	Replayer     obs.Replayer
 	ArtifactsDir string
+	// CORSOrigin 非空时给响应加跨源头，供本地联调控制台从 file:// 直接调接口。
+	// 默认空（不启用）：平台没有认证，把「谁都能跨源读」做成默认姿态不合适。
+	CORSOrigin string
 }
 
 // Server 持有依赖与路由表。
@@ -44,7 +47,32 @@ type Server struct {
 func New(d Deps) http.Handler {
 	s := &Server{deps: d, mux: http.NewServeMux()}
 	s.routes()
-	return s.mux
+	if d.CORSOrigin == "" {
+		return s.mux
+	}
+	return withCORS(s.mux, d.CORSOrigin)
+}
+
+// withCORS 给所有响应放行指定来源。
+//
+// 两条约束：
+//   - 只允许自述的操作者头（X-Actor/X-Actor-Type），不放开任意自定义头——
+//     跨源能带什么头，决定外部页面能冒充谁。
+//   - 预检直接 204，不让 OPTIONS 落到路由表（Go 1.22 的 mux 不注册 OPTIONS 会 405，
+//     浏览器会把 405 当作跨源失败，症状是「按钮点了没反应」）。
+func withCORS(next http.Handler, origin string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Access-Control-Allow-Origin", origin)
+		h.Set("Access-Control-Allow-Headers", "Content-Type, X-Actor, X-Actor-Type, X-Reload-Token")
+		h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		h.Set("Vary", "Origin")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) routes() {

@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>GoldenRules 链路自测台</title>
+<style>
+  :root{
+    --bg:#FBFAF7; --card:#FFFFFF; --ink:#1A1A18; --ink2:#6B6B66; --ink3:#9B9B94;
+    --line:#E7E5DC; --ok:#3F7D3F; --okbg:#EEF6EE; --bad:#B4392F; --badbg:#FBEDEB;
+    --warn:#8A6A1F; --warnbg:#FBF3E2; --accent:#2C5C8F;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+  .wrap{max-width:1060px;margin:0 auto;padding:28px 22px 60px}
+  h1{font-size:20px;margin:0 0 4px;letter-spacing:-.2px}
+  .sub{color:var(--ink2);font-size:13px;margin-bottom:20px}
+
+  .bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+    background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:14px}
+  .bar label{font-size:12px;color:var(--ink2)}
+  input{font:inherit;font-size:13px;padding:6px 9px;border:1px solid var(--line);
+    border-radius:8px;background:#fff;color:var(--ink);width:190px}
+  input.wide{width:240px}
+
+  button{font:inherit;font-size:13px;padding:7px 14px;border-radius:9px;border:1px solid var(--line);
+    background:#fff;color:var(--ink);cursor:pointer}
+  button:hover{background:#F5F3EC}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.pri{background:var(--ink);color:#fff;border-color:var(--ink)}
+  button.pri:hover{background:#000}
+
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2);
+    border:1px solid var(--line);border-radius:999px;padding:4px 10px;background:#fff}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--ink3)}
+  .dot.on{background:var(--ok)}
+  .dot.off{background:var(--bad)}
+  .dot.mid{background:var(--warn)}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+  .card h2{font-size:13px;margin:0 0 10px;color:var(--ink2);font-weight:600;letter-spacing:.02em}
+
+  .steps{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:4px}
+  .steps button{font-size:12.5px;padding:6px 11px}
+
+  #log{font:12.5px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace}
+  .row{border-top:1px solid var(--line);padding:10px 2px 10px}
+  .row:first-child{border-top:0}
+  .row .hd{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap}
+  .tag{font-size:11px;padding:1px 7px;border-radius:5px;border:1px solid transparent;white-space:nowrap}
+  .tag.ok{color:var(--ok);background:var(--okbg);border-color:#D6E8D6}
+  .tag.bad{color:var(--bad);background:var(--badbg);border-color:#F0D6D3}
+  .tag.warn{color:var(--warn);background:var(--warnbg);border-color:#EEE0BE}
+  .tag.run{color:var(--accent);background:#EAF1F8;border-color:#D3E0EE}
+  .name{font-weight:600;font-size:13px;color:var(--ink)}
+  .meta{color:var(--ink3);font-size:11.5px}
+  .detail{margin-top:6px;color:var(--ink2);font-size:12px;white-space:pre-wrap;word-break:break-all}
+  pre{margin:6px 0 0;padding:9px 11px;background:#FAF9F4;border:1px solid var(--line);
+    border-radius:8px;overflow:auto;max-height:260px;font-size:11.5px;line-height:1.55}
+  .hint{font-size:12px;color:var(--ink3);margin-top:8px}
+  code{background:#F1EFE8;padding:1px 5px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>GoldenRules 链路自测台</h1>
+  <div class="sub">从事实目录一路跑到决策回放。每一步都显示真实 HTTP 状态与关键字段，绿=通过，红=断了。</div>
+
+  <div class="bar">
+    <span class="pill"><span class="dot" id="dotP"></span>平台 <span id="pState">未探测</span></span>
+    <span class="pill"><span class="dot" id="dotE"></span>引擎 <span id="eState">未探测</span></span>
+    <span style="flex:1"></span>
+    <label>平台地址</label>
+    <input id="base" class="wide" value="http://127.0.0.1:18081">
+    <button id="btnProbe">探测</button>
+  </div>
+
+  <div class="card">
+    <h2>参数</h2>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:12px;color:var(--ink2)">规则包</label>
+      <input id="pkgId" value="pkg-withdraw">
+      <label style="font-size:12px;color:var(--ink2)">风险等级</label>
+      <input id="risk" value="L2" style="width:80px">
+      <label style="font-size:12px;color:var(--ink2)">回放用的包/版本</label>
+      <input id="engPkg" value="pkg-withdraw-risk" style="width:170px">
+      <input id="engVer" value="v12" style="width:80px">
+    </div>
+    <div class="hint">回放要求<strong>引擎里仍在装载</strong>日志里记的那个包版本，否则报 <code>VERSION_PACKAGE_NOT_FOUND</code>。</div>
+  </div>
+
+  <div class="card">
+    <h2>执行</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="pri" id="btnAll">一键跑全链路</button>
+      <button id="btnClear">清空</button>
+    </div>
+    <div class="steps">
+      <button data-step="facts">1 事实目录</button>
+      <button data-step="rulesets">2 规则集</button>
+      <button data-step="pack">3 打包</button>
+      <button data-step="gate">4 用例门禁</button>
+      <button data-step="change">5 建变更单</button>
+      <button data-step="approve">6 审批×2</button>
+      <button data-step="publish">7 发布</button>
+      <button data-step="ingest">8 投日志</button>
+      <button data-step="replay">9 回放</button>
+      <button data-step="audit">10 审计</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>结果 <span id="busy" class="meta" style="font-weight:400"></span></h2>
+    <div id="log"><div class="meta">还没跑。点「一键跑全链路」，或逐个点上面的步骤。</div></div>
+  </div>
+
+  <div class="hint">
+    平台需以 <code>--cors-origin '*'</code> 启动，否则本页（<code>file://</code>）调接口会被浏览器拦下。
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const st = { pkg:null, ver:null, change:null, logId:null, base:"" };
+
+function base(){ return ($("#base").value||"").replace(/\/+$/,""); }
+
+function el(tag, cls, txt){ const e=document.createElement(tag); if(cls) e.className=cls; if(txt!=null) e.textContent=txt; return e; }
+
+// 一条结果行：状态标签 + 名称 + 概要，展开看细节
+function row(name, state, summary, detail){
+  const wrap = el("div","row");
+  const hd = el("div","hd");
+  hd.appendChild(el("span","tag "+state, state==="ok"?"PASS":state==="bad"?"FAIL":state==="warn"?"WARN":"RUN"));
+  hd.appendChild(el("span","name",name));
+  if(summary) hd.appendChild(el("span","meta",summary));
+  wrap.appendChild(hd);
+  if(detail){
+    const d = el("pre",null,typeof detail==="string"?detail:JSON.stringify(detail,null,2));
+    wrap.appendChild(d);
+  }
+  $("#log").appendChild(wrap);
+  wrap.scrollIntoView({block:"nearest"});
+  return wrap;
+}
+
+async function call(method, path, body, headers){
+  const opt = { method, headers: Object.assign({}, headers||{}) };
+  if(body !== undefined){
+    opt.headers["Content-Type"] = "application/json";
+    opt.body = typeof body === "string" ? body : JSON.stringify(body);
+  }
+  const r = await fetch(base()+path, opt);
+  const txt = await r.text();
+  let json = null;
+  try { json = txt ? JSON.parse(txt) : null; } catch(e) {}
+  return { status:r.status, ok:r.ok, body:json, raw:txt };
+}
+
+// 平台存活：直接打 /healthz
+async function probePlatform(){
+  try{
+    const r = await call("GET","/healthz");
+    if(r.ok){
+      $("#dotP").className = "dot on"; $("#pState").textContent = "在线";
+      return true;
+    }
+    $("#dotP").className="dot off"; $("#pState").textContent = "HTTP "+r.status;
+    return false;
+  }catch(e){
+    $("#dotP").className="dot off"; $("#pState").textContent="连不上";
+    return false;
+  }
+}
+
+// 引擎不单独探（引擎没开跨源）：看平台日志存储的自述——它只在配了 --engine-url 时才报回放后端
+async function probeEngine(){
+  try{
+    const r = await call("GET","/api/v1/logs?limit=1");
+    const s = r.body && r.body.storage;
+    if(s && s.replayAvailable){
+      $("#dotE").className="dot on";
+      $("#eState").textContent = s.replayBackend || "已配置";
+      return true;
+    }
+    $("#dotE").className="dot warn"; $("#eState").textContent = "未配置（--engine-url 缺失）";
+    return false;
+  }catch(e){
+    $("#dotE").className="dot"; $("#eState").textContent="未知";
+    return false;
+  }
+}
+
+// ---------------- 各步骤 ----------------
+
+async function stepFacts(){
+  const r = await call("GET","/api/v1/facts");
+  if(!r.ok) return row("事实目录", "bad", "HTTP "+r.status, r.raw);
+  const n = (r.body.items||[]).length;
+  const cv = r.body.catalogVersion;
+  return row("事实目录", n? "ok":"warn", `${n} 个事实 · ${cv}`,
+    n? null : "目录是空的——用 --seed fixtures 启动平台，或先 POST /api/v1/facts");
+}
+
+async function stepRulesets(){
+  const r = await call("GET","/api/v1/rulesets");
+  if(!r.ok) return row("规则集", "bad", "HTTP "+r.status, r.raw);
+  const items = r.body.items||[];
+  if(!items.length) return row("规则集", "bad", "一个都没有", "先 PUT /api/v1/rulesets/{id} 写入规则集");
+  const lines = items.map(i => `${i.rulesetId}  ${i.scene}  ${i.version}  rules=${(i.rules||[]).length}`);
+  st.rulesetId = items[0].rulesetId;
+  st.scene = items[0].scene;
+  return row("规则集", "ok", `${items.length} 个 · 首个 ${st.rulesetId}`, lines.join("\n"));
+}
+
+async function stepPack(){
+  const r = await call("POST","/api/v1/packages", {
+    packageId: $("#pkgId").value.trim(),
+    rulesetIds: [st.rulesetId || "rs-amount-limit"],
+    riskLevel: $("#risk").value.trim() || "L2",
+    changelog: "自测台编译草稿 " + new Date().toISOString()
+  }, {"X-Actor":"engineer.console","X-Actor-Type":"engineer"});
+  if(!r.ok) return row("打包", "bad", "HTTP "+r.status, r.raw);
+  // 响应里既可能是 version 对象，也可能直接是版本字段；两种都兜一下
+  const v = r.body.version || r.body;
+  st.pkg = v.packageId; st.ver = v.packageVersion;
+  const warns = (r.body.reports||[]).flatMap(x=>x.warnings||[]);
+  return row("打包", "ok", `${st.pkg} ${st.ver} · status=${v.status} · rules=${v.ruleCount}`,
+    { signature: v.signature, confirmedTestCases: v.confirmedTestCases,
+      unconfirmedTestCases: v.unconfirmedTestCases, warnings: warns });
+}
+
+async function stepGate(){
+  if(!st.pkg || !st.ver) return row("用例门禁","bad","没有可预演的版本","先执行「打包」");
+  const r = await call("GET", `/api/v1/packages/${st.pkg}/versions/${st.ver}/testcases`);
+  if(!r.ok) return row("用例门禁","bad","HTTP "+r.status, r.raw);
+  const rep = r.body.report || {}, gate = r.body.gate || {};
+  const state = rep.passed ? (rep.ran>0 ? "ok":"warn") : "bad";
+  const sum = `ran=${rep.ran} pass=${rep.passedCount} fail=${rep.failedCount} skip=${rep.skipped}`;
+  // ran=0 不是故障，但是最容易被误读的一种「绿」：门禁根本没跑，发布也不会被拦
+  const note = (rep.ran===0 && rep.skipped>0)
+    ? "包里没有 approved 用例，门禁未执行——这一版发布不会被拦。要验证门禁，先把用例 status 改成 approved 并补 rulesetId。"
+    : null;
+  return row("用例门禁", state, sum, {
+    note,
+    backend: rep.backend || "(未执行)",
+    summary: rep.summary,
+    approvedCases: gate.approvedCases, enforcedOnPublish: gate.enforcedOnPublish,
+    failures: rep.failures
+  });
+}
+
+async function stepChange(){
+  const r = await call("POST","/api/v1/changes", {
+    packageId: st.pkg, packageVersion: st.ver,
+    changeType: "threshold", riskLevel: $("#risk").value.trim()||"L2",
+    reason: "自测台联调", scope: "single"
+  }, {"X-Actor":"engineer.A","X-Actor-Type":"engineer"});
+  if(!r.ok) return row("建变更单","bad","HTTP "+r.status, r.raw);
+  st.change = r.body.changeId;
+  const slots = (r.body.slots||[]).map(s => (s.roles||[]).join("|"));
+  return row("建变更单","ok", `${st.change} · 待批 ${slots.length} 位`,
+    { submitter: r.body.submitter, status: r.body.status, slots, sla: r.body.sla });
+}
+
+async function stepApprove(){
+  if(!st.change) return row("审批","bad","没有变更单","先执行「建变更单」");
+  // L2 两个位：engineer 与 peer。提交人是 engineer.A，所以 engineer 位必须换人。
+  const plan = [["engineer","engineer.Z","规则表达式核对无误"],
+                ["peer","engineer.P","同行复核通过"]];
+  const out = [];
+  for(const [role, actor, comment] of plan){
+    const r = await call("POST", `/api/v1/changes/${st.change}/approve`,
+      { role, comment }, {"X-Actor":actor,"X-Actor-Type":"engineer"});
+    out.push(`${role} ← ${actor}: HTTP ${r.status}${r.ok?` 剩余 ${r.body.remaining}`:""}`);
+    if(!r.ok){ return row("审批","bad", `${role} 被拒`, out.join("\n")+"\n"+r.raw); }
+  }
+  const r = await call("GET", `/api/v1/changes/${st.change}`);
+  const ver = await call("GET", `/api/v1/packages/${st.pkg}/versions/${st.ver}`);
+  return row("审批", ver.body && ver.body.status==="approved" ? "ok":"warn",
+    `版本状态 ${ver.body && ver.body.status}`, out.join("\n"));
+}
+
+async function stepPublish(){
+  if(!st.change) return row("发布","bad","没有变更单","先执行「建变更单」");
+  const r = await call("POST", `/api/v1/packages/${st.pkg}/versions/${st.ver}/publish`,
+    { changeId: st.change }, {"X-Actor":"release.R","X-Actor-Type":"engineer"});
+  if(!r.ok){
+    const hint = r.body && r.body.errorCode === "PKG_VERIFY_UNAVAILABLE"
+      ? "\n提示：带 approved 用例却没有门禁执行器时，平台按 fail-closed 拦下——检查 --engine-url / --engine-token。"
+      : (r.body && r.body.errorCode === "GOV_CHANGE_REQUIRED" ? "\n提示：没挂变更单就发布会被拦（这是设计，不是故障）。" : "");
+    return row("发布","bad","HTTP "+r.status+" "+(r.body&&r.body.errorCode||""), r.raw+hint);
+  }
+  const v = r.body.version || {};
+  return row("发布","ok", `${v.packageId} ${v.packageVersion} · ${v.status}`,
+    { publishedAt: v.publishedAt, publishedBy: v.publishedBy, warnings: r.body.warnings });
+}
+
+// 回放要求引擎里仍有该包版本：这里用页面参数里的「引擎包/版本」，默认取 fixtures 装载的 v12
+async function stepIngest(){
+  const engPkg = $("#engPkg").value.trim(), engVer = $("#engVer").value.trim();
+  const snap = {
+    snapshotId: "fs-" + Date.now(),
+    snapshotVersion: "v1",
+    tenantId: "pay-cn",
+    scene: st.scene || "withdraw-risk-check",
+    factSchemaVersion: "catalog-v2026.10",
+    facts: { "request.amount":"1500", "request.currency":"CNY", "request.channel":"APP",
+             "sanctions.hit":false, "customer.withdrawCount24h":2, "customer.level":"NORMAL",
+             "customer.riskScore":620, "config.withdrawDailyLimit":"100000" },
+    factMeta: {}, missingFacts: [], degradedFacts: [],
+    assembledAt: new Date().toISOString(), assemblerVersion: "cb-v2.1"
+  };
+  const now = new Date().toISOString().replace(/\.\d+Z$/,"Z");
+  const item = {
+    log: {
+      snapshotId: snap.snapshotId, traceId: "trace-console-"+Date.now(),
+      tenantId: "pay-cn", scene: snap.scene, factSchemaVersion: snap.factSchemaVersion,
+      packageId: engPkg, packageVersion: engVer,
+      rulesetId: "rs-amount-limit", rulesetVersion: "rs-20261030-5",
+      maskedFacts: { "request.amount":"1500", "customer.level":"NORMAL" },
+      maskedFields: ["customer.riskScore","sanctions.hit"],
+      hitRules: [{ ruleId:"R2002", ruleVersion:"v2" }],
+      outputs: { riskLevel:"MEDIUM" },
+      decision: "REVIEW", reasonCode: "AMOUNT_REVIEW",
+      degraded: false, degradedReasons: [],
+      engineVersion: "engine-v0.1.0", executionTimeMs: 0.021, evaluatedRules: 3,
+      executedAt: now
+    },
+    rawSnapshot: snap
+  };
+  const r = await call("POST","/api/v1/logs", item);
+  if(!r.ok) return row("投日志","bad","HTTP "+r.status, r.raw);
+  const b = r.body;
+  if(b.duplicate && !b.accepted){
+    return row("投日志","warn","重复内容被幂等丢弃（contentHash 已存在）", b);
+  }
+  st.logId = (b.logIds||[])[0] || null;
+  return row("投日志", b.accepted? "ok":"warn", `${st.logId||"-"} · accepted=${b.accepted} rawStored=${b.rawStored}`, b);
+}
+
+async function stepReplay(){
+  if(!st.logId){
+    // 没投过就去列表里挑最新一条
+    const l = await call("GET","/api/v1/logs?limit=1");
+    const it = l.body && (l.body.items||[])[0];
+    if(!it) return row("回放","bad","库里没有日志","先执行「投日志」");
+    st.logId = it.logId;
+  }
+  const r = await call("POST", `/api/v1/logs/${st.logId}/replay`, {},
+    {"X-Actor":"auditor.console","X-Actor-Type":"engineer"});
+  if(!r.ok){
+    const msg = (r.body && r.body.message) || r.raw;
+    let hint = "";
+    if(/VERSION_PACKAGE_NOT_FOUND/.test(msg)) hint = "\n提示：日志里的包版本引擎里已不在——把「回放用的包/版本」改成引擎当前装载的那个。";
+    if(/factSchemaVersion/.test(msg)) hint = "\n提示：原始快照不完整（缺 factSchemaVersion），回放要求存下的是完整快照。";
+    return row("回放","bad","HTTP "+r.status, msg+hint);
+  }
+  const res = r.body.result || {};
+  return row("回放", res.match? "ok":"warn",
+    `${res.logId} · match=${res.match}`,
+    { match: res.match, backend: r.body.backend,
+      replay: res.replay ? { decision: res.replay.decision, reasonCode: res.replay.reasonCode,
+        rulesetVersion: res.replay.rulesetVersion, degraded: res.replay.degraded } : res });
+}
+
+async function stepAudit(){
+  const r = await call("GET","/api/v1/audit?limit=8");
+  if(!r.ok) return row("审计","bad","HTTP "+r.status, r.raw);
+  const items = r.body.items || r.body.audits || [];
+  const lines = items.slice(0,8).map(a => `${a.at||a.createdAt||""}  ${a.action||""}  ${a.actor||""}`);
+  return row("审计", items.length? "ok":"warn", `${items.length} 条`, lines.join("\n") || JSON.stringify(r.body,null,2));
+}
+
+const STEPS = { facts:stepFacts, rulesets:stepRulesets, pack:stepPack, gate:stepGate,
+  change:stepChange, approve:stepApprove, publish:stepPublish, ingest:stepIngest,
+  replay:stepReplay, audit:stepAudit };
+
+const NAMES = { facts:"事实目录", rulesets:"规则集", pack:"打包", gate:"用例门禁",
+  change:"建变更单", approve:"审批×2", publish:"发布", ingest:"投日志", replay:"回放", audit:"审计" };
+
+async function runOne(key){
+  try{
+    const res = await STEPS[key]();
+    const tag = (res && res.querySelector) ? res.querySelector(".tag") : null;
+    const cls = tag ? tag.className : "";
+    return { ok: !cls.includes("bad"), warn: cls.includes("warn") };
+  }catch(e){
+    row(NAMES[key]||key, "bad", "请求异常", String(e && e.message || e) +
+      "\n\n多半是跨源被拦：平台需以 --cors-origin '*' 启动。");
+    return { ok:false, warn:false };
+  }
+}
+
+$("#btnProbe").onclick = async () => {
+  $("#log").innerHTML = "";
+  const p = await probePlatform();
+  if(!p) return row("平台","bad","连不上 "+base(), "确认 platformd 已在跑，且地址填对（含端口）");
+  const e = await probeEngine();
+  row("平台","ok","在线 "+base(),
+    e ? "引擎已接线，回放/门禁可用" : "引擎未接线：只影响回放与用例门禁，事实/规则集/打包/审批仍可用");
+};
+
+$("#btnClear").onclick = () => {
+  $("#log").innerHTML = '<div class="meta">已清空。参数与变更单状态仍保留。</div>';
+};
+
+$("#btnAll").onclick = async () => {
+  $("#log").innerHTML = "";
+  const p = await probePlatform();
+  if(!p){ return row("平台","bad","连不上 "+base(), "先起 platformd：\n\nplatformd --addr 127.0.0.1:18081 --data ./data --seed fixtures --engine-url http://127.0.0.1:18080 --engine-token devtoken --cors-origin '*'"); }
+  await probeEngine();
+
+  // 顺序有依赖：打包产出 st.pkg/st.ver，建单产出 st.change，投递产出 st.logId
+  const order = ["facts","rulesets","pack","gate","change","approve","publish","ingest","replay","audit"];
+  let failed = null; const warns = [];
+  $("#btnAll").disabled = true;
+  for(const k of order){
+    $("#busy").textContent = "· 正在执行 " + (NAMES[k]||k) + "…";
+    const r = await runOne(k);
+    if(!r.ok && !failed) failed = k;
+    else if(r.warn) warns.push(NAMES[k]||k);
+  }
+  $("#busy").textContent = "";
+  $("#btnAll").disabled = false;
+  if(failed){
+    row("全链路中断", "bad", `第一个失败点：${NAMES[failed]||failed}`,
+      "修掉上面标红那一步，再点一次。后面的步骤依赖它的产出，跳过没意义。");
+  }else if(warns.length){
+    row("全链路通过", "warn", `${order.length} 步走通，${warns.length} 步待注意：${warns.join("、")}`,
+      "黄标不是故障，但它意味着某一步「跑过了但没真正验到东西」——比如门禁因没有 approved 用例而空跑。");
+  }else{
+    row("全链路通过", "ok", `${order.length} 步全绿`,
+      "规则包可发布、用例门禁真在引擎上执行过、日志可解密回放。");
+  }
+};
+
+document.querySelectorAll("[data-step]").forEach(b => {
+  b.onclick = async () => {
+    b.disabled = true;
+    try { await runOne(b.dataset.step); } finally { b.disabled = false; }
+  };
+});
+
+// 打开即探一次，省得用户先猜「到底起没起」
+probePlatform().then(probeEngine);
+</script>
+</body>
+</html>
