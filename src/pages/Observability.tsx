@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useSearchParams } from "react-router-dom"
 import {
   Table,
   TableBody,
@@ -32,8 +33,19 @@ const reasonCodes = [
   { code: "DEFAULT_", domain: "SYSTEM", desc: "无规则命中兜底" },
 ]
 
+// 白名单而不是直接用查询参数：拼错或手改 URL 时，非法值会让三块面板全部隐藏，
+// 页面看起来像「什么都没有」——比退回第一栏更糟。
+const TAB_KEYS = ["logs", "audit", "enums"]
+type TabKey = "logs" | "audit" | "enums"
+
 export default function Observability() {
-  const [tab, setTab] = useState("logs")
+  // tab 落进 URL：刷新不会跳回第一栏，也能直接把「审计留痕」这一栏发给别人看。
+  const [params, setParams] = useSearchParams()
+  const raw = params.get("tab")
+  const tab = TAB_KEYS.includes(raw ?? "") ? (raw as TabKey) : "logs"
+  const setTab = (next: string) =>
+    setParams(next === "logs" ? {} : { tab: next }, { replace: true })
+
   const logs = useAsync(async () => {
     const [list, stats] = await Promise.all([api.logs.list(50), api.logs.stats()])
     return { list, stats }
@@ -78,12 +90,18 @@ export default function Observability() {
     }
   }
 
+  const logTotal = logs.data?.list.total ?? logs.data?.list.items.length
+  const auditTotal = audit.data?.total ?? audit.data?.items.length
+
   return (
     <div className="p-6 space-y-4">
       <div>
         <h1 className="text-lg font-semibold">观测与审计</h1>
         <p className="text-sm text-muted-foreground">
-          决策日志（脱敏视图）、审计留痕、契约注册表
+          三块东西，三种来源，别混着读：
+          <span className="text-foreground">决策日志</span>是引擎每次决策的流水、
+          <span className="text-foreground">审计留痕</span>是人做过的动作、
+          <span className="text-foreground">契约注册表</span>是静态约定（不随运行变化）。
         </p>
       </div>
 
@@ -91,16 +109,24 @@ export default function Observability() {
         <TabsList>
           <TabsTrigger active={tab === "logs"} onClick={() => setTab("logs")}>
             决策日志
+            <Count n={logTotal} failed={!!logs.error} />
           </TabsTrigger>
           <TabsTrigger active={tab === "audit"} onClick={() => setTab("audit")}>
             审计留痕
+            <Count n={auditTotal} failed={!!audit.error} />
           </TabsTrigger>
           <TabsTrigger active={tab === "enums"} onClick={() => setTab("enums")}>
             契约注册表
+            <Count n={decisionEnums.length + reasonCodes.length} />
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="logs">
+          <SectionIntro
+            source="引擎 → 平台推送的结构化日志（脱敏视图）"
+            question="这次决策为什么是这个结果？"
+            note="机器产出，一条对应一次求值。可逐条回放：拿当时的快照重算，比对结论与理由码是否仍然一致。"
+          />
           <Async state={logs} loadingLabel="读取决策日志">
             {({ list, stats }) => (
               <div className="space-y-3">
@@ -216,111 +242,206 @@ export default function Observability() {
         </TabsContent>
 
         <TabsContent value="audit">
+          <SectionIntro
+            source="平台自身记录的操作事件（审批票、发布、密钥轮换）"
+            question="谁在什么时候改动过什么？"
+            note="人或代操作者执行动作的 agent 产生，一条对应一次状态迁移。决策日志里的记录不会出现在这里，反之亦然。"
+          />
           <Async state={audit} loadingLabel="读取审计留痕">
-            {(data) =>
-              data.items.length === 0 ? (
-                <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
-                  还没有审计事件。审批、发布、密钥轮换都会在这里留痕。
+            {(data) => {
+              const actions = Array.from(new Set(data.items.map((a) => a.action)))
+              return (
+                <div className="space-y-3">
+                  <div className="text-xs text-muted-foreground">
+                    本页 {data.items.length} 条
+                    {data.total !== undefined && data.total > data.items.length && (
+                      <> · 累计 {data.total} 条</>
+                    )}
+                    {actions.length > 0 && (
+                      <> · 涉及动作：{actions.join("、")}</>
+                    )}
+                  </div>
+                  {data.items.length === 0 ? (
+                    <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
+                      还没有审计事件。审批、发布、密钥轮换都会在这里留痕。
+                    </div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>时间</TableHead>
+                          <TableHead>动作</TableHead>
+                          <TableHead>操作者</TableHead>
+                          <TableHead>对象</TableHead>
+                          <TableHead>状态迁移</TableHead>
+                          <TableHead>说明</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {data.items.map((a) => (
+                          <TableRow key={a.eventId}>
+                            <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                              {formatTime(a.at)}
+                            </TableCell>
+                            <TableCell>
+                              <code className="text-xs">{a.action}</code>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {a.actor}
+                              <div className="text-[10px] text-muted-foreground">
+                                {a.actorType}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {a.changeId ?? a.packageId ?? "—"}
+                              {a.packageVersion && (
+                                <span className="ml-1 text-muted-foreground">
+                                  {a.packageVersion}
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {a.from || a.to
+                                ? `${a.from ?? "?"} → ${a.to ?? "?"}`
+                                : "—"}
+                            </TableCell>
+                            <TableCell className="max-w-[26rem] text-xs text-muted-foreground">
+                              {a.detail ?? a.reason ?? "—"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
                 </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>时间</TableHead>
-                      <TableHead>动作</TableHead>
-                      <TableHead>操作者</TableHead>
-                      <TableHead>对象</TableHead>
-                      <TableHead>状态迁移</TableHead>
-                      <TableHead>说明</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.items.map((a) => (
-                      <TableRow key={a.eventId}>
-                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                          {formatTime(a.at)}
-                        </TableCell>
-                        <TableCell>
-                          <code className="text-xs">{a.action}</code>
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {a.actor}
-                          <div className="text-[10px] text-muted-foreground">
-                            {a.actorType}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {a.changeId ?? a.packageId ?? "—"}
-                          {a.packageVersion && (
-                            <span className="ml-1 text-muted-foreground">
-                              {a.packageVersion}
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {a.from || a.to ? `${a.from ?? "?"} → ${a.to ?? "?"}` : "—"}
-                        </TableCell>
-                        <TableCell className="max-w-[26rem] text-xs text-muted-foreground">
-                          {a.detail ?? a.reason ?? "—"}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
               )
-            }
+            }}
           </Async>
         </TabsContent>
 
         <TabsContent value="enums">
-          <div className="space-y-4">
-            <p className="text-xs text-muted-foreground">
-              这两张表来自契约（contracts/01 §3.6 / §5），不是运行时接口返回 ——
-              改它们等于改 DSL 契约。
-            </p>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>决策值</TableHead>
-                  <TableHead>域</TableHead>
-                  <TableHead>说明</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {decisionEnums.map((d) => (
-                  <TableRow key={d.value}>
-                    <TableCell className="font-medium">{d.value}</TableCell>
-                    <TableCell>{d.domain}</TableCell>
-                    <TableCell className="text-muted-foreground">{d.desc}</TableCell>
+          <SectionIntro
+            source="契约文档 contracts/01 §3.6 / §5（编译进代码，不来自接口）"
+            question="决策值和理由码允许取哪些值？"
+            note="静态表，改它等于改 DSL 契约，要走契约变更。它不会因为某次决策而变，也不参与回放。"
+          />
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <div>
+                <h3 className="text-sm font-medium">
+                  决策值
+                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                    共 {decisionEnums.length} 个
+                  </span>
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  决定这次求值的结论落在哪个分支
+                </p>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>决策值</TableHead>
+                    <TableHead>域</TableHead>
+                    <TableHead>说明</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>理由码前缀</TableHead>
-                  <TableHead>域</TableHead>
-                  <TableHead>说明</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {reasonCodes.map((r) => (
-                  <TableRow key={r.code}>
-                    <TableCell>
-                      <code className="text-xs">{r.code}</code>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{r.domain}</Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{r.desc}</TableCell>
+                </TableHeader>
+                <TableBody>
+                  {decisionEnums.map((d) => (
+                    <TableRow key={d.value}>
+                      <TableCell className="font-medium">{d.value}</TableCell>
+                      <TableCell>{d.domain}</TableCell>
+                      <TableCell className="text-muted-foreground">{d.desc}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="space-y-2">
+              <div>
+                <h3 className="text-sm font-medium">
+                  理由码前缀
+                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                    共 {reasonCodes.length} 个
+                  </span>
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  说明为什么得到这个结论；日志里的理由码以此开头
+                </p>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>理由码前缀</TableHead>
+                    <TableHead>域</TableHead>
+                    <TableHead>说明</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {reasonCodes.map((r) => (
+                    <TableRow key={r.code}>
+                      <TableCell>
+                        <code className="text-xs">{r.code}</code>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{r.domain}</Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{r.desc}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </div>
         </TabsContent>
       </Tabs>
+    </div>
+  )
+}
+
+function Count({ n, failed }: { n?: number; failed?: boolean }) {
+  // 取数失败时这一栏是隐藏的，错误框看不见 —— 在 tab 上标一个红点，
+  // 否则「没数据」和「读不到」在导航条上长得一样。
+  if (failed) {
+    return (
+      <span
+        title="这一栏取数失败"
+        className="ml-1.5 rounded-full bg-red-100 px-1.5 text-[10px] font-normal text-red-700"
+      >
+        !
+      </span>
+    )
+  }
+  if (n === undefined) return null
+  return (
+    <span className="ml-1.5 rounded-full border px-1.5 text-[10px] font-normal tabular-nums text-muted-foreground">
+      {n}
+    </span>
+  )
+}
+
+// 每个分区顶部一句「这块回答什么问题 / 数据从哪来 / 怎么读」。
+// 三块内容都长得像表格，不给边界就只剩颜色差别，读者会把人的动作和机器的决策混着看。
+function SectionIntro({
+  question,
+  source,
+  note,
+}: {
+  question: string
+  source: string
+  note: string
+}) {
+  return (
+    <div className="mb-3 rounded-lg border bg-muted/40 px-3 py-2">
+      <div className="text-sm font-medium">{question}</div>
+      <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+        <div>
+          <span className="text-foreground/70">来源</span> · {source}
+        </div>
+        <div>
+          <span className="text-foreground/70">怎么读</span> · {note}
+        </div>
+      </div>
     </div>
   )
 }
