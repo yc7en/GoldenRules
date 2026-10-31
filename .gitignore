@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# 本地联调产物：platformd 二进制、平台数据目录（删掉 .dev 即可重置环境）
+.dev
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

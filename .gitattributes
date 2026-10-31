@@ -1,5 +1,7 @@
 # 文本文件统一 LF 入库：core.autocrlf=true 的机器上避免整仓换行符抖动
 * text=auto eol=lf
+# 批处理必须是 CRLF：cmd 解析 LF-only 的 .bat 在 goto/label 处会跳错行
+*.bat text eol=crlf
 *.png binary
 *.jpg binary
 *.ico binary
