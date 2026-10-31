@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useTranslation } from "react-i18next"
 import {
   Table,
   TableBody,
@@ -13,50 +14,57 @@ import { useAsync } from "@/lib/useAsync"
 import { api } from "@/lib/api"
 import type { FactRecord } from "@/lib/api-types"
 
-const sensitivityLabel: Record<string, string> = {
-  PUBLIC: "公开",
-  INTERNAL: "内部",
-  PII: "个人敏感",
-  SECRET: "机密",
-}
+/**
+ * Contract enum values (`PII`, `DEGRADE`, ...) are never translated - they appear in logs,
+ * exports and API responses. Only the display label next to them changes with the locale.
+ */
+const SENSITIVITY_KEYS = {
+  PUBLIC: "facts.sensitivity.PUBLIC",
+  INTERNAL: "facts.sensitivity.INTERNAL",
+  PII: "facts.sensitivity.PII",
+  SECRET: "facts.sensitivity.SECRET",
+} as const
 
-const onMissingLabel: Record<string, string> = {
-  ERROR: "缺失即报错",
-  DEFAULT: "用默认值",
-  NULL: "置空",
-  DEGRADE: "降级",
-}
+const ON_MISSING_KEYS = {
+  ERROR: "facts.onMissing.ERROR",
+  DEFAULT: "facts.onMissing.DEFAULT",
+  NULL: "facts.onMissing.NULL",
+  DEGRADE: "facts.onMissing.DEGRADE",
+} as const
 
 export default function Facts() {
+  const { t } = useTranslation()
   const state = useAsync(() => api.facts.list(), [])
   const [q, setQ] = useState("")
 
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-lg font-semibold">事实目录</h1>
+          <h1 className="text-lg font-semibold">{t("facts.title")}</h1>
           <p className="text-sm text-muted-foreground">
-            单一真源：字段契约登记
-            {state.data && ` · 版本 ${state.data.catalogVersion}`}
-            {state.data && ` · ${state.data.items.length} 个字段`}
+            {t("facts.subtitle")}
+            {state.data && ` · ${t("facts.catalogVersion", { version: state.data.catalogVersion })}`}
+            {state.data && ` · ${t("facts.fieldCount", { count: state.data.items.length })}`}
           </p>
         </div>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="按字段名/语义过滤"
-          className="w-56 rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
+          placeholder={t("facts.searchPlaceholder")}
+          className="w-56 shrink-0 rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
         />
       </div>
 
       <div className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-        事实目录只存「契约」（名称/类型/语义/缺失处理/脱敏/版本），不存取数逻辑
-        —— 取数归属外置 Fact Provider。本页为只读，登记与改版走
-        <code className="mx-1">POST/PUT /api/v1/facts</code>。
+        {t("facts.notice")}
       </div>
 
-      <Async state={state} loadingLabel="读取事实目录" empty={(d) => d.items.length === 0}>
+      <Async
+        state={state}
+        loadingLabel={t("facts.loading")}
+        empty={(d) => d.items.length === 0}
+      >
         {(data) => {
           const rows = data.items.filter(
             (f) =>
@@ -68,7 +76,7 @@ export default function Facts() {
           if (rows.length === 0) {
             return (
               <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
-                没有匹配「{q}」的字段。
+                {t("facts.noMatch", { q })}
               </div>
             )
           }
@@ -76,15 +84,15 @@ export default function Facts() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>字段名</TableHead>
-                  <TableHead>名称</TableHead>
-                  <TableHead>类型</TableHead>
-                  <TableHead>必填</TableHead>
-                  <TableHead>可空</TableHead>
-                  <TableHead>缺失处理</TableHead>
-                  <TableHead>脱敏</TableHead>
-                  <TableHead>版本</TableHead>
-                  <TableHead>语义</TableHead>
+                  <TableHead>{t("facts.col.fact")}</TableHead>
+                  <TableHead>{t("facts.col.displayName")}</TableHead>
+                  <TableHead>{t("facts.col.type")}</TableHead>
+                  <TableHead>{t("facts.col.required")}</TableHead>
+                  <TableHead>{t("facts.col.nullable")}</TableHead>
+                  <TableHead>{t("facts.col.onMissing")}</TableHead>
+                  <TableHead>{t("facts.col.sensitivity")}</TableHead>
+                  <TableHead>{t("facts.col.version")}</TableHead>
+                  <TableHead>{t("facts.col.semantics")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -101,37 +109,43 @@ export default function Facts() {
 }
 
 function FactRow({ fact: f }: { fact: FactRecord }) {
+  const { t } = useTranslation()
+  const sensKey =
+    SENSITIVITY_KEYS[(f.sensitivity ?? "PUBLIC") as keyof typeof SENSITIVITY_KEYS] ??
+    SENSITIVITY_KEYS.PUBLIC
+  const missingKey = ON_MISSING_KEYS[(f.onMissing ?? "") as keyof typeof ON_MISSING_KEYS]
+
   return (
     <TableRow>
       <TableCell className="font-mono text-sm">
         {f.fact}
         {f.deprecated && (
-          <Badge className="ml-2 bg-muted text-muted-foreground">已废弃</Badge>
+          <Badge className="ms-2 bg-muted text-muted-foreground">
+            {t("facts.deprecated")}
+          </Badge>
         )}
       </TableCell>
       <TableCell className="text-sm">{f.displayName ?? "—"}</TableCell>
       <TableCell>
         <Badge variant="outline">{f.type}</Badge>
         {f.enum && (
-          <span className="ml-1 text-xs text-muted-foreground">
+          <span className="ms-1 text-xs text-muted-foreground">
             {f.enum.join("/")}
           </span>
         )}
       </TableCell>
-      <TableCell>{f.required ? "是" : "否"}</TableCell>
-      <TableCell>{f.nullable ? "是" : "否"}</TableCell>
+      <TableCell>{f.required ? t("common.yes") : t("common.no")}</TableCell>
+      <TableCell>{f.nullable ? t("common.yes") : t("common.no")}</TableCell>
       <TableCell className="text-xs">
-        {onMissingLabel[f.onMissing ?? ""] ?? f.onMissing ?? "—"}
+        {missingKey ? t(missingKey) : f.onMissing ?? "—"}
         {f.hasDefault && f.default !== undefined && (
-          <span className="ml-1 font-mono text-muted-foreground">
+          <span className="ms-1 font-mono text-muted-foreground">
             ({JSON.stringify(f.default)})
           </span>
         )}
       </TableCell>
       <TableCell>
-        <Badge variant="secondary">
-          {sensitivityLabel[f.sensitivity ?? "PUBLIC"] ?? f.sensitivity}
-        </Badge>
+        <Badge variant="secondary">{t(sensKey)}</Badge>
       </TableCell>
       <TableCell className="text-xs">{f.version}</TableCell>
       <TableCell className="max-w-[28rem] text-sm text-muted-foreground">

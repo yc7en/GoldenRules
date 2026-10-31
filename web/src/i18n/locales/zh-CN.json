@@ -1,0 +1,390 @@
+{
+  "app": {
+    "title": "GoldenRules BRMS"
+  },
+  "locale": {
+    "label": "界面语言"
+  },
+  "nav": {
+    "scenes": "场景策略",
+    "rulesets": "规则集",
+    "facts": "事实目录",
+    "testcases": "测试用例",
+    "approval": "审批与发布",
+    "observability": "观测与审计"
+  },
+  "health": {
+    "engine": "决策服务",
+    "engineHint": "Rust 引擎，试跑与决策",
+    "platform": "管理平台",
+    "platformHint": "Go 平台，规则与审批",
+    "up": "正常",
+    "down": "连不上",
+    "checking": "探测中"
+  },
+  "actor": {
+    "label": "当前操作者",
+    "idAria": "操作者 ID",
+    "typeAria": "操作者类型",
+    "hint": "审批记名与「自审」判定都取这里；换人才能走完职责分离。"
+  },
+  "common": {
+    "loading": "加载中",
+    "retry": "重试",
+    "edit": "编辑",
+    "detail": "详情",
+    "collapse": "收起",
+    "all": "全部",
+    "yes": "是",
+    "no": "否",
+    "none": "—",
+    "actions": "操作",
+    "name": "名称",
+    "version": "版本",
+    "domain": "域",
+    "description": "说明",
+    "emptySet": "接口返回了空集合。这不是加载失败 —— 后端确实没有数据。"
+  },
+  "errors": {
+    "howToFix": "怎么办",
+    "unknownCode": "未识别的错误码",
+    "backendRaw": "后端原文",
+    "diag": {
+      "timeout": "{{base}} 在 {{seconds}}s 内没有响应",
+      "unreachable": "连不上 {{base}}。请确认后端已启动（tools/dev-up.sh），且平台带 --cors-origin 启动。"
+    },
+    "hint": {
+      "NETWORK_UNREACHABLE": "后端没起来，或平台的 --cors-origin 没开。跑 tools/dev-up.sh 拉起引擎与平台。",
+      "TIMEOUT": "请求超时。引擎在做长决策，或后端进程已卡死。",
+      "NOT_FOUND": "对象不存在。可能是数据目录被重置过，刷新列表重新选。",
+      "PKG_VERIFY_UNAVAILABLE": "平台没有配置门禁执行器（--engine-url）。带 approved 用例的包会因此发不出去。",
+      "VERSION_SELECTION_CONFLICT": "该场景挂了多个规则集，请求必须指定 rulesetId。"
+    }
+  },
+  "scenes": {
+    "title": "场景策略",
+    "subtitle": "场景挂载规则集（列表配置，非节点连线画布）",
+    "redline": "红线：这里不是「流画布」。场景策略 = 挂载哪些规则集的列表，不做节点拖拽连线编排。",
+    "redlineNote": "本页的「场景」由规则集上声明的 scene 分组而来 —— 后端暂无独立的场景实体。",
+    "loading": "读取场景与规则集",
+    "engineLoaded": "引擎当前装载：",
+    "engineLoadedStats": " · {{rulesets}} · {{rules}} · {{size}}",
+    "engineDown": "引擎未连接：下面是平台里的配置，不代表引擎正在执行什么。试跑与决策会失败。",
+    "rulesetsShort_one": "{{count}} 个规则集",
+    "rulesetsShort_other": "{{count}} 个规则集",
+    "rulesShort_one": "{{count}} 条规则",
+    "rulesShort_other": "{{count}} 条规则",
+    "bytesShort": "预估 {{bytes}} 字节",
+    "stats": "用例 {{approved}}/{{total}} 条已确认",
+    "rulesetLine": "{{rules}} · {{version}}",
+    "conflict": "该场景挂载多个规则集：调用方必须指定 rulesetId，否则引擎返回 VERSION_SELECTION_CONFLICT。"
+  },
+  "rulesets": {
+    "title": "规则集",
+    "subtitle": "规则集 = 独立规则模块；表达式 / 决策表是同一规则集的两种写法",
+    "loading": "读取规则集",
+    "unapprovedTitle": "有未确认用例：发布门禁不会真正执行任何用例",
+    "col": {
+      "id": "规则集 ID",
+      "scene": "场景",
+      "version": "版本",
+      "hitStrategy": "命中策略",
+      "default": "兜底",
+      "ruleCount": "规则数",
+      "tests": "用例（已确认/总数）",
+      "updatedAt": "最近更新",
+      "actions": "操作"
+    }
+  },
+  "facts": {
+    "title": "事实目录",
+    "subtitle": "单一真源：字段契约登记",
+    "catalogVersion": "版本 {{version}}",
+    "fieldCount_one": "{{count}} 个字段",
+    "fieldCount_other": "{{count}} 个字段",
+    "searchPlaceholder": "按字段名/语义过滤",
+    "loading": "读取事实目录",
+    "notice": "事实目录只存「契约」（名称/类型/语义/缺失处理/脱敏/版本），不存取数逻辑 —— 取数归属外置 Fact Provider。本页为只读，登记与改版走 POST/PUT /api/v1/facts。",
+    "noMatch": "没有匹配「{{q}}」的字段。",
+    "deprecated": "已废弃",
+    "onMissing": {
+      "ERROR": "缺失即报错",
+      "DEFAULT": "用默认值",
+      "NULL": "置空",
+      "DEGRADE": "降级"
+    },
+    "sensitivity": {
+      "PUBLIC": "公开",
+      "INTERNAL": "内部",
+      "PII": "个人敏感",
+      "SECRET": "机密"
+    },
+    "col": {
+      "fact": "字段名",
+      "displayName": "名称",
+      "type": "类型",
+      "required": "必填",
+      "nullable": "可空",
+      "onMissing": "缺失处理",
+      "sensitivity": "脱敏",
+      "version": "版本",
+      "semantics": "语义"
+    }
+  },
+  "tests": {
+    "title": "测试用例",
+    "subtitle": "业务人员主要确认测试用例；AI 生成的期望值由确认人负责",
+    "pending": "待我确认",
+    "notice": "只有「已确认」的用例会被发布门禁执行。包内一条已确认用例都没有时，门禁会通过但不验任何东西 —— 那是空跑，不是通过。",
+    "loading": "读取用例",
+    "emptyPending": "没有待确认的用例。切到「全部」看已确认与已拒绝的。",
+    "emptyAll": "所有规则集里都没有用例。",
+    "saveRejected": "规则集保存被拒：{{message}}（{{path}}）",
+    "saved": "{{testId}} → {{status}}（规则集 {{rulesetId}} 已保存，规则版本未变）",
+    "confirm": "确认",
+    "reject": "拒绝",
+    "saving": "保存中…",
+    "status": {
+      "pending_review": "待确认",
+      "approved": "已确认",
+      "rejected": "已拒绝"
+    },
+    "author": {
+      "agent": "AI 生成",
+      "engineer": "工程师",
+      "business": "业务"
+    },
+    "col": {
+      "testId": "用例 ID",
+      "ruleset": "规则集",
+      "scene": "场景",
+      "input": "输入",
+      "expect": "期望",
+      "author": "作者",
+      "status": "状态",
+      "actions": "操作"
+    }
+  },
+  "approval": {
+    "title": "审批与发布",
+    "subtitle": "二维审批矩阵：提交者类型 × 风险等级。批准与发布都是真动作，会写审计。",
+    "matrixTitle": "审批矩阵（等级 × 提交者）",
+    "loadingMatrix": "读取审批矩阵",
+    "hardRule": "硬规则：agent 只能提草稿，永远不能发布；L4 规则 agent 不得直接提交。",
+    "loadingChanges": "读取变更单",
+    "empty": "还没有变更单。变更单由提交流程创建 —— 本页负责审批与发布，不负责建单。",
+    "loadingDetail": "读取变更详情",
+    "forbidden": "禁止提交",
+    "people_one": "{{count}} 人",
+    "people_other": "{{count}} 人",
+    "slot": "审批位",
+    "slotPending": "待批",
+    "selfReview": "自审",
+    "submitterInfo": "提交人 {{submitter}}（{{type}}）· 当前操作者 {{actor}}（{{actorType}}）",
+    "noSelfApproval": "本等级不允许自审",
+    "roleAria": "审批角色",
+    "slotOption": "位 {{slot}} · {{role}}",
+    "commentPlaceholder": "审批意见",
+    "approve": "批准",
+    "publish": "发布",
+    "reject": "驳回",
+    "readyToPublish": "已批准，可以发布。发布后新包对该场景生效；在途请求仍用旧包跑完。",
+    "records": "审批记录：{{records}}",
+    "reason": "变更理由：{{reason}}",
+    "flashApproved": "已批准（角色 {{role}}），剩余审批位 {{remaining}}",
+    "flashRejected": "已驳回",
+    "flashPublished": "已发布 {{packageId}} {{packageVersion}}（{{status}}）",
+    "remaining": "差 {{count}}",
+    "sla": {
+      "notApplicable": "不适用",
+      "notApplicableTitle": "已不在等审批，时效不再计算",
+      "target": "目标 {{hours}}h",
+      "overdue": "已超期",
+      "escalated": "已升级",
+      "waited": "已等 {{hours}}h",
+      "escalateAt": "升级阈值 {{hours}}h"
+    },
+    "col": {
+      "change": "变更单",
+      "package": "包 / 版本",
+      "risk": "等级",
+      "submitter": "提交者",
+      "progress": "审批进度",
+      "sla": "时效",
+      "status": "状态",
+      "actions": "操作"
+    },
+    "status": {
+      "draft": "草稿",
+      "submitted": "已提交",
+      "approval": "审批中",
+      "approved": "已批准",
+      "rejected": "已驳回",
+      "published": "已发布"
+    },
+    "submitter": {
+      "engineer": "工程师",
+      "business": "业务",
+      "agent": "agent",
+      "risk": "风控",
+      "compliance": "合规",
+      "owner": "负责人"
+    }
+  },
+  "obs": {
+    "title": "观测与审计",
+    "subtitle": "三块东西，三种来源，别混着读：<b>决策日志</b>是引擎每次决策的流水、<b>审计留痕</b>是人做过的动作、<b>契约注册表</b>是静态约定（不随运行变化）。",
+    "tab": {
+      "logs": "决策日志",
+      "audit": "审计留痕",
+      "enums": "契约注册表"
+    },
+    "tabFailed": "这一栏取数失败",
+    "introSource": "来源",
+    "introNote": "怎么读",
+    "logs": {
+      "question": "这次决策为什么是这个结果？",
+      "source": "引擎 → 平台推送的结构化日志（脱敏视图）",
+      "note": "机器产出，一条对应一次求值。可逐条回放：拿当时的快照重算，比对结论与理由码是否仍然一致。",
+      "loading": "读取决策日志",
+      "empty": "还没有决策日志。引擎每次决策会把结构化日志推到平台 —— 先跑一次试跑，或在引擎侧发一次决策。",
+      "replay": "回放",
+      "replaying": "回放中…",
+      "match": "一致：{{decision}} / {{reasonCode}}",
+      "mismatch": "不一致：原 {{decision}} / {{reasonCode}}，回放 {{replayDecision}} / {{replayReasonCode}}",
+      "mismatchReason": "不一致：原 {{decision}} / {{reasonCode}}，回放 {{replayDecision}} / {{replayReasonCode}}（{{reason}}）",
+      "stat": {
+        "total": "总条数",
+        "byDecision": "决策分布",
+        "degraded": "降级",
+        "avgLatency": "平均耗时",
+        "maxLatency": "最大耗时",
+        "rawSnapshot": "原始快照",
+        "rawOn": "保留 {{days}} 天",
+        "rawOff": "未开启"
+      },
+      "col": {
+        "logId": "日志 ID",
+        "scene": "场景",
+        "decision": "决策",
+        "reasonCode": "理由码",
+        "hitRules": "命中规则",
+        "degraded": "降级",
+        "time": "时间",
+        "replay": "回放"
+      }
+    },
+    "audit": {
+      "question": "谁在什么时候改动过什么？",
+      "source": "平台自身记录的操作事件（审批票、发布、密钥轮换）",
+      "note": "人或代操作者执行动作的 agent 产生，一条对应一次状态迁移。决策日志里的记录不会出现在这里，反之亦然。",
+      "loading": "读取审计留痕",
+      "count_one": "本页 {{count}} 条",
+      "count_other": "本页 {{count}} 条",
+      "total_one": "累计 {{count}} 条",
+      "total_other": "累计 {{count}} 条",
+      "actions": "涉及动作：{{actions}}",
+      "empty": "还没有审计事件。审批、发布、密钥轮换都会在这里留痕。",
+      "col": {
+        "time": "时间",
+        "action": "动作",
+        "actor": "操作者",
+        "object": "对象",
+        "transition": "状态迁移",
+        "detail": "说明"
+      }
+    },
+    "enums": {
+      "question": "决策值和理由码允许取哪些值？",
+      "source": "契约文档 contracts/01 §3.6 / §5（编译进代码，不来自接口）",
+      "note": "静态表，改它等于改 DSL 契约，要走契约变更。它不会因为某次决策而变，也不参与回放。",
+      "decisionTitle": "决策值",
+      "decisionCount_one": "共 {{count}} 个",
+      "decisionCount_other": "共 {{count}} 个",
+      "decisionHint": "决定这次求值的结论落在哪个分支",
+      "reasonTitle": "理由码前缀",
+      "reasonCount_one": "共 {{count}} 个",
+      "reasonCount_other": "共 {{count}} 个",
+      "reasonHint": "说明为什么得到这个结论；日志里的理由码以此开头",
+      "col": {
+        "value": "决策值",
+        "prefix": "理由码前缀",
+        "domain": "域",
+        "description": "说明"
+      },
+      "domain": {
+        "approval": "审批域",
+        "routing": "路由域",
+        "limit": "限额",
+        "list": "名单",
+        "system": "系统"
+      },
+      "desc": {
+        "APPROVE": "通过/放行",
+        "REJECT": "拒绝",
+        "REVIEW": "转人工复核",
+        "ROUTE": "路由到指定通道",
+        "AMOUNT_": "金额相关（超限/复核）",
+        "FREQ_": "频次相关",
+        "LIST_": "名单命中",
+        "CONTRACT_": "契约违规兜底",
+        "DEGRADE_": "降级相关",
+        "DEFAULT_": "无规则命中兜底"
+      }
+    }
+  },
+  "editor": {
+    "loading": "读取规则集",
+    "missingId": "URL 里没有规则集 ID",
+    "unsaved": "未保存",
+    "meta": "版本 {{version}} · 命中策略 {{hitStrategy}} · 兜底 {{defaultDecision}} · revision {{revision}}",
+    "lastBy": " · 最后由 {{actor}}",
+    "validate": "校验",
+    "validating": "校验中…",
+    "trial": "试跑",
+    "trialing": "试跑中…",
+    "save": "保存草稿",
+    "saving": "保存中…",
+    "saved": "已保存到平台（revision {{from}} → 新版本）。引擎不会自动重载，试跑仍跑已装载的包。",
+    "saveRejected": "保存被拒：{{message}}",
+    "jsonParse": "编辑器里的 JSON 解析失败：{{message}}",
+    "parseFailed": "JSON 解析失败：{{message}}",
+    "topNotObject": "顶层必须是对象",
+    "tab": {
+      "structured": "结构化",
+      "expression": "表达式",
+      "table": "决策表"
+    },
+    "defTitle": "规则集定义（JSON）",
+    "defHint": "直接改这里；保存时后端会先跑 dry-run",
+    "exprTitle": "表达式规则（只读渲染）",
+    "exprNote": "当前规则集为决策表写法，可在「决策表」视图查看。",
+    "priority": "优先级 {{priority}}",
+    "tableTitle": "决策表 · {{tableId}}",
+    "tableNone": "该规则集为表达式写法，没有决策表。决策表视图只在 ruleset.table 存在时有内容。",
+    "tableDefault": "兜底：{{decision}} · {{reasonCode}}",
+    "decision": "决策",
+    "reasonCode": "理由码",
+    "validationTitle": "校验结果",
+    "validationIdle": "点「校验」跑后端 dry-run 编译：真实字段目录 + 真实 DSL 编译器。",
+    "passed": "通过",
+    "errors_one": "{{count}} 错误",
+    "errors_other": "{{count}} 错误",
+    "validationEdited": "校验的是编辑器当前内容",
+    "validationStats": "规则 {{rules}} · slot {{slots}} · 最大深度 {{depth}} · 节点 {{nodes}} · assign {{assign}}",
+    "validationOk": "校验通过，无错误无警告。",
+    "suggest": "建议：{{text}}",
+    "trialTitle": "试跑",
+    "trialVia": "经平台转发 → 引擎",
+    "trialHint": "试跑执行的是<b>引擎已装载的包</b>，不是编辑器草稿。改完规则要先保存、再由发布流程热重载，试跑才会变。",
+    "trialFactsLabel": "facts（{{scene}} / {{rulesetId}}）",
+    "trialInputMustBeObject": "试跑输入必须是一个对象：{ \"request.amount\": \"1500\", ... }",
+    "trialInputNotJson": "试跑输入不是合法 JSON：{{message}}",
+    "trialDecision": "决策：{{decision}}",
+    "degraded": "降级",
+    "trialPackage": "执行包 {{packageId}} {{packageVersion}} · 规则集版本 {{rulesetVersion}}",
+    "trialEvaluated": "求值 {{count}} 条 · {{latency}} · 引擎 {{engine}}",
+    "trialOutputs": "输出变量：",
+    "trialNoHit": "没有规则命中，走兜底决策。"
+  }
+}

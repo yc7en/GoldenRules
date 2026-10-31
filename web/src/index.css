@@ -101,3 +101,35 @@
 .monaco-editor .min-h {
   min-height: 200px;
 }
+
+/*
+ * Per-locale font stacks. Arabic needs a Naskh face (Segoe UI's Arabic glyphs are cramped at
+ * 11px), and CJK needs a face that actually ships those glyphs - the system-ui default on
+ * Windows has neither.
+ * French and German need nothing extra: ä ö ü ß é è ç œ are all present in the system UI font.
+ */
+html[lang="zh-CN"] {
+  font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+html[lang="ja"] {
+  font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+}
+html[lang="ar"] {
+  font-family: "Noto Naskh Arabic", "Segoe UI", Tahoma, system-ui, sans-serif;
+}
+html[lang="en"],
+html[lang="fr"],
+html[lang="de"] {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Code, IDs and reason codes stay monospace and left-to-right in every locale. */
+code,
+kbd,
+pre,
+.font-mono {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+

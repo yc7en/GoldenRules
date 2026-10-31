@@ -1,0 +1,399 @@
+{
+  "app": {
+    "title": "GoldenRules BRMS"
+  },
+  "locale": {
+    "label": "Langue de l'interface"
+  },
+  "nav": {
+    "scenes": "Stratégies de scénario",
+    "rulesets": "Jeux de règles",
+    "facts": "Catalogue de faits",
+    "testcases": "Cas de test",
+    "approval": "Approbation et publication",
+    "observability": "Observabilité et audit"
+  },
+  "health": {
+    "engine": "Service de décision",
+    "engineHint": "Moteur Rust, essais et décisions",
+    "platform": "Plateforme d'administration",
+    "platformHint": "Plateforme Go, règles et approbations",
+    "up": "Actif",
+    "down": "Injoignable",
+    "checking": "Vérification"
+  },
+  "actor": {
+    "label": "Opérateur courant",
+    "idAria": "Identifiant de l'opérateur",
+    "typeAria": "Type d'opérateur",
+    "hint": "L'attribution des approbations et le contrôle d'auto-approbation lisent cette valeur ; changez d'opérateur pour respecter la séparation des tâches."
+  },
+  "common": {
+    "loading": "Chargement",
+    "retry": "Réessayer",
+    "edit": "Modifier",
+    "detail": "Détails",
+    "collapse": "Réduire",
+    "all": "Tout",
+    "yes": "Oui",
+    "no": "Non",
+    "none": "—",
+    "actions": "Actions",
+    "name": "Nom",
+    "version": "Version",
+    "domain": "Domaine",
+    "description": "Description",
+    "emptySet": "L'API a renvoyé un ensemble vide. Ce n'est pas un échec de chargement : le back-end n'a réellement aucune donnée."
+  },
+  "errors": {
+    "howToFix": "Que faire",
+    "unknownCode": "Code d'erreur non reconnu",
+    "backendRaw": "Message du back-end",
+    "diag": {
+      "timeout": "{{base}} n'a pas répondu en {{seconds}} s",
+      "unreachable": "Impossible de joindre {{base}}. Vérifiez que le back-end est démarré (tools/dev-up.sh) et que la plateforme a été lancée avec --cors-origin."
+    },
+    "hint": {
+      "NETWORK_UNREACHABLE": "Le back-end n'est pas démarré, ou la plateforme a été lancée sans --cors-origin. Exécutez tools/dev-up.sh pour démarrer le moteur et la plateforme.",
+      "TIMEOUT": "La requête a expiré. Le moteur exécute une décision longue, ou le processus du back-end est bloqué.",
+      "NOT_FOUND": "L'objet n'existe pas. Le répertoire de données a peut-être été réinitialisé ; actualisez la liste et sélectionnez à nouveau.",
+      "PKG_VERIFY_UNAVAILABLE": "La plateforme n'a pas d'exécuteur de contrôle configuré (--engine-url). Les paquets contenant des cas approuvés ne peuvent donc pas être publiés.",
+      "VERSION_SELECTION_CONFLICT": "Ce scénario monte plusieurs jeux de règles ; la requête doit préciser rulesetId."
+    }
+  },
+  "scenes": {
+    "title": "Stratégies de scénario",
+    "subtitle": "Jeux de règles montés par scénario (une liste, pas un canevas de nœuds reliés)",
+    "redline": "Ligne rouge : ceci n'est pas un canevas de flux. Une stratégie de scénario est la liste des jeux de règles montés ; il n'y a pas d'orchestration de nœuds par glisser-déposer.",
+    "redlineNote": "Les scénarios de cette page sont regroupés à partir du champ scene déclaré sur les jeux de règles : le back-end n'a pas encore d'entité scénario distincte.",
+    "loading": "Lecture des scénarios et des jeux de règles",
+    "engineLoaded": "Chargé dans le moteur :",
+    "engineLoadedStats": " · {{rulesets}} · {{rules}} · {{size}}",
+    "engineDown": "Moteur non connecté : ce qui suit est la configuration côté plateforme et ne reflète pas ce que le moteur exécute. Les essais et les décisions échoueront.",
+    "rulesetsShort_one": "{{count}} jeu de règles",
+    "rulesetsShort_many": "{{count}} jeux de règles",
+    "rulesetsShort_other": "{{count}} jeux de règles",
+    "rulesShort_one": "{{count}} règle",
+    "rulesShort_many": "{{count}} règles",
+    "rulesShort_other": "{{count}} règles",
+    "bytesShort": "~{{bytes}} octets",
+    "stats": "Cas de test {{approved}}/{{total}} approuvés",
+    "rulesetLine": "{{rules}} · {{version}}",
+    "conflict": "Ce scénario monte plusieurs jeux de règles : les appelants doivent préciser rulesetId, sinon le moteur renvoie VERSION_SELECTION_CONFLICT."
+  },
+  "rulesets": {
+    "title": "Jeux de règles",
+    "subtitle": "Un jeu de règles est un module autonome ; expressions et tables de décision sont deux écritures du même jeu",
+    "loading": "Lecture des jeux de règles",
+    "unapprovedTitle": "Contient des cas de test non approuvés : le contrôle de publication n'en exécutera aucun",
+    "col": {
+      "id": "Identifiant du jeu",
+      "scene": "Scénario",
+      "version": "Version",
+      "hitStrategy": "Stratégie de correspondance",
+      "default": "Par défaut",
+      "ruleCount": "Règles",
+      "tests": "Cas de test (approuvés / total)",
+      "updatedAt": "Dernière mise à jour",
+      "actions": "Actions"
+    }
+  },
+  "facts": {
+    "title": "Catalogue de faits",
+    "subtitle": "Source unique de vérité : registre des contrats de champs",
+    "catalogVersion": "version {{version}}",
+    "fieldCount_one": "{{count}} champ",
+    "fieldCount_many": "{{count}} champs",
+    "fieldCount_other": "{{count}} champs",
+    "searchPlaceholder": "Filtrer par nom de champ ou sémantique",
+    "loading": "Lecture du catalogue de faits",
+    "notice": "Le catalogue ne stocke que des contrats (nom / type / sémantique / traitement d'absence / masquage / version), jamais la récupération de données : celle-ci relève d'un Fact Provider externe. Cette page est en lecture seule ; l'enregistrement et les révisions passent par POST/PUT /api/v1/facts.",
+    "noMatch": "Aucun champ ne correspond à « {{q}} ».",
+    "deprecated": "Obsolète",
+    "onMissing": {
+      "ERROR": "Erreur si absent",
+      "DEFAULT": "Valeur par défaut",
+      "NULL": "Valeur nulle",
+      "DEGRADE": "Dégradation"
+    },
+    "sensitivity": {
+      "PUBLIC": "Public",
+      "INTERNAL": "Interne",
+      "PII": "Données personnelles",
+      "SECRET": "Confidentiel"
+    },
+    "col": {
+      "fact": "Champ",
+      "displayName": "Nom",
+      "type": "Type",
+      "required": "Obligatoire",
+      "nullable": "Nul autorisé",
+      "onMissing": "Traitement d'absence",
+      "sensitivity": "Masquage",
+      "version": "Version",
+      "semantics": "Sémantique"
+    }
+  },
+  "tests": {
+    "title": "Cas de test",
+    "subtitle": "Les utilisateurs métier valident surtout les cas de test ; celui qui approuve une attente générée par l'IA en porte la responsabilité",
+    "pending": "À valider",
+    "notice": "Seuls les cas de test approuvés sont exécutés par le contrôle de publication. Si un paquet ne contient aucun cas approuvé, le contrôle passe sans rien vérifier : c'est une exécution à vide, pas une réussite.",
+    "loading": "Lecture des cas de test",
+    "emptyPending": "Aucun cas de test n'attend de validation. Passez à « Tout » pour voir les cas approuvés et rejetés.",
+    "emptyAll": "Aucun jeu de règles ne contient de cas de test.",
+    "saveRejected": "Enregistrement du jeu de règles refusé : {{message}} ({{path}})",
+    "saved": "{{testId}} → {{status}} (jeu de règles {{rulesetId}} enregistré, version des règles inchangée)",
+    "confirm": "Approuver",
+    "reject": "Rejeter",
+    "saving": "Enregistrement…",
+    "status": {
+      "pending_review": "En attente",
+      "approved": "Approuvé",
+      "rejected": "Rejeté"
+    },
+    "author": {
+      "agent": "Généré par IA",
+      "engineer": "Ingénieur",
+      "business": "Métier"
+    },
+    "col": {
+      "testId": "Identifiant du cas",
+      "ruleset": "Jeu de règles",
+      "scene": "Scénario",
+      "input": "Entrée",
+      "expect": "Attendu",
+      "author": "Auteur",
+      "status": "Statut",
+      "actions": "Actions"
+    }
+  },
+  "approval": {
+    "title": "Approbation et publication",
+    "subtitle": "Matrice d'approbation à deux dimensions : type de soumissionnaire × niveau de risque. Approuver et publier sont de vraies actions, tracées dans l'audit.",
+    "matrixTitle": "Matrice d'approbation (niveau × soumissionnaire)",
+    "loadingMatrix": "Lecture de la matrice d'approbation",
+    "hardRule": "Règle stricte : un agent ne peut soumettre que des brouillons et ne peut jamais publier ; les règles L4 ne peuvent pas être soumises par un agent.",
+    "loadingChanges": "Lecture des demandes de changement",
+    "empty": "Aucune demande de changement. Elles sont créées par le flux de soumission ; cette page approuve et publie, elle ne les crée pas.",
+    "loadingDetail": "Lecture du détail du changement",
+    "forbidden": "Soumission interdite",
+    "people_one": "{{count}} approbateur",
+    "people_many": "{{count}} approbateurs",
+    "people_other": "{{count}} approbateurs",
+    "slot": "Postes d'approbation",
+    "slotPending": "En attente",
+    "selfReview": "auto-approuvé",
+    "submitterInfo": "Soumissionnaire {{submitter}} ({{type}}) · opérateur courant {{actor}} ({{actorType}})",
+    "noSelfApproval": "l'auto-approbation est interdite à ce niveau",
+    "roleAria": "Rôle d'approbation",
+    "slotOption": "Poste {{slot}} · {{role}}",
+    "commentPlaceholder": "Commentaire d'approbation",
+    "approve": "Approuver",
+    "publish": "Publier",
+    "reject": "Rejeter",
+    "readyToPublish": "Approuvé, prêt à publier. La publication s'applique à ce scénario à partir de maintenant ; les requêtes en cours terminent sur l'ancien paquet.",
+    "records": "Historique d'approbation : {{records}}",
+    "reason": "Motif du changement : {{reason}}",
+    "flashApproved": "Approuvé (rôle {{role}}), {{remaining}} poste(s) d'approbation restant(s)",
+    "flashRejected": "Rejeté",
+    "flashPublished": "Publié {{packageId}} {{packageVersion}} ({{status}})",
+    "remaining": "encore {{count}}",
+    "sla": {
+      "notApplicable": "N/A",
+      "notApplicableTitle": "N'attend plus d'approbation, le SLA n'est plus calculé",
+      "target": "Cible {{hours}} h",
+      "overdue": "en retard",
+      "escalated": "escaladé",
+      "waited": "En attente depuis {{hours}} h",
+      "escalateAt": "Seuil d'escalade {{hours}} h"
+    },
+    "col": {
+      "change": "Demande",
+      "package": "Paquet / version",
+      "risk": "Niveau",
+      "submitter": "Soumissionnaire",
+      "progress": "Avancement",
+      "sla": "SLA",
+      "status": "Statut",
+      "actions": "Actions"
+    },
+    "status": {
+      "draft": "Brouillon",
+      "submitted": "Soumis",
+      "approval": "En approbation",
+      "approved": "Approuvé",
+      "rejected": "Rejeté",
+      "published": "Publié"
+    },
+    "submitter": {
+      "engineer": "Ingénieur",
+      "business": "Métier",
+      "agent": "Agent",
+      "risk": "Risques",
+      "compliance": "Conformité",
+      "owner": "Responsable"
+    }
+  },
+  "obs": {
+    "title": "Observabilité et audit",
+    "subtitle": "Trois blocs, trois sources : ne les lisez pas ensemble. Les <b>journaux de décision</b> sont la trace du moteur décision par décision, la <b>piste d'audit</b> recense les actions humaines, le <b>registre de contrats</b> est une convention statique qui ne change pas à l'exécution.",
+    "tab": {
+      "logs": "Journaux de décision",
+      "audit": "Piste d'audit",
+      "enums": "Registre de contrats"
+    },
+    "tabFailed": "Le chargement de cet onglet a échoué",
+    "introSource": "Source",
+    "introNote": "Comment lire",
+    "logs": {
+      "question": "Pourquoi cette décision a-t-elle donné ce résultat ?",
+      "source": "Journaux structurés poussés du moteur vers la plateforme (vue masquée)",
+      "note": "Sortie machine, une entrée par évaluation. Chaque entrée peut être rejouée : recalcul à partir de l'instantané de l'époque, puis comparaison de la décision et du code de motif.",
+      "loading": "Lecture des journaux de décision",
+      "empty": "Aucun journal de décision. Le moteur pousse un journal structuré vers la plateforme à chaque décision : lancez d'abord un essai, ou provoquez une décision côté moteur.",
+      "replay": "Rejouer",
+      "replaying": "Rejeu…",
+      "match": "concordant : {{decision}} / {{reasonCode}}",
+      "mismatch": "divergent : initial {{decision}} / {{reasonCode}}, rejeu {{replayDecision}} / {{replayReasonCode}}",
+      "mismatchReason": "divergent : initial {{decision}} / {{reasonCode}}, rejeu {{replayDecision}} / {{replayReasonCode}} ({{reason}})",
+      "stat": {
+        "total": "Entrées",
+        "byDecision": "Répartition",
+        "degraded": "Dégradé",
+        "avgLatency": "Latence moyenne",
+        "maxLatency": "Latence max",
+        "rawSnapshot": "Instantanés bruts",
+        "rawOn": "conservés {{days}} jours",
+        "rawOff": "désactivé"
+      },
+      "col": {
+        "logId": "Identifiant du journal",
+        "scene": "Scénario",
+        "decision": "Décision",
+        "reasonCode": "Code de motif",
+        "hitRules": "Règles déclenchées",
+        "degraded": "Dégradé",
+        "time": "Heure",
+        "replay": "Rejeu"
+      }
+    },
+    "audit": {
+      "question": "Qui a modifié quoi, et quand ?",
+      "source": "Événements d'exploitation enregistrés par la plateforme elle-même (votes d'approbation, publications, rotation de clés)",
+      "note": "Produits par des personnes ou par des agents agissant pour elles, une entrée par transition d'état. Les entrées des journaux de décision n'apparaissent jamais ici, et inversement.",
+      "loading": "Lecture de la piste d'audit",
+      "count_one": "{{count}} entrée sur cette page",
+      "count_many": "{{count}} entrées sur cette page",
+      "count_other": "{{count}} entrées sur cette page",
+      "total_one": "{{count}} au total",
+      "total_many": "{{count}} au total",
+      "total_other": "{{count}} au total",
+      "actions": "actions concernées : {{actions}}",
+      "empty": "Aucun événement d'audit. Approbations, publications et rotation de clés laissent tous une trace ici.",
+      "col": {
+        "time": "Heure",
+        "action": "Action",
+        "actor": "Opérateur",
+        "object": "Objet",
+        "transition": "Transition",
+        "detail": "Détail"
+      }
+    },
+    "enums": {
+      "question": "Quelles valeurs une décision ou un code de motif peut-il prendre ?",
+      "source": "Documentation de contrat contracts/01 §3.6 / §5 (compilée dans le code, non servie par une API)",
+      "note": "Table statique. La modifier revient à modifier le contrat DSL. Elle ne change pas à cause d'une décision et ne participe pas au rejeu.",
+      "decisionTitle": "Valeurs de décision",
+      "decisionCount_one": "{{count}} au total",
+      "decisionCount_many": "{{count}} au total",
+      "decisionCount_other": "{{count}} au total",
+      "decisionHint": "Détermine la branche dans laquelle tombe cette évaluation",
+      "reasonTitle": "Préfixes de code de motif",
+      "reasonCount_one": "{{count}} au total",
+      "reasonCount_many": "{{count}} au total",
+      "reasonCount_other": "{{count}} au total",
+      "reasonHint": "Explique pourquoi ce résultat a été atteint ; les codes de motif journalisés commencent par l'un d'eux",
+      "col": {
+        "value": "Valeur de décision",
+        "prefix": "Préfixe de code de motif",
+        "domain": "Domaine",
+        "description": "Description"
+      },
+      "domain": {
+        "approval": "Approbation",
+        "routing": "Routage",
+        "limit": "Limite",
+        "list": "Liste",
+        "system": "Système"
+      },
+      "desc": {
+        "APPROVE": "Approuver / laisser passer",
+        "REJECT": "Rejeter",
+        "REVIEW": "Orienter vers une revue manuelle",
+        "ROUTE": "Router vers le canal indiqué",
+        "AMOUNT_": "Lié au montant (dépassement / revue)",
+        "FREQ_": "Lié à la fréquence",
+        "LIST_": "Correspondance de liste",
+        "CONTRACT_": "Repli en cas de violation de contrat",
+        "DEGRADE_": "Lié à la dégradation",
+        "DEFAULT_": "Repli lorsqu'aucune règle ne correspond"
+      }
+    }
+  },
+  "editor": {
+    "loading": "Lecture du jeu de règles",
+    "missingId": "L'URL ne contient pas d'identifiant de jeu de règles",
+    "unsaved": "Non enregistré",
+    "meta": "Version {{version}} · stratégie {{hitStrategy}} · défaut {{defaultDecision}} · revision {{revision}}",
+    "lastBy": " · dernière modification par {{actor}}",
+    "validate": "Valider",
+    "validating": "Validation…",
+    "trial": "Essai",
+    "trialing": "Essai en cours…",
+    "save": "Enregistrer le brouillon",
+    "saving": "Enregistrement…",
+    "saved": "Enregistré sur la plateforme (revision {{from}} → nouvelle version). Le moteur ne recharge pas automatiquement : les essais utilisent encore le paquet chargé.",
+    "saveRejected": "Enregistrement refusé : {{message}}",
+    "jsonParse": "Le JSON de l'éditeur n'a pas pu être analysé : {{message}}",
+    "parseFailed": "Échec de l'analyse JSON : {{message}}",
+    "topNotObject": "Le niveau racine doit être un objet",
+    "tab": {
+      "structured": "Structuré",
+      "expression": "Expression",
+      "table": "Table de décision"
+    },
+    "defTitle": "Définition du jeu de règles (JSON)",
+    "defHint": "Modifiez directement ici ; le back-end exécute un dry-run avant l'enregistrement",
+    "exprTitle": "Règles en expression (rendu en lecture seule)",
+    "exprNote": "Ce jeu de règles est écrit sous forme de table de décision ; ouvrez la vue « Table de décision ».",
+    "priority": "priorité {{priority}}",
+    "tableTitle": "Table de décision · {{tableId}}",
+    "tableNone": "Ce jeu de règles utilise des expressions et n'a pas de table de décision. La vue table n'a de contenu que si ruleset.table existe.",
+    "tableDefault": "Défaut : {{decision}} · {{reasonCode}}",
+    "decision": "Décision",
+    "reasonCode": "Code de motif",
+    "validationTitle": "Résultat de validation",
+    "validationIdle": "Cliquez sur « Valider » pour lancer la compilation dry-run du back-end : vrai catalogue de faits, vrai compilateur DSL.",
+    "passed": "Réussi",
+    "errors_one": "{{count}} erreur",
+    "errors_many": "{{count}} erreurs",
+    "errors_other": "{{count}} erreurs",
+    "validationEdited": "valide le contenu actuel de l'éditeur",
+    "validationStats": "règles {{rules}} · slots {{slots}} · profondeur max {{depth}} · nœuds {{nodes}} · assign {{assign}}",
+    "validationOk": "Validation réussie, sans erreur ni avertissement.",
+    "suggest": "Suggestion : {{text}}",
+    "trialTitle": "Essai",
+    "trialVia": "via plateforme → moteur",
+    "trialHint": "L'essai exécute le <b>paquet chargé dans le moteur</b>, pas le brouillon de l'éditeur. Après modification, enregistrez puis laissez le flux de publication faire le rechargement à chaud pour que le résultat change.",
+    "trialFactsLabel": "facts ({{scene}} / {{rulesetId}})",
+    "trialInputMustBeObject": "L'entrée de l'essai doit être un objet : { \"request.amount\": \"1500\", ... }",
+    "trialInputNotJson": "L'entrée de l'essai n'est pas un JSON valide : {{message}}",
+    "trialDecision": "Décision : {{decision}}",
+    "degraded": "Dégradé",
+    "trialPackage": "Paquet {{packageId}} {{packageVersion}} · version du jeu de règles {{rulesetVersion}}",
+    "trialEvaluated": "{{count}} règles évaluées · {{latency}} · moteur {{engine}}",
+    "trialOutputs": "Variables de sortie :",
+    "trialNoHit": "Aucune règle ne correspond ; la décision par défaut a été utilisée."
+  }
+}

@@ -1,0 +1,390 @@
+{
+  "app": {
+    "title": "GoldenRules BRMS"
+  },
+  "locale": {
+    "label": "Oberflächensprache"
+  },
+  "nav": {
+    "scenes": "Szenariostrategien",
+    "rulesets": "Regelwerke",
+    "facts": "Faktenkatalog",
+    "testcases": "Testfälle",
+    "approval": "Freigabe & Veröffentlichung",
+    "observability": "Beobachtbarkeit & Audit"
+  },
+  "health": {
+    "engine": "Entscheidungsdienst",
+    "engineHint": "Rust-Engine, Probeläufe und Entscheidungen",
+    "platform": "Verwaltungsplattform",
+    "platformHint": "Go-Plattform, Regeln und Freigaben",
+    "up": "Aktiv",
+    "down": "Nicht erreichbar",
+    "checking": "Prüfung läuft"
+  },
+  "actor": {
+    "label": "Aktueller Akteur",
+    "idAria": "Akteur-ID",
+    "typeAria": "Akteurstyp",
+    "hint": "Freigabezurechnung und Selbstfreigabeprüfung lesen diesen Wert; Akteur wechseln, um die Funktionstrennung einzuhalten."
+  },
+  "common": {
+    "loading": "Wird geladen",
+    "retry": "Erneut versuchen",
+    "edit": "Bearbeiten",
+    "detail": "Details",
+    "collapse": "Einklappen",
+    "all": "Alle",
+    "yes": "Ja",
+    "no": "Nein",
+    "none": "—",
+    "actions": "Aktionen",
+    "name": "Name",
+    "version": "Version",
+    "domain": "Domäne",
+    "description": "Beschreibung",
+    "emptySet": "Der Endpunkt hat eine leere Menge zurückgegeben. Das ist kein Ladefehler – das Backend hat wirklich keine Daten."
+  },
+  "errors": {
+    "howToFix": "Was zu tun ist",
+    "unknownCode": "Unbekannter Fehlercode",
+    "backendRaw": "Originalmeldung des Backends",
+    "diag": {
+      "timeout": "{{base}} hat nicht innerhalb von {{seconds}} s geantwortet",
+      "unreachable": "{{base}} ist nicht erreichbar. Prüfen Sie, ob das Backend läuft (tools/dev-up.sh) und die Plattform mit --cors-origin gestartet wurde."
+    },
+    "hint": {
+      "NETWORK_UNREACHABLE": "Das Backend läuft nicht, oder die Plattform wurde ohne --cors-origin gestartet. Führen Sie tools/dev-up.sh aus, um Engine und Plattform zu starten.",
+      "TIMEOUT": "Die Anfrage ist abgelaufen. Die Engine rechnet an einer langen Entscheidung, oder der Backend-Prozess hängt.",
+      "NOT_FOUND": "Das Objekt existiert nicht. Möglicherweise wurde das Datenverzeichnis zurückgesetzt – Liste aktualisieren und neu auswählen.",
+      "PKG_VERIFY_UNAVAILABLE": "Auf der Plattform ist kein Gate-Ausführer konfiguriert (--engine-url). Pakete mit freigegebenen Testfällen lassen sich deshalb nicht veröffentlichen.",
+      "VERSION_SELECTION_CONFLICT": "Dieses Szenario bindet mehrere Regelwerke ein; die Anfrage muss rulesetId angeben."
+    }
+  },
+  "scenes": {
+    "title": "Szenariostrategien",
+    "subtitle": "Je Szenario eingebundene Regelwerke (eine Liste, keine Knoten-Canvas)",
+    "redline": "Rote Linie: Das hier ist keine Flow-Canvas. Eine Szenariostrategie ist die Liste der eingebundenen Regelwerke; es gibt keine Knotenorchestrierung per Drag and Drop.",
+    "redlineNote": "Die Szenarien dieser Seite entstehen durch Gruppierung über das Feld scene der Regelwerke – das Backend hat noch keine eigene Szenario-Entität.",
+    "loading": "Szenarien und Regelwerke werden gelesen",
+    "engineLoaded": "In der Engine geladen:",
+    "engineLoadedStats": " · {{rulesets}} · {{rules}} · {{size}}",
+    "engineDown": "Engine nicht verbunden: Was unten steht, ist die Konfiguration der Plattform und spiegelt nicht wider, was die Engine ausführt. Probeläufe und Entscheidungen schlagen fehl.",
+    "rulesetsShort_one": "{{count}} Regelwerk",
+    "rulesetsShort_other": "{{count}} Regelwerke",
+    "rulesShort_one": "{{count}} Regel",
+    "rulesShort_other": "{{count}} Regeln",
+    "bytesShort": "~{{bytes}} Bytes",
+    "stats": "Testfälle {{approved}}/{{total}} freigegeben",
+    "rulesetLine": "{{rules}} · {{version}}",
+    "conflict": "Dieses Szenario bindet mehrere Regelwerke ein: Aufrufer müssen rulesetId angeben, sonst liefert die Engine VERSION_SELECTION_CONFLICT."
+  },
+  "rulesets": {
+    "title": "Regelwerke",
+    "subtitle": "Ein Regelwerk ist ein eigenständiges Regelmodul; Ausdrücke und Entscheidungstabellen sind zwei Schreibweisen desselben Regelwerks",
+    "loading": "Regelwerke werden gelesen",
+    "unapprovedTitle": "Enthält nicht freigegebene Testfälle: Das Release-Gate führt keinen davon aus",
+    "col": {
+      "id": "Regelwerk-ID",
+      "scene": "Szenario",
+      "version": "Version",
+      "hitStrategy": "Trefferstrategie",
+      "default": "Standard",
+      "ruleCount": "Regeln",
+      "tests": "Tests (freigegeben / gesamt)",
+      "updatedAt": "Zuletzt geändert",
+      "actions": "Aktionen"
+    }
+  },
+  "facts": {
+    "title": "Faktenkatalog",
+    "subtitle": "Einzige Wahrheitsquelle: Registrierung der Feldverträge",
+    "catalogVersion": "Version {{version}}",
+    "fieldCount_one": "{{count}} Feld",
+    "fieldCount_other": "{{count}} Felder",
+    "searchPlaceholder": "Nach Feldname oder Semantik filtern",
+    "loading": "Faktenkatalog wird gelesen",
+    "notice": "Der Faktenkatalog speichert nur Verträge (Name / Typ / Semantik / Umgang mit fehlenden Werten / Maskierung / Version), niemals die Datenbeschaffung – diese gehört zu einem externen Fact Provider. Diese Seite ist schreibgeschützt; Registrierung und Änderung laufen über POST/PUT /api/v1/facts.",
+    "noMatch": "Kein Feld passt zu „{{q}}“.",
+    "deprecated": "Veraltet",
+    "onMissing": {
+      "ERROR": "Fehler bei Fehlen",
+      "DEFAULT": "Standardwert nutzen",
+      "NULL": "Null setzen",
+      "DEGRADE": "Degradieren"
+    },
+    "sensitivity": {
+      "PUBLIC": "Öffentlich",
+      "INTERNAL": "Intern",
+      "PII": "Personenbezogen",
+      "SECRET": "Geheim"
+    },
+    "col": {
+      "fact": "Feld",
+      "displayName": "Name",
+      "type": "Typ",
+      "required": "Pflicht",
+      "nullable": "Null erlaubt",
+      "onMissing": "Fehlender Wert",
+      "sensitivity": "Maskierung",
+      "version": "Version",
+      "semantics": "Semantik"
+    }
+  },
+  "tests": {
+    "title": "Testfälle",
+    "subtitle": "Fachanwender bestätigen vor allem Testfälle; wer eine KI-generierte Erwartung bestätigt, verantwortet sie",
+    "pending": "Zu bestätigen",
+    "notice": "Das Release-Gate führt nur freigegebene Testfälle aus. Enthält ein Paket keinen freigegebenen Fall, kommt das Gate durch, ohne etwas zu prüfen – das ist ein Leerlauf, kein Bestehen.",
+    "loading": "Testfälle werden gelesen",
+    "emptyPending": "Kein Testfall wartet auf Bestätigung. Auf „Alle“ wechseln, um freigegebene und abgelehnte zu sehen.",
+    "emptyAll": "Kein Regelwerk enthält Testfälle.",
+    "saveRejected": "Speichern des Regelwerks abgelehnt: {{message}} ({{path}})",
+    "saved": "{{testId}} → {{status}} (Regelwerk {{rulesetId}} gespeichert, Regelversion unverändert)",
+    "confirm": "Bestätigen",
+    "reject": "Ablehnen",
+    "saving": "Wird gespeichert…",
+    "status": {
+      "pending_review": "Offen",
+      "approved": "Freigegeben",
+      "rejected": "Abgelehnt"
+    },
+    "author": {
+      "agent": "KI-generiert",
+      "engineer": "Entwickler",
+      "business": "Fachbereich"
+    },
+    "col": {
+      "testId": "Testfall-ID",
+      "ruleset": "Regelwerk",
+      "scene": "Szenario",
+      "input": "Eingabe",
+      "expect": "Erwartet",
+      "author": "Autor",
+      "status": "Status",
+      "actions": "Aktionen"
+    }
+  },
+  "approval": {
+    "title": "Freigabe & Veröffentlichung",
+    "subtitle": "Zweidimensionale Freigabematrix: Einreichertyp × Risikostufe. Freigeben und Veröffentlichen sind echte Aktionen und werden auditiert.",
+    "matrixTitle": "Freigabematrix (Stufe × Einreicher)",
+    "loadingMatrix": "Freigabematrix wird gelesen",
+    "hardRule": "Harte Regel: Ein Agent darf nur Entwürfe einreichen und niemals veröffentlichen; L4-Regeln dürfen von einem Agent nicht eingereicht werden.",
+    "loadingChanges": "Änderungsanträge werden gelesen",
+    "empty": "Noch keine Änderungsanträge. Sie entstehen im Einreichungsprozess – diese Seite gibt frei und veröffentlicht, sie erstellt keine Anträge.",
+    "loadingDetail": "Änderungsdetails werden gelesen",
+    "forbidden": "Einreichen nicht erlaubt",
+    "people_one": "{{count}} Freigeber",
+    "people_other": "{{count}} Freigeber",
+    "slot": "Freigabepositionen",
+    "slotPending": "Offen",
+    "selfReview": "selbst freigegeben",
+    "submitterInfo": "Einreicher {{submitter}} ({{type}}) · aktueller Akteur {{actor}} ({{actorType}})",
+    "noSelfApproval": "Selbstfreigabe ist auf dieser Stufe nicht erlaubt",
+    "roleAria": "Freigaberolle",
+    "slotOption": "Position {{slot}} · {{role}}",
+    "commentPlaceholder": "Freigabekommentar",
+    "approve": "Freigeben",
+    "publish": "Veröffentlichen",
+    "reject": "Ablehnen",
+    "readyToPublish": "Freigegeben und bereit zur Veröffentlichung. Die Veröffentlichung gilt ab jetzt für dieses Szenario; laufende Anfragen beenden mit dem alten Paket.",
+    "records": "Freigabeverlauf: {{records}}",
+    "reason": "Änderungsgrund: {{reason}}",
+    "flashApproved": "Freigegeben (Rolle {{role}}), {{remaining}} Freigabeposition(en) offen",
+    "flashRejected": "Abgelehnt",
+    "flashPublished": "Veröffentlicht {{packageId}} {{packageVersion}} ({{status}})",
+    "remaining": "noch {{count}}",
+    "sla": {
+      "notApplicable": "Entfällt",
+      "notApplicableTitle": "Wartet nicht mehr auf Freigabe, SLA wird nicht mehr berechnet",
+      "target": "Ziel {{hours}} h",
+      "overdue": "überfällig",
+      "escalated": "eskaliert",
+      "waited": "Wartet seit {{hours}} h",
+      "escalateAt": "Eskalationsschwelle {{hours}} h"
+    },
+    "col": {
+      "change": "Änderungsantrag",
+      "package": "Paket / Version",
+      "risk": "Stufe",
+      "submitter": "Einreicher",
+      "progress": "Freigabefortschritt",
+      "sla": "SLA",
+      "status": "Status",
+      "actions": "Aktionen"
+    },
+    "status": {
+      "draft": "Entwurf",
+      "submitted": "Eingereicht",
+      "approval": "In Freigabe",
+      "approved": "Freigegeben",
+      "rejected": "Abgelehnt",
+      "published": "Veröffentlicht"
+    },
+    "submitter": {
+      "engineer": "Entwickler",
+      "business": "Fachbereich",
+      "agent": "Agent",
+      "risk": "Risiko",
+      "compliance": "Compliance",
+      "owner": "Verantwortlicher"
+    }
+  },
+  "obs": {
+    "title": "Beobachtbarkeit & Audit",
+    "subtitle": "Drei Blöcke, drei Quellen – nicht vermischt lesen: <b>Entscheidungsprotokolle</b> sind die Spur der Engine pro Entscheidung, der <b>Audit-Trail</b> sind Handlungen von Personen, das <b>Vertragsregister</b> ist eine statische Vereinbarung, die sich zur Laufzeit nicht ändert.",
+    "tab": {
+      "logs": "Entscheidungsprotokolle",
+      "audit": "Audit-Trail",
+      "enums": "Vertragsregister"
+    },
+    "tabFailed": "Dieser Tab konnte nicht geladen werden",
+    "introSource": "Quelle",
+    "introNote": "Lesart",
+    "logs": {
+      "question": "Warum kam diese Entscheidung so zustande?",
+      "source": "Strukturierte Protokolle von der Engine an die Plattform (maskierte Sicht)",
+      "note": "Maschinenausgabe, ein Eintrag pro Auswertung. Jeder Eintrag lässt sich nachspielen: aus dem damaligen Snapshot neu rechnen und Entscheidung sowie Begründungscode vergleichen.",
+      "loading": "Entscheidungsprotokolle werden gelesen",
+      "empty": "Noch keine Entscheidungsprotokolle. Die Engine sendet bei jeder Entscheidung ein strukturiertes Protokoll an die Plattform – starten Sie zuerst einen Probelauf oder lösen Sie eine Entscheidung auf der Engine-Seite aus.",
+      "replay": "Nachspielen",
+      "replaying": "Wird nachgespielt…",
+      "match": "übereinstimmend: {{decision}} / {{reasonCode}}",
+      "mismatch": "abweichend: ursprünglich {{decision}} / {{reasonCode}}, Nachspiel {{replayDecision}} / {{replayReasonCode}}",
+      "mismatchReason": "abweichend: ursprünglich {{decision}} / {{reasonCode}}, Nachspiel {{replayDecision}} / {{replayReasonCode}} ({{reason}})",
+      "stat": {
+        "total": "Einträge",
+        "byDecision": "Verteilung",
+        "degraded": "Degradiert",
+        "avgLatency": "Ø Latenz",
+        "maxLatency": "Max. Latenz",
+        "rawSnapshot": "Roh-Snapshots",
+        "rawOn": "{{days}} Tage aufbewahrt",
+        "rawOff": "aus"
+      },
+      "col": {
+        "logId": "Protokoll-ID",
+        "scene": "Szenario",
+        "decision": "Entscheidung",
+        "reasonCode": "Begründungscode",
+        "hitRules": "Trefferregeln",
+        "degraded": "Degradiert",
+        "time": "Zeit",
+        "replay": "Nachspielen"
+      }
+    },
+    "audit": {
+      "question": "Wer hat wann was geändert?",
+      "source": "Von der Plattform selbst aufgezeichnete Ereignisse (Freigabestimmen, Veröffentlichungen, Schlüsselrotation)",
+      "note": "Erzeugt von Personen oder in ihrem Auftrag handelnden Agenten, ein Eintrag pro Zustandsübergang. Einträge aus den Entscheidungsprotokollen erscheinen hier nie und umgekehrt.",
+      "loading": "Audit-Trail wird gelesen",
+      "count_one": "{{count}} Eintrag auf dieser Seite",
+      "count_other": "{{count}} Einträge auf dieser Seite",
+      "total_one": "{{count}} insgesamt",
+      "total_other": "{{count}} insgesamt",
+      "actions": "betroffene Aktionen: {{actions}}",
+      "empty": "Noch keine Audit-Ereignisse. Freigaben, Veröffentlichungen und Schlüsselrotation hinterlassen hier alle eine Spur.",
+      "col": {
+        "time": "Zeit",
+        "action": "Aktion",
+        "actor": "Akteur",
+        "object": "Objekt",
+        "transition": "Zustandsübergang",
+        "detail": "Erläuterung"
+      }
+    },
+    "enums": {
+      "question": "Welche Werte dürfen Entscheidung und Begründungscode annehmen?",
+      "source": "Vertragsdokumentation contracts/01 §3.6 / §5 (im Code kompiliert, nicht über eine API geliefert)",
+      "note": "Statische Tabelle. Sie zu ändern heißt, den DSL-Vertrag zu ändern. Sie ändert sich nicht durch eine einzelne Entscheidung und wirkt beim Nachspielen nicht mit.",
+      "decisionTitle": "Entscheidungswerte",
+      "decisionCount_one": "{{count}} insgesamt",
+      "decisionCount_other": "{{count}} insgesamt",
+      "decisionHint": "Bestimmt, in welchen Zweig diese Auswertung fällt",
+      "reasonTitle": "Präfixe der Begründungscodes",
+      "reasonCount_one": "{{count}} insgesamt",
+      "reasonCount_other": "{{count}} insgesamt",
+      "reasonHint": "Erklärt, warum dieses Ergebnis zustande kam; protokollierte Codes beginnen mit einem dieser Präfixe",
+      "col": {
+        "value": "Entscheidungswert",
+        "prefix": "Präfix des Begründungscodes",
+        "domain": "Domäne",
+        "description": "Beschreibung"
+      },
+      "domain": {
+        "approval": "Freigabe",
+        "routing": "Routing",
+        "limit": "Limit",
+        "list": "Liste",
+        "system": "System"
+      },
+      "desc": {
+        "APPROVE": "Freigeben / durchlassen",
+        "REJECT": "Ablehnen",
+        "REVIEW": "An manuelle Prüfung übergeben",
+        "ROUTE": "An den angegebenen Kanal routen",
+        "AMOUNT_": "Betragsbezogen (Überlimit / Prüfung)",
+        "FREQ_": "Frequenzbezogen",
+        "LIST_": "Listentreffer",
+        "CONTRACT_": "Rückfall bei Vertragsverletzung",
+        "DEGRADE_": "Degradationsbezogen",
+        "DEFAULT_": "Rückfall, wenn keine Regel trifft"
+      }
+    }
+  },
+  "editor": {
+    "loading": "Regelwerk wird gelesen",
+    "missingId": "Die URL enthält keine Regelwerk-ID",
+    "unsaved": "Nicht gespeichert",
+    "meta": "Version {{version}} · Trefferstrategie {{hitStrategy}} · Standard {{defaultDecision}} · revision {{revision}}",
+    "lastBy": " · zuletzt geändert von {{actor}}",
+    "validate": "Prüfen",
+    "validating": "Prüfung läuft…",
+    "trial": "Probelauf",
+    "trialing": "Probelauf läuft…",
+    "save": "Entwurf speichern",
+    "saving": "Wird gespeichert…",
+    "saved": "Auf der Plattform gespeichert (revision {{from}} → neue Version). Die Engine lädt nicht automatisch neu, Probeläufe nutzen weiterhin das geladene Paket.",
+    "saveRejected": "Speichern abgelehnt: {{message}}",
+    "jsonParse": "Das JSON im Editor konnte nicht gelesen werden: {{message}}",
+    "parseFailed": "JSON-Analyse fehlgeschlagen: {{message}}",
+    "topNotObject": "Die oberste Ebene muss ein Objekt sein",
+    "tab": {
+      "structured": "Strukturiert",
+      "expression": "Ausdruck",
+      "table": "Entscheidungstabelle"
+    },
+    "defTitle": "Regelwerksdefinition (JSON)",
+    "defHint": "Hier direkt bearbeiten; das Backend führt vor dem Speichern einen Dry-Run aus",
+    "exprTitle": "Ausdrucksregeln (schreibgeschützt dargestellt)",
+    "exprNote": "Dieses Regelwerk ist als Entscheidungstabelle geschrieben; öffnen Sie die Ansicht „Entscheidungstabelle“.",
+    "priority": "Priorität {{priority}}",
+    "tableTitle": "Entscheidungstabelle · {{tableId}}",
+    "tableNone": "Dieses Regelwerk nutzt Ausdrücke und hat keine Entscheidungstabelle. Die Tabellenansicht hat nur Inhalt, wenn ruleset.table existiert.",
+    "tableDefault": "Standard: {{decision}} · {{reasonCode}}",
+    "decision": "Entscheidung",
+    "reasonCode": "Begründungscode",
+    "validationTitle": "Prüfergebnis",
+    "validationIdle": "Auf „Prüfen“ klicken, um den Dry-Run des Backends zu starten: echter Faktenkatalog, echter DSL-Compiler.",
+    "passed": "Bestanden",
+    "errors_one": "{{count}} Fehler",
+    "errors_other": "{{count}} Fehler",
+    "validationEdited": "geprüft wird der aktuelle Editorinhalt",
+    "validationStats": "Regeln {{rules}} · Slots {{slots}} · max. Tiefe {{depth}} · Knoten {{nodes}} · assign {{assign}}",
+    "validationOk": "Prüfung bestanden, keine Fehler und keine Warnungen.",
+    "suggest": "Vorschlag: {{text}}",
+    "trialTitle": "Probelauf",
+    "trialVia": "über Plattform → Engine",
+    "trialHint": "Der Probelauf führt das <b>in der Engine geladene Paket</b> aus, nicht den Editor-Entwurf. Nach Änderungen erst speichern und den Reload im Veröffentlichungsprozess abwarten, dann ändert sich das Ergebnis.",
+    "trialFactsLabel": "facts ({{scene}} / {{rulesetId}})",
+    "trialInputMustBeObject": "Die Eingabe des Probelaufs muss ein Objekt sein: { \"request.amount\": \"1500\", ... }",
+    "trialInputNotJson": "Die Eingabe des Probelaufs ist kein gültiges JSON: {{message}}",
+    "trialDecision": "Entscheidung: {{decision}}",
+    "degraded": "Degradiert",
+    "trialPackage": "Paket {{packageId}} {{packageVersion}} · Regelwerksversion {{rulesetVersion}}",
+    "trialEvaluated": "{{count}} Regeln ausgewertet · {{latency}} · Engine {{engine}}",
+    "trialOutputs": "Ausgabevariablen:",
+    "trialNoHit": "Keine Regel hat getroffen; die Standardentscheidung wurde verwendet."
+  }
+}

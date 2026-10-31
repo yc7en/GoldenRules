@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { NavLink, Outlet } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import { api, getActor, setActor } from "@/lib/api"
 import type { Actor } from "@/lib/api"
 import type { ActorType } from "@/lib/api-types"
+import { LanguageSwitcher } from "@/components/LanguageSwitcher"
 import {
   LayoutGrid,
   ListTree,
@@ -15,13 +17,13 @@ import {
 } from "lucide-react"
 
 const navItems = [
-  { to: "/scenes", label: "场景策略", icon: LayoutGrid },
-  { to: "/rulesets", label: "规则集", icon: ListTree },
-  { to: "/facts", label: "事实目录", icon: Database },
-  { to: "/testcases", label: "测试用例", icon: TestTube2 },
-  { to: "/approval", label: "审批与发布", icon: GitPullRequest },
-  { to: "/observability", label: "观测与审计", icon: Activity },
-]
+  { to: "/scenes", labelKey: "nav.scenes", icon: LayoutGrid },
+  { to: "/rulesets", labelKey: "nav.rulesets", icon: ListTree },
+  { to: "/facts", labelKey: "nav.facts", icon: Database },
+  { to: "/testcases", labelKey: "nav.testcases", icon: TestTube2 },
+  { to: "/approval", labelKey: "nav.approval", icon: GitPullRequest },
+  { to: "/observability", labelKey: "nav.observability", icon: Activity },
+] as const
 
 const ACTOR_TYPES: ActorType[] = [
   "engineer",
@@ -35,6 +37,7 @@ const ACTOR_TYPES: ActorType[] = [
 type Health = "up" | "down" | "checking"
 
 export default function Layout() {
+  const { t } = useTranslation()
   const [engine, setEngine] = useState<Health>("checking")
   const [platform, setPlatform] = useState<Health>("checking")
   const [actor, setLocalActor] = useState<Actor>(getActor)
@@ -70,10 +73,10 @@ export default function Layout() {
   return (
     <div className="flex h-screen w-full overflow-hidden">
       {/* Sidebar */}
-      <aside className="flex w-56 shrink-0 flex-col border-r bg-card">
+      <aside className="flex w-56 shrink-0 flex-col border-e bg-card">
         <div className="flex h-14 items-center gap-2 border-b px-4">
           <ScrollText className="size-5 text-primary" />
-          <span className="text-sm font-semibold">GoldenRules BRMS</span>
+          <span className="text-sm font-semibold">{t("app.title")}</span>
         </div>
         <nav className="flex-1 space-y-1 overflow-auto p-2">
           {navItems.map((item) => (
@@ -90,25 +93,33 @@ export default function Layout() {
               }
             >
               <item.icon className="size-4" />
-              {item.label}
+              {t(item.labelKey)}
             </NavLink>
           ))}
         </nav>
 
         <div className="space-y-2 border-t p-3 text-xs text-muted-foreground">
-          <HealthRow label="决策服务" state={engine} hint="Rust 引擎，试跑与决策" />
-          <HealthRow label="管理平台" state={platform} hint="Go 平台，规则与审批" />
+          <HealthRow
+            label={t("health.engine")}
+            state={engine}
+            hint={t("health.engineHint")}
+          />
+          <HealthRow
+            label={t("health.platform")}
+            state={platform}
+            hint={t("health.platformHint")}
+          />
 
           <div className="pt-1">
             <label className="mb-1 block text-[11px] uppercase tracking-wide">
-              当前操作者
+              {t("actor.label")}
             </label>
             <div className="flex gap-1">
               <input
                 value={actor.id}
                 onChange={(e) => applyActor({ ...actor, id: e.target.value })}
                 className="min-w-0 flex-1 rounded border border-input bg-transparent px-1.5 py-1 font-mono text-[11px]"
-                aria-label="操作者 ID"
+                aria-label={t("actor.idAria")}
               />
               <select
                 value={actor.type}
@@ -116,18 +127,23 @@ export default function Layout() {
                   applyActor({ ...actor, type: e.target.value as ActorType })
                 }
                 className="rounded border border-input bg-transparent px-1 py-1 text-[11px]"
-                aria-label="操作者类型"
+                aria-label={t("actor.typeAria")}
               >
-                {ACTOR_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
+                {/* Contract enum values stay untranslated; only the label around them changes. */}
+                {ACTOR_TYPES.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
                   </option>
                 ))}
               </select>
             </div>
             <p className="mt-1 text-[10px] leading-tight text-muted-foreground/80">
-              审批记名与「自审」判定都取这里；换人才能走完职责分离。
+              {t("actor.hint")}
             </p>
+          </div>
+
+          <div className="border-t pt-2">
+            <LanguageSwitcher />
           </div>
         </div>
       </aside>
@@ -149,6 +165,7 @@ function HealthRow({
   state: Health
   hint: string
 }) {
+  const { t } = useTranslation()
   const dot =
     state === "up"
       ? "bg-green-500"
@@ -156,7 +173,11 @@ function HealthRow({
       ? "bg-red-500"
       : "bg-muted-foreground/40"
   const text =
-    state === "up" ? "正常" : state === "down" ? "连不上" : "探测中"
+    state === "up"
+      ? t("health.up")
+      : state === "down"
+      ? t("health.down")
+      : t("health.checking")
   return (
     <div className="flex items-center justify-between" title={hint}>
       <div className="flex items-center gap-2">

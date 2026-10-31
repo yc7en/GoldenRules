@@ -73,6 +73,17 @@ cd web && npx tsc -b && npx vite build
 
 **契约枚举不翻译。** `APPROVE` / `REVIEW` / 理由码 / 审计动作的值永远保持英文原样，界面只给它们配显示标签。金额与日志时间也不随界面语言变——阿拉伯语 locale 默认输出东阿拉伯数字和 `٫` 小数点，同一笔钱在两种界面下看起来不同，对账和截图留证会出问题。
 
+**切换器在侧边栏底部**，与「当前操作者」并列。首次访问按 `localStorage["gr.locale"]` → `navigator.languages` → `en` 的顺序协商，所以中文浏览器第一次打开是中文；想固定英文就切一次，选择会被记住。
+
+| 位置 | 内容 |
+|---|---|
+| `web/src/i18n/index.ts` | 语言初始化、协商、按语言懒加载、`<html lang/dir>` 写入 |
+| `web/src/i18n/locales/<locale>.json` | 六份资源，每个概念一条 key；复数形式用 `_one` / `_few` / `_many` 后缀 |
+| `web/src/i18n/i18next.d.ts` | 用 `en` 做基准给 `t()` 补类型，key 写错编译报错 |
+| `web/scripts/check-i18n.mjs` | 六份 key 集合一致性校验，`npm run build` 前自动跑 |
+
+改文案只改 JSON，不要回页面里写死字符串：写死的字符串不会报错，只会在某种语言下露出来。新增语言要同时给 `LOCALES`、`LOCALE_LABELS`、`loaders` 三处加一项，再加一份 JSON —— `check-i18n.mjs` 会立刻告诉你缺哪些 key。
+
 ## 历史说明
 
 `backend/` 由独立仓库 `GoldenRules-backend` 于 2026-10-31 以子树合并方式并入（19 条提交，哈希原样保留）。旧提交记录的是**根级路径**（`crates/…` 而非 `backend/crates/…`），所以查旧历史要用：

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react"
+import { Trans, useTranslation } from "react-i18next"
 import { useParams, Link } from "react-router-dom"
 import Editor from "@monaco-editor/react"
 import {
@@ -34,19 +35,20 @@ import {
 } from "lucide-react"
 
 export default function RuleSetEditor() {
+  const { t } = useTranslation()
   const { id } = useParams()
   const ruleset = useAsync(
     () =>
       id
         ? api.rulesets.get(id)
-        : Promise.reject(new ApiError(400, "MISSING_ID", "URL 里没有规则集 ID")),
+        : Promise.reject(new ApiError(400, "MISSING_ID", t("editor.missingId"))),
     [id]
   )
   const facts = useAsync(() => api.facts.list(), [])
 
   return (
     <div className="p-6">
-      <Async state={ruleset} loadingLabel="读取规则集">
+      <Async state={ruleset} loadingLabel={t("editor.loading")}>
         {(def) => (
           <EditorInner
             // Reset the editor content when revision changes, otherwise the text is still stale after a successful save
@@ -70,6 +72,7 @@ function EditorInner({
   catalogVersion?: string
   onSaved: () => void
 }) {
+  const { t } = useTranslation()
   const initialText = useMemo(
     () => JSON.stringify(ruleset, null, 2),
     [ruleset]
@@ -79,7 +82,10 @@ function EditorInner({
     ruleset.table ? "table" : "structured"
   )
 
-  const parsed = useMemo(() => parseDef(text), [text])
+  const parsed = useMemo(
+    () => parseDef(text, t("editor.topNotObject")),
+    [text, t]
+  )
   const dirty = text !== initialText
 
   const [report, setReport] = useState<ValidationReport | null>(null)
@@ -95,7 +101,13 @@ function EditorInner({
 
   const guard = (): RulesetDefinition | null => {
     if (!parsed.ok) {
-      setActionError(new ApiError(400, "JSON_PARSE", `编辑器里的 JSON 解析失败：${parsed.message}`))
+      setActionError(
+        new ApiError(
+          400,
+          "JSON_PARSE",
+          t("editor.jsonParse", { message: parsed.message })
+        )
+      )
       return null
     }
     setActionError(null)
@@ -125,14 +137,14 @@ function EditorInner({
       const r = await api.rulesets.save(ruleset.rulesetId, def)
       setReport(r)
       if (r.valid) {
-        setFlash(`已保存到平台（revision ${ruleset.revision ?? "?"} → 新版本）。引擎不会自动重载，试跑仍跑已装载的包。`)
+        setFlash(t("editor.saved", { from: ruleset.revision ?? "?" }))
         onSaved()
       } else {
         setActionError(
           new ApiError(
             422,
             r.errors[0]?.code ?? "VALIDATION_FAILED",
-            `保存被拒：${r.errors[0]?.message ?? "见下方诊断"}`,
+            t("editor.saveRejected", { message: r.errors[0]?.message ?? "—" }),
             r
           )
         )
@@ -150,7 +162,7 @@ function EditorInner({
     try {
       const factsInput = JSON.parse(trialInput) as Record<string, unknown>
       if (typeof factsInput !== "object" || factsInput === null || Array.isArray(factsInput)) {
-        throw new Error("试跑输入必须是一个对象：{ \"request.amount\": \"1500\", ... }")
+        throw new Error(t("editor.trialInputMustBeObject"))
       }
       const actor = getActor()
       const now = new Date().toISOString().replace(/\.\d+Z$/, "Z")
@@ -174,7 +186,13 @@ function EditorInner({
       setTrial(result)
     } catch (e) {
       if (e instanceof SyntaxError) {
-        setTrialError(new ApiError(400, "JSON_PARSE", `试跑输入不是合法 JSON：${e.message}`))
+        setTrialError(
+          new ApiError(
+            400,
+            "JSON_PARSE",
+            t("editor.trialInputNotJson", { message: e.message })
+          )
+        )
       } else {
         setTrialError(toErr(e))
       }
@@ -185,39 +203,46 @@ function EditorInner({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <Link to="/rulesets">
             <Button variant="ghost" size="icon">
-              <ArrowLeft className="size-4" />
+              <ArrowLeft className="size-4 rtl:rotate-180" />
             </Button>
           </Link>
-          <div>
-            <h1 className="flex items-center gap-2 text-lg font-semibold">
+          <div className="min-w-0">
+            <h1 className="flex flex-wrap items-center gap-2 text-lg font-semibold">
               {ruleset.rulesetId}
               <Badge variant="secondary">{ruleset.scene}</Badge>
               {dirty && (
-                <Badge className="bg-amber-100 text-amber-700">未保存</Badge>
+                <Badge className="bg-amber-100 text-amber-700">
+                  {t("editor.unsaved")}
+                </Badge>
               )}
             </h1>
             <p className="text-sm text-muted-foreground">
-              版本 {ruleset.version} · 命中策略 {ruleset.hitStrategy} · 兜底{" "}
-              {ruleset.defaultDecision} · revision {ruleset.revision ?? 0}
-              {ruleset.updatedBy && ` · 最后由 ${ruleset.updatedBy}`}
+              {t("editor.meta", {
+                version: ruleset.version,
+                hitStrategy: ruleset.hitStrategy,
+                defaultDecision: ruleset.defaultDecision,
+                revision: ruleset.revision ?? 0,
+              })}
+              {ruleset.updatedBy &&
+                t("editor.lastBy", { actor: ruleset.updatedBy })}
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           <Button variant="outline" disabled={busy !== null} onClick={handleValidate}>
-            {busy === "validate" ? "校验中…" : "校验"}
+            {busy === "validate" ? t("editor.validating") : t("editor.validate")}
           </Button>
           <Button variant="outline" disabled={busy !== null} onClick={handleTrial}>
             <Play className="size-4" />
-            {busy === "trial" ? "试跑中…" : "试跑"}
+            {busy === "trial" ? t("editor.trialing") : t("editor.trial")}
           </Button>
           <Button disabled={busy !== null || !dirty} onClick={handleSave}>
             <Save className="size-4" />
-            {busy === "save" ? "保存中…" : "保存草稿"}
+            {busy === "save" ? t("editor.saving") : t("editor.save")}
           </Button>
         </div>
       </div>
@@ -237,26 +262,26 @@ function EditorInner({
                 active={view === "structured"}
                 onClick={() => setView("structured")}
               >
-                结构化
+                {t("editor.tab.structured")}
               </TabsTrigger>
               <TabsTrigger
                 active={view === "expression"}
                 onClick={() => setView("expression")}
               >
-                表达式
+                {t("editor.tab.expression")}
               </TabsTrigger>
               <TabsTrigger active={view === "table"} onClick={() => setView("table")}>
-                决策表
+                {t("editor.tab.table")}
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value="structured">
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center justify-between text-sm">
-                    规则集定义（JSON）
+                  <CardTitle className="flex items-center justify-between gap-2 text-sm">
+                    {t("editor.defTitle")}
                     <span className="text-[11px] font-normal text-muted-foreground">
-                      直接改这里；保存时后端会先跑 dry-run
+                      {t("editor.defHint")}
                     </span>
                   </CardTitle>
                 </CardHeader>
@@ -273,7 +298,7 @@ function EditorInner({
                   </div>
                   {!parsed.ok && (
                     <p className="mt-2 text-xs text-red-600">
-                      JSON 解析失败：{parsed.message}
+                      {t("editor.parseFailed", { message: parsed.message })}
                     </p>
                   )}
                 </CardContent>
@@ -307,25 +332,24 @@ function EditorInner({
 }
 
 function ExpressionView({ ruleset }: { ruleset: RulesetDefinition }) {
+  const { t } = useTranslation()
   const rules = ruleset.rules ?? []
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm">表达式规则（只读渲染）</CardTitle>
+        <CardTitle className="text-sm">{t("editor.exprTitle")}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {rules.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            当前规则集为决策表写法，可在「决策表」视图查看。
-          </p>
+          <p className="text-sm text-muted-foreground">{t("editor.exprNote")}</p>
         ) : (
           rules.map((r) => (
             <div key={r.ruleId} className="rounded-md border p-3">
-              <div className="mb-2 flex items-center justify-between">
+              <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="text-sm font-medium">
                   {r.ruleId}
-                  <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                    {r.version} · 优先级 {r.priority}
+                  <span className="ms-2 text-[11px] font-normal text-muted-foreground">
+                    {r.version} · {t("editor.priority", { priority: r.priority })}
                   </span>
                 </span>
                 <Badge className={cn(`risk-badge-${r.riskLevel}`)}>{r.riskLevel}</Badge>
@@ -357,14 +381,13 @@ function ExpressionView({ ruleset }: { ruleset: RulesetDefinition }) {
 }
 
 function TableView({ ruleset }: { ruleset: RulesetDefinition }) {
+  const { t } = useTranslation()
   const dt = ruleset.table
   if (!dt) {
     return (
       <Card>
         <CardContent className="p-6">
-          <p className="text-sm text-muted-foreground">
-            该规则集为表达式写法，没有决策表。决策表视图只在 ruleset.table 存在时有内容。
-          </p>
+          <p className="text-sm text-muted-foreground">{t("editor.tableNone")}</p>
         </CardContent>
       </Card>
     )
@@ -372,7 +395,9 @@ function TableView({ ruleset }: { ruleset: RulesetDefinition }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm">决策表 · {dt.tableId}</CardTitle>
+        <CardTitle className="text-sm">
+          {t("editor.tableTitle", { tableId: dt.tableId })}
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <Table>
@@ -382,8 +407,8 @@ function TableView({ ruleset }: { ruleset: RulesetDefinition }) {
               {dt.columns.map((c) => (
                 <TableHead key={c.fact}>{c.fact}</TableHead>
               ))}
-              <TableHead>决策</TableHead>
-              <TableHead>理由码</TableHead>
+              <TableHead>{t("editor.decision")}</TableHead>
+              <TableHead>{t("editor.reasonCode")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -407,7 +432,10 @@ function TableView({ ruleset }: { ruleset: RulesetDefinition }) {
         </Table>
         {dt.defaultRow && (
           <p className="mt-3 text-xs text-muted-foreground">
-            兜底：{dt.defaultRow.decision} · {dt.defaultRow.reasonCode}
+            {t("editor.tableDefault", {
+              decision: dt.defaultRow.decision,
+              reasonCode: dt.defaultRow.reasonCode,
+            })}
           </p>
         )}
       </CardContent>
@@ -422,16 +450,15 @@ function ValidationPanel({
   result: ValidationReport | null
   dirty: boolean
 }) {
+  const { t } = useTranslation()
   if (!result) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">校验结果</CardTitle>
+          <CardTitle className="text-sm">{t("editor.validationTitle")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">
-            点「校验」跑后端 dry-run 编译：真实字段目录 + 真实 DSL 编译器。
-          </p>
+          <p className="text-sm text-muted-foreground">{t("editor.validationIdle")}</p>
         </CardContent>
       </Card>
     )
@@ -439,20 +466,21 @@ function ValidationPanel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm">
-          校验结果
+        <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
+          {t("editor.validationTitle")}
           {result.valid ? (
             <Badge className="bg-green-100 text-green-700">
-              <CheckCircle2 className="size-3" /> 通过
+              <CheckCircle2 className="size-3" /> {t("editor.passed")}
             </Badge>
           ) : (
             <Badge className="bg-red-100 text-red-700">
-              <XCircle className="size-3" /> {result.errors.length} 错误
+              <XCircle className="size-3" />{" "}
+              {t("editor.errors", { count: result.errors.length })}
             </Badge>
           )}
           {dirty && (
             <span className="text-[11px] font-normal text-amber-700">
-              校验的是编辑器当前内容
+              {t("editor.validationEdited")}
             </span>
           )}
         </CardTitle>
@@ -460,9 +488,13 @@ function ValidationPanel({
       <CardContent className="space-y-2">
         {result.stats && (
           <p className="text-[11px] text-muted-foreground">
-            规则 {result.stats.rules} · slot {result.stats.slots} · 最大深度{" "}
-            {result.stats.maxDepth} · 节点 {result.stats.maxNodes} · assign{" "}
-            {result.stats.assignCount}
+            {t("editor.validationStats", {
+              rules: result.stats.rules,
+              slots: result.stats.slots,
+              depth: result.stats.maxDepth,
+              nodes: result.stats.maxNodes,
+              assign: result.stats.assignCount,
+            })}
           </p>
         )}
         {result.errors.map((e, i) => (
@@ -472,7 +504,7 @@ function ValidationPanel({
           <IssueBox key={`w${i}`} issue={w} />
         ))}
         {result.errors.length === 0 && result.warnings.length === 0 && (
-          <p className="text-sm text-green-700">校验通过，无错误无警告。</p>
+          <p className="text-sm text-green-700">{t("editor.validationOk")}</p>
         )}
       </CardContent>
     </Card>
@@ -480,6 +512,7 @@ function ValidationPanel({
 }
 
 function IssueBox({ issue }: { issue: ValidationIssue }) {
+  const { t } = useTranslation()
   const warn = issue.level === "warn"
   return (
     <div
@@ -503,7 +536,9 @@ function IssueBox({ issue }: { issue: ValidationIssue }) {
         {issue.path}
       </p>
       {issue.suggest && (
-        <p className={warn ? "text-amber-600" : "text-red-500"}>建议：{issue.suggest}</p>
+        <p className={warn ? "text-amber-600" : "text-red-500"}>
+          {t("editor.suggest", { text: issue.suggest })}
+        </p>
       )}
     </div>
   )
@@ -524,13 +559,14 @@ function TrialPanel({
   scene: string
   rulesetId: string
 }) {
+  const { t } = useTranslation()
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center justify-between text-sm">
-          试跑
+        <CardTitle className="flex items-center justify-between gap-2 text-sm">
+          {t("editor.trialTitle")}
           <span className="text-[11px] font-normal text-muted-foreground">
-            经平台转发 → 引擎
+            {t("editor.trialVia")}
           </span>
         </CardTitle>
       </CardHeader>
@@ -538,11 +574,14 @@ function TrialPanel({
         <div className="flex items-start gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] text-blue-800">
           <Info className="mt-0.5 size-3 shrink-0" />
           <span>
-            试跑执行的是<strong>引擎已装载的包</strong>，不是编辑器草稿。改完规则要先保存、再由发布流程热重载，试跑才会变。
+            <Trans
+              i18nKey="editor.trialHint"
+              components={{ b: <strong className="font-semibold" /> }}
+            />
           </span>
         </div>
         <label className="block text-[11px] text-muted-foreground">
-          facts（{scene} / {rulesetId}）
+          {t("editor.trialFactsLabel", { scene, rulesetId })}
         </label>
         <textarea
           value={input}
@@ -563,32 +602,34 @@ function TrialPanel({
                     : "bg-amber-100 text-amber-700"
                 }
               >
-                决策：{result.decision}
+                {t("editor.trialDecision", { decision: result.decision })}
               </Badge>
               <code className="text-xs">{result.reasonCode}</code>
               {result.degraded && (
-                <Badge className="bg-red-100 text-red-700">降级</Badge>
+                <Badge className="bg-red-100 text-red-700">{t("editor.degraded")}</Badge>
               )}
             </div>
             <div className="rounded-md bg-muted p-2 text-[11px]">
               <div>
-                执行包 <code>{result.packageId}</code>{" "}
-                <code>{result.packageVersion}</code> · 规则集版本{" "}
-                <code>{result.rulesetVersion}</code>
+                {t("editor.trialPackage", {
+                  packageId: result.packageId,
+                  packageVersion: result.packageVersion,
+                  rulesetVersion: result.rulesetVersion,
+                })}
               </div>
               <div className="mt-1">
-                求值 {result.evaluatedRules} 条 · 耗时{" "}
-                {result.executionTimeMs < 1
-                  ? `${(result.executionTimeMs * 1000).toFixed(0)} µs`
-                  : `${result.executionTimeMs.toFixed(2)} ms`}{" "}
-                · 引擎 {result.engineVersion}
+                {t("editor.trialEvaluated", {
+                  count: result.evaluatedRules,
+                  latency: formatMs(result.executionTimeMs),
+                  engine: result.engineVersion,
+                })}
               </div>
             </div>
             {Object.keys(result.outputs ?? {}).length > 0 && (
               <div className="rounded-md bg-muted p-2 text-xs">
-                <span className="text-muted-foreground">输出变量：</span>
+                <span className="text-muted-foreground">{t("editor.trialOutputs")}</span>
                 {Object.entries(result.outputs).map(([k, v]) => (
-                  <span key={k} className="mr-2">
+                  <span key={k} className="me-2">
                     <code>{k}</code> = <code>{JSON.stringify(v)}</code>
                   </span>
                 ))}
@@ -596,18 +637,18 @@ function TrialPanel({
             )}
             <div className="space-y-1">
               {result.hitRules.length === 0 && (
-                <p className="text-xs text-muted-foreground">没有规则命中，走兜底决策。</p>
+                <p className="text-xs text-muted-foreground">{t("editor.trialNoHit")}</p>
               )}
               {result.hitRules.map((h) => (
                 <div
                   key={h.ruleId}
-                  className="flex items-center justify-between rounded bg-green-50 px-2 py-1 text-xs text-green-800"
+                  className="flex items-center justify-between gap-2 rounded bg-green-50 px-2 py-1 text-xs text-green-800"
                 >
                   <span>
                     {h.ruleId}
-                    <span className="ml-1 text-[10px] opacity-70">{h.ruleVersion}</span>
+                    <span className="ms-1 text-[10px] opacity-70">{h.ruleVersion}</span>
                   </span>
-                  <span>
+                  <span className="shrink-0">
                     {h.decision} · {h.reasonCode}
                   </span>
                 </div>
@@ -627,12 +668,17 @@ function TrialPanel({
   )
 }
 
+function formatMs(ms: number): string {
+  return ms < 1 ? `${(ms * 1000).toFixed(0)} µs` : `${ms.toFixed(2)} ms`
+}
+
 function parseDef(
-  text: string
+  text: string,
+  topNotObject: string
 ): { ok: true; value: RulesetDefinition } | { ok: false; message: string } {
   try {
     const v = JSON.parse(text) as RulesetDefinition
-    if (!v || typeof v !== "object") return { ok: false, message: "顶层必须是对象" }
+    if (!v || typeof v !== "object") return { ok: false, message: topNotObject }
     return { ok: true, value: v }
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) }

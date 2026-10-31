@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useTranslation } from "react-i18next"
 import {
   Table,
   TableBody,
@@ -14,19 +15,22 @@ import { useAsync } from "@/lib/useAsync"
 import { api, ApiError } from "@/lib/api"
 import type { RulesetDefinition, TestCaseRecord } from "@/lib/api-types"
 
-const authorLabel: Record<string, string> = {
-  agent: "AI 生成",
-  engineer: "工程师",
-  business: "业务",
-}
+const AUTHOR_KEYS = {
+  agent: "tests.author.agent",
+  engineer: "tests.author.engineer",
+  business: "tests.author.business",
+} as const
 
 const statusConfig: Record<
   TestCaseRecord["status"],
-  { label: string; cls: string }
+  { labelKey: "tests.status.pending_review" | "tests.status.approved" | "tests.status.rejected"; cls: string }
 > = {
-  pending_review: { label: "待确认", cls: "bg-amber-100 text-amber-700" },
-  approved: { label: "已确认", cls: "bg-green-100 text-green-700" },
-  rejected: { label: "已拒绝", cls: "bg-red-100 text-red-700" },
+  pending_review: {
+    labelKey: "tests.status.pending_review",
+    cls: "bg-amber-100 text-amber-700",
+  },
+  approved: { labelKey: "tests.status.approved", cls: "bg-green-100 text-green-700" },
+  rejected: { labelKey: "tests.status.rejected", cls: "bg-red-100 text-red-700" },
 }
 
 interface Row extends TestCaseRecord {
@@ -35,6 +39,7 @@ interface Row extends TestCaseRecord {
 }
 
 export default function TestCases() {
+  const { t } = useTranslation()
   const state = useAsync(() => api.rulesets.list(), [])
   const [filter, setFilter] = useState<"pending_review" | "all">("pending_review")
   const [busy, setBusy] = useState<string | null>(null)
@@ -54,8 +59,8 @@ export default function TestCases() {
       // Test case status lives inside the ruleset, so the whole ruleset has to be PUT back - the backend
       // also runs a dry-run on the way, which means this step doubles as proof that "this ruleset still compiles".
       const fresh = await api.rulesets.get(rs.rulesetId)
-      const tests = (fresh.tests ?? []).map((t) =>
-        t.testId === testId ? { ...t, status } : t
+      const tests = (fresh.tests ?? []).map((tc) =>
+        tc.testId === testId ? { ...tc, status } : tc
       )
       const report = await api.rulesets.save(rs.rulesetId, { ...fresh, tests })
       if (!report.valid) {
@@ -64,14 +69,21 @@ export default function TestCases() {
           new ApiError(
             422,
             first?.code ?? "VALIDATION_FAILED",
-            `规则集保存被拒：${first?.message ?? "未知诊断"}（${first?.path ?? ""}）`,
+            t("tests.saveRejected", {
+              message: first?.message ?? "—",
+              path: first?.path ?? "",
+            }),
             report
           )
         )
         return
       }
       setNotice(
-        `${testId} → ${statusConfig[status].label}（规则集 ${rs.rulesetId} 已保存，规则版本未变）`
+        t("tests.saved", {
+          testId,
+          status: t(statusConfig[status].labelKey),
+          rulesetId: rs.rulesetId,
+        })
       )
       state.reload()
     } catch (e) {
@@ -85,34 +97,31 @@ export default function TestCases() {
 
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-lg font-semibold">测试用例</h1>
-          <p className="text-sm text-muted-foreground">
-            业务人员主要确认测试用例；AI 生成的期望值由确认人负责
-          </p>
+          <h1 className="text-lg font-semibold">{t("tests.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("tests.subtitle")}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           <Button
             variant={filter === "pending_review" ? "default" : "outline"}
             size="sm"
             onClick={() => setFilter("pending_review")}
           >
-            待我确认
+            {t("tests.pending")}
           </Button>
           <Button
             variant={filter === "all" ? "default" : "outline"}
             size="sm"
             onClick={() => setFilter("all")}
           >
-            全部
+            {t("common.all")}
           </Button>
         </div>
       </div>
 
       <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-        只有「已确认」的用例会被发布门禁执行。包内一条已确认用例都没有时，门禁会通过但不验任何东西
-        —— 那是空跑，不是通过。
+        {t("tests.notice")}
       </div>
 
       {actionError && <ErrorBox error={actionError} />}
@@ -122,7 +131,7 @@ export default function TestCases() {
         </div>
       )}
 
-      <Async state={state} loadingLabel="读取用例">
+      <Async state={state} loadingLabel={t("tests.loading")}>
         {(data) => {
           const rows = flatten(data.items)
           const filtered =
@@ -131,8 +140,8 @@ export default function TestCases() {
             return (
               <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
                 {filter === "pending_review"
-                  ? "没有待确认的用例。切到「全部」看已确认与已拒绝的。"
-                  : "所有规则集里都没有用例。"}
+                  ? t("tests.emptyPending")
+                  : t("tests.emptyAll")}
               </div>
             )
           }
@@ -140,20 +149,22 @@ export default function TestCases() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>用例 ID</TableHead>
-                  <TableHead>规则集</TableHead>
-                  <TableHead>场景</TableHead>
-                  <TableHead>输入</TableHead>
-                  <TableHead>期望</TableHead>
-                  <TableHead>作者</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
+                  <TableHead>{t("tests.col.testId")}</TableHead>
+                  <TableHead>{t("tests.col.ruleset")}</TableHead>
+                  <TableHead>{t("tests.col.scene")}</TableHead>
+                  <TableHead>{t("tests.col.input")}</TableHead>
+                  <TableHead>{t("tests.col.expect")}</TableHead>
+                  <TableHead>{t("tests.col.author")}</TableHead>
+                  <TableHead>{t("tests.col.status")}</TableHead>
+                  <TableHead className="text-end">{t("common.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.map((c) => {
                   const rs = data.items.find((r) => r.rulesetId === c.rulesetId)!
                   const key = `${c.rulesetId}/${c.testId}`
+                  const authorKey =
+                    AUTHOR_KEYS[c.author as keyof typeof AUTHOR_KEYS]
                   return (
                     <TableRow key={key}>
                       <TableCell className="font-medium">
@@ -179,16 +190,18 @@ export default function TestCases() {
                       <TableCell>
                         <Badge variant="outline">{c.expect.decision}</Badge>
                         {c.expect.reasonCode && (
-                          <code className="ml-1 text-xs">{c.expect.reasonCode}</code>
+                          <code className="ms-1 text-xs">{c.expect.reasonCode}</code>
                         )}
                       </TableCell>
-                      <TableCell>{authorLabel[c.author] ?? c.author}</TableCell>
+                      <TableCell>
+                        {authorKey ? t(authorKey) : c.author}
+                      </TableCell>
                       <TableCell>
                         <Badge className={statusConfig[c.status].cls}>
-                          {statusConfig[c.status].label}
+                          {t(statusConfig[c.status].labelKey)}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-end">
                         <div className="flex justify-end gap-1">
                           {c.status !== "approved" && (
                             <Button
@@ -196,7 +209,7 @@ export default function TestCases() {
                               disabled={busy === key}
                               onClick={() => apply(rs, c.testId, "approved")}
                             >
-                              {busy === key ? "保存中…" : "确认"}
+                              {busy === key ? t("tests.saving") : t("tests.confirm")}
                             </Button>
                           )}
                           {c.status !== "rejected" && (
@@ -206,7 +219,7 @@ export default function TestCases() {
                               disabled={busy === key}
                               onClick={() => apply(rs, c.testId, "rejected")}
                             >
-                              拒绝
+                              {t("tests.reject")}
                             </Button>
                           )}
                         </div>

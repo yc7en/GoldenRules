@@ -1,0 +1,390 @@
+{
+  "app": {
+    "title": "GoldenRules BRMS"
+  },
+  "locale": {
+    "label": "表示言語"
+  },
+  "nav": {
+    "scenes": "シナリオ戦略",
+    "rulesets": "ルールセット",
+    "facts": "ファクトカタログ",
+    "testcases": "テストケース",
+    "approval": "承認とリリース",
+    "observability": "可観測性と監査"
+  },
+  "health": {
+    "engine": "判定サービス",
+    "engineHint": "Rust エンジン、試行と判定",
+    "platform": "管理プラットフォーム",
+    "platformHint": "Go プラットフォーム、ルールと承認",
+    "up": "正常",
+    "down": "接続不可",
+    "checking": "確認中"
+  },
+  "actor": {
+    "label": "現在の操作者",
+    "idAria": "操作者 ID",
+    "typeAria": "操作者の種別",
+    "hint": "承認の記名と「自己承認」の判定はここを参照します。職務分掌を満たすには操作者を切り替えてください。"
+  },
+  "common": {
+    "loading": "読み込み中",
+    "retry": "再試行",
+    "edit": "編集",
+    "detail": "詳細",
+    "collapse": "折りたたむ",
+    "all": "すべて",
+    "yes": "はい",
+    "no": "いいえ",
+    "none": "—",
+    "actions": "操作",
+    "name": "名前",
+    "version": "バージョン",
+    "domain": "ドメイン",
+    "description": "説明",
+    "emptySet": "エンドポイントが空の集合を返しました。読み込み失敗ではなく、バックエンドに本当にデータがありません。"
+  },
+  "errors": {
+    "howToFix": "対処方法",
+    "unknownCode": "未知のエラーコード",
+    "backendRaw": "バックエンドの原文",
+    "diag": {
+      "timeout": "{{base}} が {{seconds}} 秒以内に応答しませんでした",
+      "unreachable": "{{base}} に接続できません。バックエンドが起動していること（tools/dev-up.sh）、およびプラットフォームが --cors-origin 付きで起動していることを確認してください。"
+    },
+    "hint": {
+      "NETWORK_UNREACHABLE": "バックエンドが起動していないか、プラットフォームの --cors-origin が無効です。tools/dev-up.sh を実行してエンジンとプラットフォームを起動してください。",
+      "TIMEOUT": "リクエストがタイムアウトしました。エンジンが長い判定を実行中か、バックエンドのプロセスが固まっています。",
+      "NOT_FOUND": "オブジェクトが存在しません。データディレクトリが初期化された可能性があります。一覧を更新して選び直してください。",
+      "PKG_VERIFY_UNAVAILABLE": "プラットフォームにゲート実行器（--engine-url）が設定されていません。approved のテストケースを含むパッケージはリリースできません。",
+      "VERSION_SELECTION_CONFLICT": "このシナリオには複数のルールセットが割り当てられています。リクエストで rulesetId を指定してください。"
+    }
+  },
+  "scenes": {
+    "title": "シナリオ戦略",
+    "subtitle": "シナリオに割り当てたルールセット（一覧設定であり、ノード接続のキャンバスではありません）",
+    "redline": "レッドライン：ここは「フローキャンバス」ではありません。シナリオ戦略は割り当てるルールセットの一覧であり、ノードをドラッグして接続する編成は行いません。",
+    "redlineNote": "このページの「シナリオ」はルールセットで宣言された scene によるグループです。バックエンドに独立したシナリオ実体はまだありません。",
+    "loading": "シナリオとルールセットを読み込み中",
+    "engineLoaded": "エンジンの読み込み済み：",
+    "engineLoadedStats": " · {{rulesets}} · {{rules}} · {{size}}",
+    "engineDown": "エンジン未接続：以下はプラットフォーム側の設定であり、エンジンが実行している内容ではありません。試行と判定は失敗します。",
+    "rulesetsShort_one": "{{count}} ルールセット",
+    "rulesetsShort_other": "{{count}} ルールセット",
+    "rulesShort_one": "{{count}} ルール",
+    "rulesShort_other": "{{count}} ルール",
+    "bytesShort": "推定 {{bytes}} バイト",
+    "stats": "テストケース {{approved}}/{{total}} 件承認済み",
+    "rulesetLine": "{{rules}} · {{version}}",
+    "conflict": "このシナリオには複数のルールセットが割り当てられています。呼び出し側は rulesetId を指定しないと、エンジンは VERSION_SELECTION_CONFLICT を返します。"
+  },
+  "rulesets": {
+    "title": "ルールセット",
+    "subtitle": "ルールセットは独立したルールモジュールです。式と決定表は同じルールセットの二つの記述方法です",
+    "loading": "ルールセットを読み込み中",
+    "unapprovedTitle": "未承認のテストケースがあります。リリースゲートはどのテストケースも実行しません",
+    "col": {
+      "id": "ルールセット ID",
+      "scene": "シナリオ",
+      "version": "バージョン",
+      "hitStrategy": "ヒット戦略",
+      "default": "既定値",
+      "ruleCount": "ルール数",
+      "tests": "テスト（承認済み／合計）",
+      "updatedAt": "最終更新",
+      "actions": "操作"
+    }
+  },
+  "facts": {
+    "title": "ファクトカタログ",
+    "subtitle": "単一の真実源：フィールド契約の登録",
+    "catalogVersion": "バージョン {{version}}",
+    "fieldCount_one": "{{count}} フィールド",
+    "fieldCount_other": "{{count}} フィールド",
+    "searchPlaceholder": "フィールド名または意味で絞り込む",
+    "loading": "ファクトカタログを読み込み中",
+    "notice": "ファクトカタログが保持するのは「契約」（名称／型／意味／欠損時の扱い／マスキング／バージョン）だけで、データ取得は含みません。取得は外部の Fact Provider の責務です。このページは読み取り専用で、登録と改版は POST/PUT /api/v1/facts で行います。",
+    "noMatch": "「{{q}}」に一致するフィールドはありません。",
+    "deprecated": "廃止予定",
+    "onMissing": {
+      "ERROR": "欠損時はエラー",
+      "DEFAULT": "既定値を使う",
+      "NULL": "null にする",
+      "DEGRADE": "縮退"
+    },
+    "sensitivity": {
+      "PUBLIC": "公開",
+      "INTERNAL": "社内",
+      "PII": "個人情報",
+      "SECRET": "機密"
+    },
+    "col": {
+      "fact": "フィールド名",
+      "displayName": "名称",
+      "type": "型",
+      "required": "必須",
+      "nullable": "null 可",
+      "onMissing": "欠損時の扱い",
+      "sensitivity": "マスキング",
+      "version": "バージョン",
+      "semantics": "意味"
+    }
+  },
+  "tests": {
+    "title": "テストケース",
+    "subtitle": "業務担当者は主にテストケースを承認します。AI が生成した期待値は承認した人の責任です",
+    "pending": "承認待ち",
+    "notice": "リリースゲートが実行するのは「承認済み」のテストケースだけです。承認済みが一件もないパッケージでは、ゲートは何も検証せずに通過します。それは空実行であり、合格ではありません。",
+    "loading": "テストケースを読み込み中",
+    "emptyPending": "承認待ちのテストケースはありません。「すべて」に切り替えると承認済みと却下を確認できます。",
+    "emptyAll": "どのルールセットにもテストケースがありません。",
+    "saveRejected": "ルールセットの保存が拒否されました：{{message}}（{{path}}）",
+    "saved": "{{testId}} → {{status}}（ルールセット {{rulesetId}} を保存済み、ルールのバージョンは不変）",
+    "confirm": "承認",
+    "reject": "却下",
+    "saving": "保存中…",
+    "status": {
+      "pending_review": "承認待ち",
+      "approved": "承認済み",
+      "rejected": "却下"
+    },
+    "author": {
+      "agent": "AI 生成",
+      "engineer": "エンジニア",
+      "business": "業務"
+    },
+    "col": {
+      "testId": "テストケース ID",
+      "ruleset": "ルールセット",
+      "scene": "シナリオ",
+      "input": "入力",
+      "expect": "期待値",
+      "author": "作成者",
+      "status": "状態",
+      "actions": "操作"
+    }
+  },
+  "approval": {
+    "title": "承認とリリース",
+    "subtitle": "二次元の承認マトリクス：提出者の種別 × リスクレベル。承認とリリースはいずれも実処理であり、監査に記録されます。",
+    "matrixTitle": "承認マトリクス（レベル × 提出者）",
+    "loadingMatrix": "承認マトリクスを読み込み中",
+    "hardRule": "厳格なルール: agent は下書きの提出のみ可能で、リリースは決してできません。L4 のルールは agent が直接提出できません。",
+    "loadingChanges": "変更要求を読み込み中",
+    "empty": "変更要求はまだありません。変更要求は提出フローが作成します。このページは承認とリリースを担当し、作成は行いません。",
+    "loadingDetail": "変更の詳細を読み込み中",
+    "forbidden": "提出不可",
+    "people_one": "{{count}} 名",
+    "people_other": "{{count}} 名",
+    "slot": "承認枠",
+    "slotPending": "未承認",
+    "selfReview": "自己承認",
+    "submitterInfo": "提出者 {{submitter}}（{{type}}）· 現在の操作者 {{actor}}（{{actorType}}）",
+    "noSelfApproval": "このレベルでは自己承認できません",
+    "roleAria": "承認ロール",
+    "slotOption": "枠 {{slot}} · {{role}}",
+    "commentPlaceholder": "承認コメント",
+    "approve": "承認",
+    "publish": "リリース",
+    "reject": "却下",
+    "readyToPublish": "承認済みでリリースできます。リリース後は新しいパッケージがこのシナリオに適用され、処理中のリクエストは古いパッケージで完了します。",
+    "records": "承認記録：{{records}}",
+    "reason": "変更理由：{{reason}}",
+    "flashApproved": "承認しました（ロール {{role}}）、残りの承認枠 {{remaining}}",
+    "flashRejected": "却下しました",
+    "flashPublished": "リリースしました {{packageId}} {{packageVersion}}（{{status}}）",
+    "remaining": "残り {{count}}",
+    "sla": {
+      "notApplicable": "対象外",
+      "notApplicableTitle": "承認待ちではないため、SLA は計算しません",
+      "target": "目標 {{hours}}h",
+      "overdue": "期限超過",
+      "escalated": "エスカレーション済み",
+      "waited": "待機 {{hours}}h",
+      "escalateAt": "エスカレーション閾値 {{hours}}h"
+    },
+    "col": {
+      "change": "変更要求",
+      "package": "パッケージ / バージョン",
+      "risk": "レベル",
+      "submitter": "提出者",
+      "progress": "承認の進捗",
+      "sla": "SLA",
+      "status": "状態",
+      "actions": "操作"
+    },
+    "status": {
+      "draft": "下書き",
+      "submitted": "提出済み",
+      "approval": "承認中",
+      "approved": "承認済み",
+      "rejected": "却下",
+      "published": "リリース済み"
+    },
+    "submitter": {
+      "engineer": "エンジニア",
+      "business": "業務",
+      "agent": "agent",
+      "risk": "リスク管理",
+      "compliance": "コンプライアンス",
+      "owner": "責任者"
+    }
+  },
+  "obs": {
+    "title": "可観測性と監査",
+    "subtitle": "三つの領域、三つの出所です。混ぜて読まないでください：<b>判定ログ</b>はエンジンの判定ごとの履歴、<b>監査証跡</b>は人が行った操作、<b>契約レジストリ</b>は実行時に変わらない静的な取り決めです。",
+    "tab": {
+      "logs": "判定ログ",
+      "audit": "監査証跡",
+      "enums": "契約レジストリ"
+    },
+    "tabFailed": "このタブの取得に失敗しました",
+    "introSource": "出所",
+    "introNote": "読み方",
+    "logs": {
+      "question": "この判定はなぜこの結果になったのか？",
+      "source": "エンジンからプラットフォームへ送られる構造化ログ（マスキング済み）",
+      "note": "機械の出力で、1 件が 1 回の評価に対応します。1 件ずつリプレイできます。当時のスナップショットで再計算し、結論と理由コードが一致するか照合します。",
+      "loading": "判定ログを読み込み中",
+      "empty": "判定ログはまだありません。エンジンは判定のたびに構造化ログをプラットフォームへ送ります。まず試行を 1 回実行するか、エンジン側で判定を 1 回発生させてください。",
+      "replay": "リプレイ",
+      "replaying": "リプレイ中…",
+      "match": "一致：{{decision}} / {{reasonCode}}",
+      "mismatch": "不一致：元 {{decision}} / {{reasonCode}}、リプレイ {{replayDecision}} / {{replayReasonCode}}",
+      "mismatchReason": "不一致：元 {{decision}} / {{reasonCode}}、リプレイ {{replayDecision}} / {{replayReasonCode}}（{{reason}}）",
+      "stat": {
+        "total": "件数",
+        "byDecision": "判定の分布",
+        "degraded": "縮退",
+        "avgLatency": "平均時間",
+        "maxLatency": "最大時間",
+        "rawSnapshot": "元スナップショット",
+        "rawOn": "{{days}} 日間保持",
+        "rawOff": "無効"
+      },
+      "col": {
+        "logId": "ログ ID",
+        "scene": "シナリオ",
+        "decision": "判定",
+        "reasonCode": "理由コード",
+        "hitRules": "ヒットしたルール",
+        "degraded": "縮退",
+        "time": "時刻",
+        "replay": "リプレイ"
+      }
+    },
+    "audit": {
+      "question": "誰がいつ何を変更したのか？",
+      "source": "プラットフォーム自身が記録した操作イベント（承認票、リリース、鍵のローテーション）",
+      "note": "人、またはその代理として動作する agent が生成し、1 件が 1 回の状態遷移に対応します。判定ログの記録はここに現れず、その逆も同じです。",
+      "loading": "監査証跡を読み込み中",
+      "count_one": "このページ {{count}} 件",
+      "count_other": "このページ {{count}} 件",
+      "total_one": "累計 {{count}} 件",
+      "total_other": "累計 {{count}} 件",
+      "actions": "対象の操作：{{actions}}",
+      "empty": "監査イベントはまだありません。承認、リリース、鍵のローテーションはいずれもここに記録されます。",
+      "col": {
+        "time": "時刻",
+        "action": "操作",
+        "actor": "操作者",
+        "object": "対象",
+        "transition": "状態遷移",
+        "detail": "説明"
+      }
+    },
+    "enums": {
+      "question": "判定値と理由コードはどの値を取れるのか？",
+      "source": "契約ドキュメント contracts/01 §3.6 / §5（コードに埋め込まれており、API から取得しません）",
+      "note": "静的な表です。変更は DSL 契約の変更を意味します。ある 1 回の判定で変わることはなく、リプレイにも関与しません。",
+      "decisionTitle": "判定値",
+      "decisionCount_one": "全 {{count}} 件",
+      "decisionCount_other": "全 {{count}} 件",
+      "decisionHint": "この評価の結論がどの分岐に入るかを決めます",
+      "reasonTitle": "理由コードの接頭辞",
+      "reasonCount_one": "全 {{count}} 件",
+      "reasonCount_other": "全 {{count}} 件",
+      "reasonHint": "なぜこの結論になったかを示します。ログの理由コードはこの接頭辞で始まります",
+      "col": {
+        "value": "判定値",
+        "prefix": "理由コードの接頭辞",
+        "domain": "ドメイン",
+        "description": "説明"
+      },
+      "domain": {
+        "approval": "承認",
+        "routing": "ルーティング",
+        "limit": "限度",
+        "list": "リスト",
+        "system": "システム"
+      },
+      "desc": {
+        "APPROVE": "承認／通過",
+        "REJECT": "拒否",
+        "REVIEW": "手動レビューへ回す",
+        "ROUTE": "指定チャネルへルーティング",
+        "AMOUNT_": "金額関連（上限超過／レビュー）",
+        "FREQ_": "頻度関連",
+        "LIST_": "リストにヒット",
+        "CONTRACT_": "契約違反のフォールバック",
+        "DEGRADE_": "縮退関連",
+        "DEFAULT_": "ルール未ヒット時のフォールバック"
+      }
+    }
+  },
+  "editor": {
+    "loading": "ルールセットを読み込み中",
+    "missingId": "URL にルールセット ID がありません",
+    "unsaved": "未保存",
+    "meta": "バージョン {{version}} · ヒット戦略 {{hitStrategy}} · 既定値 {{defaultDecision}} · revision {{revision}}",
+    "lastBy": " · 最終更新者 {{actor}}",
+    "validate": "検証",
+    "validating": "検証中…",
+    "trial": "試行",
+    "trialing": "試行中…",
+    "save": "下書きを保存",
+    "saving": "保存中…",
+    "saved": "プラットフォームに保存しました（revision {{from}} → 新バージョン）。エンジンは自動で再読み込みしないため、試行は読み込み済みのパッケージで実行されます。",
+    "saveRejected": "保存が拒否されました：{{message}}",
+    "jsonParse": "エディタの JSON を解析できませんでした：{{message}}",
+    "parseFailed": "JSON の解析に失敗しました：{{message}}",
+    "topNotObject": "最上位はオブジェクトである必要があります",
+    "tab": {
+      "structured": "構造化",
+      "expression": "式",
+      "table": "決定表"
+    },
+    "defTitle": "ルールセット定義（JSON）",
+    "defHint": "ここを直接編集します。保存時にバックエンドが dry-run を実行します",
+    "exprTitle": "式ルール（読み取り専用の描画）",
+    "exprNote": "このルールセットは決定表で記述されています。「決定表」ビューで確認できます。",
+    "priority": "優先度 {{priority}}",
+    "tableTitle": "決定表 · {{tableId}}",
+    "tableNone": "このルールセットは式で記述されており、決定表はありません。決定表ビューは ruleset.table が存在する場合のみ内容があります。",
+    "tableDefault": "既定：{{decision}} · {{reasonCode}}",
+    "decision": "判定",
+    "reasonCode": "理由コード",
+    "validationTitle": "検証結果",
+    "validationIdle": "「検証」を押すとバックエンドの dry-run コンパイルを実行します。実際のフィールドカタログと実際の DSL コンパイラを使います。",
+    "passed": "合格",
+    "errors_one": "{{count}} 件のエラー",
+    "errors_other": "{{count}} 件のエラー",
+    "validationEdited": "エディタの現在の内容を検証します",
+    "validationStats": "ルール {{rules}} · slot {{slots}} · 最大深さ {{depth}} · ノード {{nodes}} · assign {{assign}}",
+    "validationOk": "検証に合格しました。エラーも警告もありません。",
+    "suggest": "提案：{{text}}",
+    "trialTitle": "試行",
+    "trialVia": "プラットフォーム経由 → エンジン",
+    "trialHint": "試行が実行するのは<b>エンジンが読み込み済みのパッケージ</b>であり、エディタの下書きではありません。編集後は保存し、リリースフローでホットリロードしてから試行結果が変わります。",
+    "trialFactsLabel": "facts（{{scene}} / {{rulesetId}}）",
+    "trialInputMustBeObject": "試行の入力はオブジェクトである必要があります：{ \"request.amount\": \"1500\", ... }",
+    "trialInputNotJson": "試行の入力が正しい JSON ではありません：{{message}}",
+    "trialDecision": "判定：{{decision}}",
+    "degraded": "縮退",
+    "trialPackage": "実行パッケージ {{packageId}} {{packageVersion}} · ルールセットのバージョン {{rulesetVersion}}",
+    "trialEvaluated": "{{count}} 件を評価 · {{latency}} · エンジン {{engine}}",
+    "trialOutputs": "出力変数：",
+    "trialNoHit": "ルールにヒットしなかったため、既定の判定を使用しました。"
+  }
+}

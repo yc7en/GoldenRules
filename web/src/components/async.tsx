@@ -1,19 +1,34 @@
 import type { ReactNode } from "react"
+import { useTranslation } from "react-i18next"
+import type { TFunction } from "i18next"
 import { AlertTriangle, Loader2, RefreshCw, WifiOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { ApiError } from "@/lib/api"
 import type { AsyncState } from "@/lib/useAsync"
 
-/** Error code -> troubleshooting action. The backend's message says "what happened"; this adds "what to fix". */
-const HINTS: Record<string, string> = {
-  NETWORK_UNREACHABLE:
-    "后端没起来，或平台的 --cors-origin 没开。跑 tools/dev-up.sh 拉起引擎与平台。",
-  TIMEOUT: "请求超时。引擎在做长决策，或后端进程已卡死。",
-  NOT_FOUND: "对象不存在。可能是数据目录被重置过，刷新列表重新选。",
-  PKG_VERIFY_UNAVAILABLE:
-    "平台没有配置门禁执行器（--engine-url）。带 approved 用例的包会因此发不出去。",
-  VERSION_SELECTION_CONFLICT:
-    "该场景挂了多个规则集，请求必须指定 rulesetId。",
+/**
+ * Error code -> localized "what happened and what to fix".
+ *
+ * `errorCode` is the contract and `message` is an implementation detail: the backend's message is
+ * Chinese diagnostic text, so using it as UI copy would leak the backend language into every
+ * locale. The raw message stays available, collapsed, and is never discarded - an unrecognized
+ * code must not be flattened into a generic "something went wrong".
+ */
+function hintFor(t: TFunction, code: string): string {
+  switch (code) {
+    case "NETWORK_UNREACHABLE":
+      return t("errors.hint.NETWORK_UNREACHABLE")
+    case "TIMEOUT":
+      return t("errors.hint.TIMEOUT")
+    case "NOT_FOUND":
+      return t("errors.hint.NOT_FOUND")
+    case "PKG_VERIFY_UNAVAILABLE":
+      return t("errors.hint.PKG_VERIFY_UNAVAILABLE")
+    case "VERSION_SELECTION_CONFLICT":
+      return t("errors.hint.VERSION_SELECTION_CONFLICT")
+    default:
+      return ""
+  }
 }
 
 export function ErrorBox({
@@ -23,7 +38,8 @@ export function ErrorBox({
   error: ApiError
   onRetry?: () => void
 }) {
-  const hint = HINTS[error.code]
+  const { t } = useTranslation()
+  const hint = hintFor(t, error.code)
   return (
     <div className="rounded-lg border border-red-200 bg-red-50 p-4">
       <div className="flex items-start gap-2">
@@ -40,14 +56,28 @@ export function ErrorBox({
             {error.status > 0 && (
               <span className="text-xs text-red-500">HTTP {error.status}</span>
             )}
+            {!hint && (
+              <span className="text-[11px] text-red-500">{t("errors.unknownCode")}</span>
+            )}
           </div>
-          <p className="mt-1 break-words text-sm text-red-800">{error.message}</p>
-          {hint && <p className="mt-1 text-xs text-red-600">怎么办：{hint}</p>}
+          <p className="mt-1 break-words text-sm text-red-800">
+            {hint || error.message}
+          </p>
+          {hint && (
+            <details className="mt-1">
+              <summary className="cursor-pointer text-[11px] text-red-600">
+                {t("errors.backendRaw")}
+              </summary>
+              <p className="mt-1 break-words font-mono text-[11px] text-red-700">
+                {error.message}
+              </p>
+            </details>
+          )}
         </div>
         {onRetry && (
           <Button variant="outline" size="sm" onClick={onRetry}>
             <RefreshCw className="size-3.5" />
-            重试
+            {t("common.retry")}
           </Button>
         )}
       </div>
@@ -55,11 +85,12 @@ export function ErrorBox({
   )
 }
 
-export function Loading({ label = "加载中" }: { label?: string }) {
+export function Loading({ label }: { label?: string }) {
+  const { t } = useTranslation()
   return (
     <div className="flex items-center gap-2 rounded-lg border bg-card p-4 text-sm text-muted-foreground">
       <Loader2 className="size-4 animate-spin" />
-      {label}…
+      {label ?? t("common.loading")}…
     </div>
   )
 }
@@ -82,13 +113,14 @@ export function Async<T>({
   empty?: (data: T) => boolean
   loadingLabel?: string
 }) {
+  const { t } = useTranslation()
   if (state.loading && state.data === null) return <Loading label={loadingLabel} />
   if (state.error) return <ErrorBox error={state.error} onRetry={state.reload} />
   if (state.data === null) return <Loading label={loadingLabel} />
   if (empty && empty(state.data)) {
     return (
       <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
-        接口返回了空集合。这不是加载失败 —— 后端确实没有数据。
+        {t("common.emptySet")}
       </div>
     )
   }

@@ -1,3 +1,4 @@
+import i18n from "@/i18n"
 import type {
   ActorType,
   ApprovalMatrixResponse,
@@ -117,13 +118,16 @@ async function request<T>(
   try {
     res = await fetch(base + path, { ...init, headers, signal })
   } catch (err) {
+    // The transport produces its own diagnostics: no backend message exists at this point, so the
+    // text has to be localized here rather than looked up from an error code later.
     const isAbort = err instanceof DOMException && err.name === "TimeoutError"
+    const seconds = (opts.timeoutMs ?? DEFAULT_TIMEOUT) / 1000
     throw new ApiError(
       0,
       isAbort ? "TIMEOUT" : "NETWORK_UNREACHABLE",
       isAbort
-        ? `${base} 在 ${(opts.timeoutMs ?? DEFAULT_TIMEOUT) / 1000}s 内没有响应`
-        : `连不上 ${base}。请确认后端已启动（tools/dev-up.sh），且平台带 --cors-origin 启动`,
+        ? i18n.t("errors.diag.timeout", { base, seconds })
+        : i18n.t("errors.diag.unreachable", { base }),
       err
     )
   }

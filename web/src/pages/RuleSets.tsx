@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next"
 import { Link } from "react-router-dom"
 import {
   Table,
@@ -14,35 +15,34 @@ import { useAsync } from "@/lib/useAsync"
 import { api } from "@/lib/api"
 
 export default function RuleSets() {
+  const { t } = useTranslation()
   const state = useAsync(() => api.rulesets.list(), [])
 
   return (
     <div className="p-6 space-y-4">
       <div>
-        <h1 className="text-lg font-semibold">规则集</h1>
-        <p className="text-sm text-muted-foreground">
-          规则集 = 独立规则模块；表达式 / 决策表是同一规则集的两种写法
-        </p>
+        <h1 className="text-lg font-semibold">{t("rulesets.title")}</h1>
+        <p className="text-sm text-muted-foreground">{t("rulesets.subtitle")}</p>
       </div>
 
       <Async
         state={state}
-        loadingLabel="读取规则集"
+        loadingLabel={t("rulesets.loading")}
         empty={(d) => (d.items ?? []).length === 0}
       >
         {(data) => (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>规则集 ID</TableHead>
-                <TableHead>场景</TableHead>
-                <TableHead>版本</TableHead>
-                <TableHead>命中策略</TableHead>
-                <TableHead>兜底</TableHead>
-                <TableHead>规则数</TableHead>
-                <TableHead>用例（已确认/总数）</TableHead>
-                <TableHead>最近更新</TableHead>
-                <TableHead className="text-right">操作</TableHead>
+                <TableHead>{t("rulesets.col.id")}</TableHead>
+                <TableHead>{t("rulesets.col.scene")}</TableHead>
+                <TableHead>{t("rulesets.col.version")}</TableHead>
+                <TableHead>{t("rulesets.col.hitStrategy")}</TableHead>
+                <TableHead>{t("rulesets.col.default")}</TableHead>
+                <TableHead>{t("rulesets.col.ruleCount")}</TableHead>
+                <TableHead>{t("rulesets.col.tests")}</TableHead>
+                <TableHead>{t("rulesets.col.updatedAt")}</TableHead>
+                <TableHead className="text-end">{t("common.actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -68,7 +68,7 @@ export default function RuleSets() {
                         }
                         title={
                           tests.length > 0 && approved === 0
-                            ? "有未确认用例：发布门禁不会真正执行任何用例"
+                            ? t("rulesets.unapprovedTitle")
                             : undefined
                         }
                       >
@@ -76,14 +76,18 @@ export default function RuleSets() {
                       </span>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {rs.updatedAt
-                        ? `${formatTime(rs.updatedAt)} · ${rs.updatedBy ?? "?"}`
-                        : "—"}
+                      {/* Timestamp plus actor: both are ASCII, so the pair is pinned to LTR -
+                          inside an RTL paragraph the two numeric runs would swap order. */}
+                      <span dir="ltr">
+                        {rs.updatedAt
+                          ? `${formatTime(rs.updatedAt)} · ${rs.updatedBy ?? "?"}`
+                          : "—"}
+                      </span>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-end">
                       <Link to={`/rulesets/${encodeURIComponent(rs.rulesetId)}`}>
                         <Button variant="outline" size="sm">
-                          编辑
+                          {t("common.edit")}
                         </Button>
                       </Link>
                     </TableCell>
@@ -98,6 +102,11 @@ export default function RuleSets() {
   )
 }
 
+/**
+ * Timestamps stay `YYYY-MM-DD HH:mm` in every locale on purpose: they are compared as strings
+ * across logs and screenshots, so a localized format would make two views of the same event
+ * impossible to line up.
+ */
 function formatTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso

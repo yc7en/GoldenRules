@@ -1,4 +1,6 @@
 import { useState } from "react"
+import { useTranslation } from "react-i18next"
+import type { TFunction } from "i18next"
 import {
   Table,
   TableBody,
@@ -19,60 +21,86 @@ import type {
   RiskLevel,
 } from "@/lib/api-types"
 
-const statusConfig: Record<string, { label: string; cls: string }> = {
-  draft: { label: "草稿", cls: "bg-muted text-muted-foreground" },
-  submitted: { label: "已提交", cls: "bg-blue-100 text-blue-700" },
-  approval: { label: "审批中", cls: "bg-amber-100 text-amber-700" },
-  approved: { label: "已批准", cls: "bg-blue-100 text-blue-700" },
-  rejected: { label: "已驳回", cls: "bg-red-100 text-red-700" },
-  published: { label: "已发布", cls: "bg-green-100 text-green-700" },
+const STATUS_KEYS = {
+  draft: "approval.status.draft",
+  submitted: "approval.status.submitted",
+  approval: "approval.status.approval",
+  approved: "approval.status.approved",
+  rejected: "approval.status.rejected",
+  published: "approval.status.published",
+} as const
+
+const STATUS_CLS: Record<string, string> = {
+  draft: "bg-muted text-muted-foreground",
+  submitted: "bg-blue-100 text-blue-700",
+  approval: "bg-amber-100 text-amber-700",
+  approved: "bg-blue-100 text-blue-700",
+  rejected: "bg-red-100 text-red-700",
+  published: "bg-green-100 text-green-700",
+}
+
+const SUBMITTER_KEYS = {
+  engineer: "approval.submitter.engineer",
+  business: "approval.submitter.business",
+  agent: "approval.submitter.agent",
+  risk: "approval.submitter.risk",
+  compliance: "approval.submitter.compliance",
+  owner: "approval.submitter.owner",
+} as const
+
+/** Role names are an internal vocabulary, so they get a label; the value itself is never touched. */
+function submitterLabel(t: TFunction, s: string): string {
+  const key = SUBMITTER_KEYS[s as keyof typeof SUBMITTER_KEYS]
+  return key ? t(key) : s
+}
+
+function statusLabel(t: TFunction, status: string): string {
+  const key = STATUS_KEYS[status as keyof typeof STATUS_KEYS]
+  return key ? t(key) : status
 }
 
 export default function Approval() {
+  const { t } = useTranslation()
   const changes = useAsync(() => api.changes.list(), [])
   const matrix = useAsync(() => api.changes.matrix(), [])
 
   return (
     <div className="p-6 space-y-4">
       <div>
-        <h1 className="text-lg font-semibold">审批与发布</h1>
-        <p className="text-sm text-muted-foreground">
-          二维审批矩阵：提交者类型 × 风险等级。批准与发布都是真动作，会写审计。
-        </p>
+        <h1 className="text-lg font-semibold">{t("approval.title")}</h1>
+        <p className="text-sm text-muted-foreground">{t("approval.subtitle")}</p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">审批矩阵（等级 × 提交者）</CardTitle>
+          <CardTitle className="text-sm">{t("approval.matrixTitle")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <Async state={matrix} loadingLabel="读取审批矩阵">
+          <Async state={matrix} loadingLabel={t("approval.loadingMatrix")}>
             {(m) => <MatrixTable cells={m.cells} />}
           </Async>
-          <p className="mt-2 text-xs text-red-600">
-            硬规则：agent 只能提草稿，永远不能发布；L4 规则 agent 不得直接提交。
-          </p>
+          <p className="mt-2 text-xs text-red-600">{t("approval.hardRule")}</p>
         </CardContent>
       </Card>
 
-      <Async state={changes} loadingLabel="读取变更单">
+      <Async state={changes} loadingLabel={t("approval.loadingChanges")}>
         {(data) =>
           data.items.length === 0 ? (
             <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
-              还没有变更单。变更单由提交流程创建 —— 本页负责审批与发布，不负责建单。
+              {t("approval.empty")}
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>变更单</TableHead>
-                  <TableHead>包 / 版本</TableHead>
-                  <TableHead>等级</TableHead>
-                  <TableHead>提交者</TableHead>
-                  <TableHead>审批进度</TableHead>
-                  <TableHead>时效</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
+                  <TableHead>{t("approval.col.change")}</TableHead>
+                  <TableHead>{t("approval.col.package")}</TableHead>
+                  <TableHead>{t("approval.col.risk")}</TableHead>
+                  <TableHead>{t("approval.col.submitter")}</TableHead>
+                  <TableHead>{t("approval.col.progress")}</TableHead>
+                  <TableHead>{t("approval.col.sla")}</TableHead>
+                  <TableHead>{t("approval.col.status")}</TableHead>
+                  <TableHead className="text-end">{t("common.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -96,15 +124,16 @@ export default function Approval() {
 }
 
 function MatrixTable({ cells }: { cells: { riskLevel: RiskLevel; submitterType: string; requiredCount: number; slotLabels: string[]; forbidden: boolean; forbiddenCause?: string }[] }) {
+  const { t } = useTranslation()
   const levels: RiskLevel[] = ["L1", "L2", "L3", "L4"]
   const submitters = [...new Set(cells.map((c) => c.submitterType))]
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>等级</TableHead>
+          <TableHead>{t("approval.col.risk")}</TableHead>
           {submitters.map((s) => (
-            <TableHead key={s}>{submitterLabel(s)}</TableHead>
+            <TableHead key={s}>{submitterLabel(t, s)}</TableHead>
           ))}
         </TableRow>
       </TableHeader>
@@ -123,16 +152,17 @@ function MatrixTable({ cells }: { cells: { riskLevel: RiskLevel; submitterType: 
                 <TableCell key={s} className="text-xs">
                   {cell.forbidden ? (
                     <span className="font-medium text-red-600">
-                      禁止提交
+                      {t("approval.forbidden")}
                       {cell.forbiddenCause && (
-                        <span className="ml-1 font-normal text-red-500">
-                          （{cell.forbiddenCause}）
+                        <span className="ms-1 font-normal text-red-500">
+                          ({cell.forbiddenCause})
                         </span>
                       )}
                     </span>
                   ) : (
                     <span>
-                      {cell.requiredCount} 人 · {cell.slotLabels.join(" / ")}
+                      {t("approval.people", { count: cell.requiredCount })} ·{" "}
+                      {cell.slotLabels.join(" / ")}
                     </span>
                   )}
                 </TableCell>
@@ -152,6 +182,7 @@ function ChangeRow({
   change: ChangeSummary
   onChanged: () => void
 }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [detail, setDetail] = useState<ChangeDetail | null>(null)
   const [detailError, setDetailError] = useState<ApiError | null>(null)
@@ -186,10 +217,10 @@ function ChangeRow({
     try {
       if (kind === "approve") {
         const r = await api.changes.approve(change.changeId, role, comment)
-        setFlash(`已批准（角色 ${role}），剩余审批位 ${r.remaining}`)
+        setFlash(t("approval.flashApproved", { role, remaining: r.remaining }))
       } else if (kind === "reject") {
         await api.changes.reject(change.changeId, role, comment)
-        setFlash("已驳回")
+        setFlash(t("approval.flashRejected"))
       } else {
         const r = await api.packages.publish(
           change.packageId,
@@ -197,7 +228,11 @@ function ChangeRow({
           change.changeId
         )
         setFlash(
-          `已发布 ${r.version.packageId} ${r.version.packageVersion}（${r.version.status}）`
+          t("approval.flashPublished", {
+            packageId: r.version.packageId,
+            packageVersion: r.version.packageVersion,
+            status: r.version.status,
+          })
         )
       }
       setComment("")
@@ -219,13 +254,13 @@ function ChangeRow({
       <TableRow>
         <TableCell className="font-mono text-xs">
           {change.changeId}
-          <div className="text-[10px] font-normal text-muted-foreground">
+          <div className="text-[10px] font-normal text-muted-foreground" dir="ltr">
             {formatTime(change.createdAt)}
           </div>
         </TableCell>
         <TableCell className="text-xs">
           {change.packageId}
-          <span className="ml-1 text-muted-foreground">{change.packageVersion}</span>
+          <span className="ms-1 text-muted-foreground">{change.packageVersion}</span>
           <div className="text-[10px] text-muted-foreground">{change.changeType}</div>
         </TableCell>
         <TableCell>
@@ -234,31 +269,33 @@ function ChangeRow({
         <TableCell className="text-xs">
           {change.submitter}
           <div className="text-[10px] text-muted-foreground">
-            {change.submitterType}
+            {submitterLabel(t, change.submitterType)}
           </div>
         </TableCell>
         <TableCell className="text-xs">
           {change.approved} / {change.required}
           {change.remaining > 0 && (
-            <span className="ml-1 text-amber-700">差 {change.remaining}</span>
+            <span className="ms-1 text-amber-700">
+              {t("approval.remaining", { count: change.remaining })}
+            </span>
           )}
         </TableCell>
         <TableCell className="text-xs">
           <SlaCell sla={change.sla} />
         </TableCell>
         <TableCell>
-          <Badge className={statusConfig[change.status]?.cls ?? ""}>
-            {statusConfig[change.status]?.label ?? change.status}
+          <Badge className={STATUS_CLS[change.status] ?? ""}>
+            {statusLabel(t, change.status)}
           </Badge>
         </TableCell>
-        <TableCell className="text-right">
+        <TableCell className="text-end">
           <div className="flex justify-end gap-1">
             <Button size="sm" variant="outline" onClick={toggle}>
-              {open ? "收起" : "详情"}
+              {open ? t("common.collapse") : t("common.detail")}
             </Button>
             {canPublish && (
               <Button size="sm" disabled={busy} onClick={() => act("publish")}>
-                发布
+                {t("approval.publish")}
               </Button>
             )}
           </div>
@@ -269,13 +306,13 @@ function ChangeRow({
         <TableRow>
           <TableCell colSpan={8} className="bg-muted/40">
             {detailError && <ErrorBox error={detailError} onRetry={loadDetail} />}
-            {!detail && !detailError && <Loading label="读取变更详情" />}
+            {!detail && !detailError && <Loading label={t("approval.loadingDetail")} />}
             {detail && (
               <div className="space-y-3 p-1">
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
                     <div className="mb-1 text-[11px] uppercase text-muted-foreground">
-                      审批位
+                      {t("approval.slot")}
                     </div>
                     <div className="space-y-1">
                       {detail.slots.map((s, i) => {
@@ -283,30 +320,37 @@ function ChangeRow({
                         return (
                           <div
                             key={i}
-                            className="flex items-center justify-between rounded border bg-card px-2 py-1 text-xs"
+                            className="flex items-center justify-between gap-2 rounded border bg-card px-2 py-1 text-xs"
                           >
                             <span>
                               {i + 1}. {s.label}{" "}
                               <span className="text-muted-foreground">
-                                （{s.roles.join("/")}）
+                                ({s.roles.join("/")})
                               </span>
                             </span>
                             {filled ? (
-                              <span className="text-green-700">
+                              <span className="shrink-0 text-green-700">
                                 {filled.actor}
-                                {filled.self && " · 自审"}
+                                {filled.self && ` · ${t("approval.selfReview")}`}
                               </span>
                             ) : (
-                              <span className="text-amber-700">待批</span>
+                              <span className="shrink-0 text-amber-700">
+                                {t("approval.slotPending")}
+                              </span>
                             )}
                           </div>
                         )
                       })}
                     </div>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      提交人 {detail.submitter}（{detail.submitterType}）· 当前操作者{" "}
-                      {actor.id}（{actor.type}）
-                      {detail.selfApproval === false && " · 本等级不允许自审"}
+                      {t("approval.submitterInfo", {
+                        submitter: detail.submitter,
+                        type: submitterLabel(t, detail.submitterType),
+                        actor: actor.id,
+                        actorType: actor.type,
+                      })}
+                      {detail.selfApproval === false &&
+                        ` · ${t("approval.noSelfApproval")}`}
                     </p>
                   </div>
 
@@ -319,22 +363,22 @@ function ChangeRow({
                               value={role}
                               onChange={(e) => setRole(e.target.value)}
                               className="rounded border border-input bg-card px-2 py-1 text-xs"
-                              aria-label="审批角色"
+                              aria-label={t("approval.roleAria")}
                             >
                               {unfilledRoles(detail).map(([slot, r]) => (
                                 <option key={`${slot}-${r}`} value={r}>
-                                  位 {slot + 1} · {r}
+                                  {t("approval.slotOption", { slot: slot + 1, role: r })}
                                 </option>
                               ))}
                             </select>
                             <input
                               value={comment}
                               onChange={(e) => setComment(e.target.value)}
-                              placeholder="审批意见"
+                              placeholder={t("approval.commentPlaceholder")}
                               className="min-w-0 flex-1 rounded border border-input bg-card px-2 py-1 text-xs"
                             />
                             <Button size="sm" disabled={busy} onClick={() => act("approve")}>
-                              批准
+                              {t("approval.approve")}
                             </Button>
                             <Button
                               size="sm"
@@ -342,13 +386,13 @@ function ChangeRow({
                               disabled={busy}
                               onClick={() => act("reject")}
                             >
-                              驳回
+                              {t("approval.reject")}
                             </Button>
                           </div>
                         )}
                         {canPublish && (
                           <div className="rounded border border-green-300 bg-green-50 p-2 text-xs text-green-800">
-                            已批准，可以发布。发布后新包对该场景生效；在途请求仍用旧包跑完。
+                            {t("approval.readyToPublish")}
                           </div>
                         )}
                       </>
@@ -361,18 +405,19 @@ function ChangeRow({
                     )}
                     {detail.approvals.length > 0 && (
                       <div className="text-[11px] text-muted-foreground">
-                        审批记录：
-                        {detail.approvals
-                          .map(
-                            (a) =>
-                              `${a.actor}(${a.role})${a.comment ? `「${a.comment}」` : ""}`
-                          )
-                          .join("；")}
+                        {t("approval.records", {
+                          records: detail.approvals
+                            .map(
+                              (a) =>
+                                `${a.actor}(${a.role})${a.comment ? `「${a.comment}」` : ""}`
+                            )
+                            .join("; "),
+                        })}
                       </div>
                     )}
                     {detail.reason && (
                       <p className="text-[11px] text-muted-foreground">
-                        变更理由：{detail.reason}
+                        {t("approval.reason", { reason: detail.reason })}
                       </p>
                     )}
                   </div>
@@ -387,11 +432,15 @@ function ChangeRow({
 }
 
 function SlaCell({ sla }: { sla?: ChangeSummary["sla"] }) {
+  const { t } = useTranslation()
   if (!sla) return <span className="text-muted-foreground">—</span>
   if (!sla.applicable) {
     return (
-      <span className="text-muted-foreground" title="已不在等审批，时效不再计算">
-        不适用
+      <span
+        className="text-muted-foreground"
+        title={t("approval.sla.notApplicableTitle")}
+      >
+        {t("approval.sla.notApplicable")}
       </span>
     )
   }
@@ -401,12 +450,15 @@ function SlaCell({ sla }: { sla?: ChangeSummary["sla"] }) {
     ? "text-amber-700"
     : ""
   return (
-    <span className={cls} title={`升级阈值 ${sla.escalateAfterHours}h`}>
-      目标 {sla.targetHours}h
-      {sla.overdue && " · 已超期"}
-      {!sla.overdue && sla.escalated && " · 已升级"}
+    <span
+      className={cls}
+      title={t("approval.sla.escalateAt", { hours: sla.escalateAfterHours })}
+    >
+      {t("approval.sla.target", { hours: sla.targetHours })}
+      {sla.overdue && ` · ${t("approval.sla.overdue")}`}
+      {!sla.overdue && sla.escalated && ` · ${t("approval.sla.escalated")}`}
       <div className="text-[10px] text-muted-foreground">
-        已等 {sla.elapsedHours.toFixed(1)}h
+        {t("approval.sla.waited", { hours: sla.elapsedHours.toFixed(1) })}
       </div>
     </span>
   )
@@ -421,18 +473,10 @@ function unfilledRoles(detail: ChangeDetail): [number, string][] {
   return out
 }
 
-function submitterLabel(s: string): string {
-  const map: Record<string, string> = {
-    engineer: "工程师",
-    business: "业务",
-    agent: "agent",
-    risk: "风控",
-    compliance: "合规",
-    owner: "负责人",
-  }
-  return map[s] ?? s
-}
-
+/**
+ * Timestamps stay numeric and unlocalized: the approval trail is compared against audit entries
+ * and logs by string, and an Arabic-Indic rendering of the same instant would break that.
+ */
 function formatTime(iso?: string): string {
   if (!iso) return "—"
   const d = new Date(iso)

@@ -1,0 +1,390 @@
+{
+  "app": {
+    "title": "GoldenRules BRMS"
+  },
+  "locale": {
+    "label": "Language"
+  },
+  "nav": {
+    "scenes": "Scenario policies",
+    "rulesets": "Rulesets",
+    "facts": "Fact catalog",
+    "testcases": "Test cases",
+    "approval": "Approval & release",
+    "observability": "Observability & audit"
+  },
+  "health": {
+    "engine": "Decision service",
+    "engineHint": "Rust engine: trial runs and decisions",
+    "platform": "Management platform",
+    "platformHint": "Go platform: rules and approvals",
+    "up": "Up",
+    "down": "Unreachable",
+    "checking": "Checking"
+  },
+  "actor": {
+    "label": "Current actor",
+    "idAria": "Actor ID",
+    "typeAria": "Actor type",
+    "hint": "Approval attribution and the self-approval check both read this; switch actor to complete separation of duties."
+  },
+  "common": {
+    "loading": "Loading",
+    "retry": "Retry",
+    "edit": "Edit",
+    "detail": "Details",
+    "collapse": "Collapse",
+    "all": "All",
+    "yes": "Yes",
+    "no": "No",
+    "none": "—",
+    "actions": "Actions",
+    "name": "Name",
+    "version": "Version",
+    "domain": "Domain",
+    "description": "Description",
+    "emptySet": "The endpoint returned an empty set. This is not a load failure — the backend really has no data."
+  },
+  "errors": {
+    "howToFix": "What to do",
+    "unknownCode": "Unrecognized error code",
+    "backendRaw": "Backend message",
+    "diag": {
+      "timeout": "{{base}} did not respond within {{seconds}}s",
+      "unreachable": "Cannot reach {{base}}. Confirm the backend is running (tools/dev-up.sh) and that the platform was started with --cors-origin."
+    },
+    "hint": {
+      "NETWORK_UNREACHABLE": "The backend is not running, or the platform was started without --cors-origin. Run tools/dev-up.sh to start the engine and the platform.",
+      "TIMEOUT": "The request timed out. The engine is doing a long decision, or the backend process is stuck.",
+      "NOT_FOUND": "The object does not exist. The data directory may have been reset — refresh the list and pick again.",
+      "PKG_VERIFY_UNAVAILABLE": "The platform has no gate executor configured (--engine-url). Packages with approved test cases cannot be released because of this.",
+      "VERSION_SELECTION_CONFLICT": "This scenario mounts more than one ruleset, so the request must specify rulesetId."
+    }
+  },
+  "scenes": {
+    "title": "Scenario policies",
+    "subtitle": "Rulesets mounted by scenario (a list, not a node-linking canvas)",
+    "redline": "Red line: this is not a flow canvas. A scenario policy is the list of rulesets mounted to a scenario; there is no drag-and-drop node orchestration.",
+    "redlineNote": "The scenarios on this page are grouped from the scene field declared on rulesets — the backend has no separate scenario entity yet.",
+    "loading": "Reading scenarios and rulesets",
+    "engineLoaded": "Engine loaded:",
+    "engineLoadedStats": " · {{rulesets}} · {{rules}} · {{size}}",
+    "engineDown": "Engine not connected: what you see below is the platform-side configuration and does not reflect what the engine is running. Trial runs and decisions will fail.",
+    "rulesetsShort_one": "{{count}} ruleset",
+    "rulesetsShort_other": "{{count}} rulesets",
+    "rulesShort_one": "{{count}} rule",
+    "rulesShort_other": "{{count}} rules",
+    "bytesShort": "~{{bytes}} bytes",
+    "stats": "Tests {{approved}}/{{total}} approved",
+    "rulesetLine": "{{rules}} · {{version}}",
+    "conflict": "This scenario mounts more than one ruleset: callers must specify rulesetId, otherwise the engine returns VERSION_SELECTION_CONFLICT."
+  },
+  "rulesets": {
+    "title": "Rulesets",
+    "subtitle": "A ruleset is a standalone rule module; expressions and decision tables are two ways of writing the same ruleset",
+    "loading": "Reading rulesets",
+    "unapprovedTitle": "Has unapproved test cases: the release gate will not actually execute any of them",
+    "col": {
+      "id": "Ruleset ID",
+      "scene": "Scenario",
+      "version": "Version",
+      "hitStrategy": "Hit strategy",
+      "default": "Default",
+      "ruleCount": "Rules",
+      "tests": "Tests (approved / total)",
+      "updatedAt": "Last updated",
+      "actions": "Actions"
+    }
+  },
+  "facts": {
+    "title": "Fact catalog",
+    "subtitle": "Single source of truth: the field contract registry",
+    "catalogVersion": "version {{version}}",
+    "fieldCount_one": "{{count}} field",
+    "fieldCount_other": "{{count}} fields",
+    "searchPlaceholder": "Filter by field name or semantics",
+    "loading": "Reading the fact catalog",
+    "notice": "The fact catalog stores contracts only (name / type / semantics / missing handling / masking / version), never data retrieval — that belongs to an external Fact Provider. This page is read-only; register or revise via POST/PUT /api/v1/facts.",
+    "noMatch": "No field matches \"{{q}}\".",
+    "deprecated": "Deprecated",
+    "onMissing": {
+      "ERROR": "Fail on missing",
+      "DEFAULT": "Use default",
+      "NULL": "Null",
+      "DEGRADE": "Degrade"
+    },
+    "sensitivity": {
+      "PUBLIC": "Public",
+      "INTERNAL": "Internal",
+      "PII": "Personal",
+      "SECRET": "Secret"
+    },
+    "col": {
+      "fact": "Field",
+      "displayName": "Name",
+      "type": "Type",
+      "required": "Required",
+      "nullable": "Nullable",
+      "onMissing": "Missing handling",
+      "sensitivity": "Masking",
+      "version": "Version",
+      "semantics": "Semantics"
+    }
+  },
+  "tests": {
+    "title": "Test cases",
+    "subtitle": "Business users mainly confirm test cases; whoever confirms an AI-generated expectation owns it",
+    "pending": "To confirm",
+    "notice": "Only approved test cases are executed by the release gate. When a package contains no approved case the gate passes without verifying anything — that is a no-op, not a pass.",
+    "loading": "Reading test cases",
+    "emptyPending": "No test case is waiting for confirmation. Switch to \"All\" to see approved and rejected ones.",
+    "emptyAll": "No ruleset contains any test case.",
+    "saveRejected": "Ruleset save rejected: {{message}} ({{path}})",
+    "saved": "{{testId}} → {{status}} (ruleset {{rulesetId}} saved, rule version unchanged)",
+    "confirm": "Approve",
+    "reject": "Reject",
+    "saving": "Saving…",
+    "status": {
+      "pending_review": "Pending",
+      "approved": "Approved",
+      "rejected": "Rejected"
+    },
+    "author": {
+      "agent": "AI generated",
+      "engineer": "Engineer",
+      "business": "Business"
+    },
+    "col": {
+      "testId": "Test case ID",
+      "ruleset": "Ruleset",
+      "scene": "Scenario",
+      "input": "Input",
+      "expect": "Expected",
+      "author": "Author",
+      "status": "Status",
+      "actions": "Actions"
+    }
+  },
+  "approval": {
+    "title": "Approval & release",
+    "subtitle": "Two-dimensional approval matrix: submitter type × risk level. Approving and publishing are real actions and are audited.",
+    "matrixTitle": "Approval matrix (level × submitter)",
+    "loadingMatrix": "Reading the approval matrix",
+    "hardRule": "Hard rule: an agent can only submit drafts and can never publish; L4 rules cannot be submitted by an agent.",
+    "loadingChanges": "Reading change requests",
+    "empty": "No change requests yet. Change requests are created by the submission flow — this page approves and publishes, it does not create them.",
+    "loadingDetail": "Reading change details",
+    "forbidden": "Cannot submit",
+    "people_one": "{{count}} approver",
+    "people_other": "{{count}} approvers",
+    "slot": "Approval slots",
+    "slotPending": "Pending",
+    "selfReview": "self-approved",
+    "submitterInfo": "Submitter {{submitter}} ({{type}}) · current actor {{actor}} ({{actorType}})",
+    "noSelfApproval": "self-approval is not allowed at this level",
+    "roleAria": "Approval role",
+    "slotOption": "Slot {{slot}} · {{role}}",
+    "commentPlaceholder": "Approval comment",
+    "approve": "Approve",
+    "publish": "Publish",
+    "reject": "Reject",
+    "readyToPublish": "Approved and ready to publish. Publishing takes effect for this scenario from now on; in-flight requests finish on the old package.",
+    "records": "Approval records: {{records}}",
+    "reason": "Change reason: {{reason}}",
+    "flashApproved": "Approved (role {{role}}), {{remaining}} approval slots left",
+    "flashRejected": "Rejected",
+    "flashPublished": "Published {{packageId}} {{packageVersion}} ({{status}})",
+    "remaining": "{{count}} short",
+    "sla": {
+      "notApplicable": "N/A",
+      "notApplicableTitle": "No longer waiting for approval, so the SLA no longer counts",
+      "target": "Target {{hours}}h",
+      "overdue": "overdue",
+      "escalated": "escalated",
+      "waited": "Waiting {{hours}}h",
+      "escalateAt": "Escalation threshold {{hours}}h"
+    },
+    "col": {
+      "change": "Change request",
+      "package": "Package / version",
+      "risk": "Level",
+      "submitter": "Submitter",
+      "progress": "Approval progress",
+      "sla": "SLA",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "status": {
+      "draft": "Draft",
+      "submitted": "Submitted",
+      "approval": "In approval",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "published": "Published"
+    },
+    "submitter": {
+      "engineer": "Engineer",
+      "business": "Business",
+      "agent": "Agent",
+      "risk": "Risk",
+      "compliance": "Compliance",
+      "owner": "Owner"
+    }
+  },
+  "obs": {
+    "title": "Observability & audit",
+    "subtitle": "Three blocks, three sources — do not read them as one: <b>decision logs</b> are the engine's per-decision trail, the <b>audit trail</b> is what people did, the <b>contract registry</b> is static convention that does not change at runtime.",
+    "tab": {
+      "logs": "Decision logs",
+      "audit": "Audit trail",
+      "enums": "Contract registry"
+    },
+    "tabFailed": "This tab failed to load",
+    "introSource": "Source",
+    "introNote": "How to read",
+    "logs": {
+      "question": "Why did this decision come out this way?",
+      "source": "Structured logs pushed from engine to platform (masked view)",
+      "note": "Machine output, one entry per evaluation. Each entry can be replayed: recompute from the snapshot taken at the time and check whether decision and reason code still match.",
+      "loading": "Reading decision logs",
+      "empty": "No decision logs yet. The engine pushes a structured log to the platform on every decision — run a trial first, or send one decision from the engine side.",
+      "replay": "Replay",
+      "replaying": "Replaying…",
+      "match": "match: {{decision}} / {{reasonCode}}",
+      "mismatch": "mismatch: was {{decision}} / {{reasonCode}}, replay {{replayDecision}} / {{replayReasonCode}}",
+      "mismatchReason": "mismatch: was {{decision}} / {{reasonCode}}, replay {{replayDecision}} / {{replayReasonCode}} ({{reason}})",
+      "stat": {
+        "total": "Entries",
+        "byDecision": "Decision mix",
+        "degraded": "Degraded",
+        "avgLatency": "Avg latency",
+        "maxLatency": "Max latency",
+        "rawSnapshot": "Raw snapshots",
+        "rawOn": "kept {{days}} days",
+        "rawOff": "off"
+      },
+      "col": {
+        "logId": "Log ID",
+        "scene": "Scenario",
+        "decision": "Decision",
+        "reasonCode": "Reason code",
+        "hitRules": "Matched rules",
+        "degraded": "Degraded",
+        "time": "Time",
+        "replay": "Replay"
+      }
+    },
+    "audit": {
+      "question": "Who changed what, and when?",
+      "source": "Operation events recorded by the platform itself (approval votes, releases, key rotation)",
+      "note": "Produced by people or by agents acting on their behalf, one entry per state transition. Decision-log entries never appear here, and vice versa.",
+      "loading": "Reading the audit trail",
+      "count_one": "{{count}} entry on this page",
+      "count_other": "{{count}} entries on this page",
+      "total_one": "{{count}} total",
+      "total_other": "{{count}} total",
+      "actions": "actions involved: {{actions}}",
+      "empty": "No audit events yet. Approvals, releases and key rotation all leave a trace here.",
+      "col": {
+        "time": "Time",
+        "action": "Action",
+        "actor": "Actor",
+        "object": "Object",
+        "transition": "Transition",
+        "detail": "Detail"
+      }
+    },
+    "enums": {
+      "question": "Which values may a decision or a reason code take?",
+      "source": "Contract docs contracts/01 §3.6 / §5 (compiled into code, not served by an endpoint)",
+      "note": "A static table. Changing it means changing the DSL contract. It does not change because of any single decision, and it takes no part in replay.",
+      "decisionTitle": "Decision values",
+      "decisionCount_one": "{{count}} total",
+      "decisionCount_other": "{{count}} total",
+      "decisionHint": "Decides which branch this evaluation lands in",
+      "reasonTitle": "Reason-code prefixes",
+      "reasonCount_one": "{{count}} total",
+      "reasonCount_other": "{{count}} total",
+      "reasonHint": "Explains why this outcome was reached; logged reason codes start with one of these",
+      "col": {
+        "value": "Decision value",
+        "prefix": "Reason-code prefix",
+        "domain": "Domain",
+        "description": "Description"
+      },
+      "domain": {
+        "approval": "Approval",
+        "routing": "Routing",
+        "limit": "Limit",
+        "list": "List",
+        "system": "System"
+      },
+      "desc": {
+        "APPROVE": "Approve / let through",
+        "REJECT": "Reject",
+        "REVIEW": "Route to manual review",
+        "ROUTE": "Route to the specified channel",
+        "AMOUNT_": "Amount related (over limit / review)",
+        "FREQ_": "Frequency related",
+        "LIST_": "List hit",
+        "CONTRACT_": "Contract-violation fallback",
+        "DEGRADE_": "Degradation related",
+        "DEFAULT_": "Fallback when no rule matched"
+      }
+    }
+  },
+  "editor": {
+    "loading": "Reading the ruleset",
+    "missingId": "The URL has no ruleset ID",
+    "unsaved": "Unsaved",
+    "meta": "Version {{version}} · hit strategy {{hitStrategy}} · default {{defaultDecision}} · revision {{revision}}",
+    "lastBy": " · last edited by {{actor}}",
+    "validate": "Validate",
+    "validating": "Validating…",
+    "trial": "Trial run",
+    "trialing": "Running…",
+    "save": "Save draft",
+    "saving": "Saving…",
+    "saved": "Saved to the platform (revision {{from}} → new version). The engine does not reload automatically, so trial runs still use the loaded package.",
+    "saveRejected": "Save rejected: {{message}}",
+    "jsonParse": "The JSON in the editor failed to parse: {{message}}",
+    "parseFailed": "JSON parse failed: {{message}}",
+    "topNotObject": "The top level must be an object",
+    "tab": {
+      "structured": "Structured",
+      "expression": "Expression",
+      "table": "Decision table"
+    },
+    "defTitle": "Ruleset definition (JSON)",
+    "defHint": "Edit here directly; the backend runs a dry-run before saving",
+    "exprTitle": "Expression rules (read-only)",
+    "exprNote": "This ruleset is written as a decision table; open the \"Decision table\" view.",
+    "priority": "priority {{priority}}",
+    "tableTitle": "Decision table · {{tableId}}",
+    "tableNone": "This ruleset uses expressions and has no decision table. The table view only has content when ruleset.table exists.",
+    "tableDefault": "Default: {{decision}} · {{reasonCode}}",
+    "decision": "Decision",
+    "reasonCode": "Reason code",
+    "validationTitle": "Validation",
+    "validationIdle": "Click \"Validate\" to run the backend dry-run compile: real fact catalog, real DSL compiler.",
+    "passed": "Passed",
+    "errors_one": "{{count}} error",
+    "errors_other": "{{count}} errors",
+    "validationEdited": "validated against the current editor content",
+    "validationStats": "rules {{rules}} · slots {{slots}} · max depth {{depth}} · nodes {{nodes}} · assign {{assign}}",
+    "validationOk": "Validation passed with no errors or warnings.",
+    "suggest": "Suggestion: {{text}}",
+    "trialTitle": "Trial run",
+    "trialVia": "via platform → engine",
+    "trialHint": "The trial executes the <b>package the engine has loaded</b>, not the editor draft. After editing, save first and let the release flow hot-reload before the trial result changes.",
+    "trialFactsLabel": "facts ({{scene}} / {{rulesetId}})",
+    "trialInputMustBeObject": "Trial input must be an object: { \"request.amount\": \"1500\", ... }",
+    "trialInputNotJson": "Trial input is not valid JSON: {{message}}",
+    "trialDecision": "Decision: {{decision}}",
+    "degraded": "Degraded",
+    "trialPackage": "Package {{packageId}} {{packageVersion}} · ruleset version {{rulesetVersion}}",
+    "trialEvaluated": "evaluated {{count}} rules · {{latency}} · engine {{engine}}",
+    "trialOutputs": "Output variables:",
+    "trialNoHit": "No rule matched; the default decision was used."
+  }
+}

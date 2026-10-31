@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Trans, useTranslation } from "react-i18next"
 import { useSearchParams } from "react-router-dom"
 import {
   Table,
@@ -18,21 +19,50 @@ import { api, ApiError } from "@/lib/api"
 // Enums and reason-code prefixes registered in the contract. These two tables do not come from an
 // endpoint - they are part of the DSL contract (contracts/01 §3.6 / §5), so changing them requires a
 // contract change and they never move because of a single decision.
+// Only the labels are localized; the values themselves are contract and never translated.
 const decisionEnums = [
-  { value: "APPROVE", domain: "审批域", desc: "通过/放行" },
-  { value: "REJECT", domain: "审批域", desc: "拒绝" },
-  { value: "REVIEW", domain: "审批域", desc: "转人工复核" },
-  { value: "ROUTE", domain: "路由域", desc: "路由到指定通道" },
-]
+  {
+    value: "APPROVE",
+    domainKey: "obs.enums.domain.approval",
+    descKey: "obs.enums.desc.APPROVE",
+  },
+  {
+    value: "REJECT",
+    domainKey: "obs.enums.domain.approval",
+    descKey: "obs.enums.desc.REJECT",
+  },
+  {
+    value: "REVIEW",
+    domainKey: "obs.enums.domain.approval",
+    descKey: "obs.enums.desc.REVIEW",
+  },
+  {
+    value: "ROUTE",
+    domainKey: "obs.enums.domain.routing",
+    descKey: "obs.enums.desc.ROUTE",
+  },
+] as const
 
 const reasonCodes = [
-  { code: "AMOUNT_", domain: "LIMIT", desc: "金额相关（超限/复核）" },
-  { code: "FREQ_", domain: "LIMIT", desc: "频次相关" },
-  { code: "LIST_", domain: "LIST", desc: "名单命中" },
-  { code: "CONTRACT_", domain: "SYSTEM", desc: "契约违规兜底" },
-  { code: "DEGRADE_", domain: "SYSTEM", desc: "降级相关" },
-  { code: "DEFAULT_", domain: "SYSTEM", desc: "无规则命中兜底" },
-]
+  { code: "AMOUNT_", domainKey: "obs.enums.domain.limit", descKey: "obs.enums.desc.AMOUNT_" },
+  { code: "FREQ_", domainKey: "obs.enums.domain.limit", descKey: "obs.enums.desc.FREQ_" },
+  { code: "LIST_", domainKey: "obs.enums.domain.list", descKey: "obs.enums.desc.LIST_" },
+  {
+    code: "CONTRACT_",
+    domainKey: "obs.enums.domain.system",
+    descKey: "obs.enums.desc.CONTRACT_",
+  },
+  {
+    code: "DEGRADE_",
+    domainKey: "obs.enums.domain.system",
+    descKey: "obs.enums.desc.DEGRADE_",
+  },
+  {
+    code: "DEFAULT_",
+    domainKey: "obs.enums.domain.system",
+    descKey: "obs.enums.desc.DEFAULT_",
+  },
+] as const
 
 // A whitelist instead of using the query parameter directly: on a typo or a hand-edited URL an invalid
 // value would hide all three panels, making the page look like "there is nothing" - worse than falling
@@ -41,6 +71,7 @@ const TAB_KEYS = ["logs", "audit", "enums"]
 type TabKey = "logs" | "audit" | "enums"
 
 export default function Observability() {
+  const { t } = useTranslation()
   // The tab lives in the URL: a refresh does not jump back to the first tab, and you can send someone
   // the "audit trail" tab directly.
   const [params, setParams] = useSearchParams()
@@ -71,19 +102,27 @@ export default function Observability() {
         [logId]: res.match
           ? {
               ok: true,
-              text: `一致：${res.replay?.decision ?? "?"} / ${
-                res.replay?.reasonCode ?? "?"
-              }`,
+              text: t("obs.logs.match", {
+                decision: res.replay?.decision ?? "?",
+                reasonCode: res.replay?.reasonCode ?? "?",
+              }),
             }
           : {
               ok: false,
-              text: `不一致：原 ${
-                res.original?.decision ?? "?"
-              } / ${res.original?.reasonCode ?? "?"}，回放 ${
-                res.replay?.decision ?? "?"
-              } / ${res.replay?.reasonCode ?? "?"}${
-                res.reason ? `（${res.reason}）` : ""
-              }`,
+              text: res.reason
+                ? t("obs.logs.mismatchReason", {
+                    decision: res.original?.decision ?? "?",
+                    reasonCode: res.original?.reasonCode ?? "?",
+                    replayDecision: res.replay?.decision ?? "?",
+                    replayReasonCode: res.replay?.reasonCode ?? "?",
+                    reason: res.reason,
+                  })
+                : t("obs.logs.mismatch", {
+                    decision: res.original?.decision ?? "?",
+                    reasonCode: res.original?.reasonCode ?? "?",
+                    replayDecision: res.replay?.decision ?? "?",
+                    replayReasonCode: res.replay?.reasonCode ?? "?",
+                  }),
             },
       }))
     } catch (e) {
@@ -99,56 +138,73 @@ export default function Observability() {
   return (
     <div className="p-6 space-y-4">
       <div>
-        <h1 className="text-lg font-semibold">观测与审计</h1>
+        <h1 className="text-lg font-semibold">{t("obs.title")}</h1>
         <p className="text-sm text-muted-foreground">
-          三块东西，三种来源，别混着读：
-          <span className="text-foreground">决策日志</span>是引擎每次决策的流水、
-          <span className="text-foreground">审计留痕</span>是人做过的动作、
-          <span className="text-foreground">契约注册表</span>是静态约定（不随运行变化）。
+          <Trans
+            i18nKey="obs.subtitle"
+            components={{ b: <span className="text-foreground" /> }}
+          />
         </p>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger active={tab === "logs"} onClick={() => setTab("logs")}>
-            决策日志
+            {t("obs.tab.logs")}
             <Count n={logTotal} failed={!!logs.error} />
           </TabsTrigger>
           <TabsTrigger active={tab === "audit"} onClick={() => setTab("audit")}>
-            审计留痕
+            {t("obs.tab.audit")}
             <Count n={auditTotal} failed={!!audit.error} />
           </TabsTrigger>
           <TabsTrigger active={tab === "enums"} onClick={() => setTab("enums")}>
-            契约注册表
+            {t("obs.tab.enums")}
             <Count n={decisionEnums.length + reasonCodes.length} />
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="logs">
           <SectionIntro
-            source="引擎 → 平台推送的结构化日志（脱敏视图）"
-            question="这次决策为什么是这个结果？"
-            note="机器产出，一条对应一次求值。可逐条回放：拿当时的快照重算，比对结论与理由码是否仍然一致。"
+            source={t("obs.logs.source")}
+            question={t("obs.logs.question")}
+            note={t("obs.logs.note")}
           />
-          <Async state={logs} loadingLabel="读取决策日志">
+          <Async state={logs} loadingLabel={t("obs.logs.loading")}>
             {({ list, stats }) => (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
-                  <Stat label="总条数" value={String(stats.total)} />
+                  <Stat label={t("obs.logs.stat.total")} value={String(stats.total)} ltr />
                   <Stat
-                    label="决策分布"
+                    label={t("obs.logs.stat.byDecision")}
                     value={
                       Object.entries(stats.byDecision)
                         .map(([k, v]) => `${k} ${v}`)
                         .join(" · ") || "—"
                     }
+                    ltr
                   />
-                  <Stat label="降级" value={String(stats.degraded)} />
-                  <Stat label="平均耗时" value={`${stats.avgLatencyMs} ms`} />
-                  <Stat label="最大耗时" value={`${stats.maxLatencyMs} ms`} />
                   <Stat
-                    label="原始快照"
-                    value={stats.rawEnabled ? `保留 ${stats.retentionDays} 天` : "未开启"}
+                    label={t("obs.logs.stat.degraded")}
+                    value={String(stats.degraded)}
+                    ltr
+                  />
+                  <Stat
+                    label={t("obs.logs.stat.avgLatency")}
+                    value={`${stats.avgLatencyMs} ms`}
+                    ltr
+                  />
+                  <Stat
+                    label={t("obs.logs.stat.maxLatency")}
+                    value={`${stats.maxLatencyMs} ms`}
+                    ltr
+                  />
+                  <Stat
+                    label={t("obs.logs.stat.rawSnapshot")}
+                    value={
+                      stats.rawEnabled
+                        ? t("obs.logs.stat.rawOn", { days: stats.retentionDays })
+                        : t("obs.logs.stat.rawOff")
+                    }
                   />
                 </div>
 
@@ -156,22 +212,20 @@ export default function Observability() {
 
                 {list.items.length === 0 ? (
                   <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
-                    还没有决策日志。引擎每次决策会把结构化日志推到平台 ——
-                    先跑一次试跑，或在引擎侧发一次决策。
+                    {t("obs.logs.empty")}
                   </div>
                 ) : (
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>日志 ID</TableHead>
-                        <TableHead>场景</TableHead>
-                        <TableHead>决策</TableHead>
-                        <TableHead>理由码</TableHead>
-                        <TableHead>命中规则</TableHead>
-                        <TableHead>降级</TableHead>
-                        <TableHead>耗时</TableHead>
-                        <TableHead>时间</TableHead>
-                        <TableHead className="text-right">回放</TableHead>
+                        <TableHead>{t("obs.logs.col.logId")}</TableHead>
+                        <TableHead>{t("obs.logs.col.scene")}</TableHead>
+                        <TableHead>{t("obs.logs.col.decision")}</TableHead>
+                        <TableHead>{t("obs.logs.col.reasonCode")}</TableHead>
+                        <TableHead>{t("obs.logs.col.hitRules")}</TableHead>
+                        <TableHead>{t("obs.logs.col.degraded")}</TableHead>
+                        <TableHead>{t("obs.logs.col.time")}</TableHead>
+                        <TableHead className="text-end">{t("obs.logs.col.replay")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -203,25 +257,27 @@ export default function Observability() {
                             </TableCell>
                             <TableCell>
                               {e.degraded ? (
-                                <span className="text-red-600">是</span>
+                                <span className="text-red-600">{t("common.yes")}</span>
                               ) : (
-                                "否"
+                                t("common.no")
                               )}
                             </TableCell>
-                            <TableCell className="text-xs">
+                            <TableCell className="text-xs" dir="ltr">
                               {formatMs(e.executionTimeMs)}
                             </TableCell>
-                            <TableCell className="text-xs text-muted-foreground">
+                            <TableCell className="text-xs text-muted-foreground" dir="ltr">
                               {formatTime(e.executedAt)}
                             </TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className="text-end">
                               <Button
                                 size="sm"
                                 variant="outline"
                                 disabled={replaying === item.logId}
                                 onClick={() => doReplay(item.logId)}
                               >
-                                {replaying === item.logId ? "回放中…" : "回放"}
+                                {replaying === item.logId
+                                  ? t("obs.logs.replaying")
+                                  : t("obs.logs.replay")}
                               </Button>
                               {rp && (
                                 <div
@@ -246,44 +302,47 @@ export default function Observability() {
 
         <TabsContent value="audit">
           <SectionIntro
-            source="平台自身记录的操作事件（审批票、发布、密钥轮换）"
-            question="谁在什么时候改动过什么？"
-            note="人或代操作者执行动作的 agent 产生，一条对应一次状态迁移。决策日志里的记录不会出现在这里，反之亦然。"
+            source={t("obs.audit.source")}
+            question={t("obs.audit.question")}
+            note={t("obs.audit.note")}
           />
-          <Async state={audit} loadingLabel="读取审计留痕">
+          <Async state={audit} loadingLabel={t("obs.audit.loading")}>
             {(data) => {
               const actions = Array.from(new Set(data.items.map((a) => a.action)))
               return (
                 <div className="space-y-3">
                   <div className="text-xs text-muted-foreground">
-                    本页 {data.items.length} 条
+                    {t("obs.audit.count", { count: data.items.length })}
                     {data.total !== undefined && data.total > data.items.length && (
-                      <> · 累计 {data.total} 条</>
+                      <> · {t("obs.audit.total", { count: data.total })}</>
                     )}
                     {actions.length > 0 && (
-                      <> · 涉及动作：{actions.join("、")}</>
+                      <> · {t("obs.audit.actions", { actions: actions.join(", ") })}</>
                     )}
                   </div>
                   {data.items.length === 0 ? (
                     <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
-                      还没有审计事件。审批、发布、密钥轮换都会在这里留痕。
+                      {t("obs.audit.empty")}
                     </div>
                   ) : (
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>时间</TableHead>
-                          <TableHead>动作</TableHead>
-                          <TableHead>操作者</TableHead>
-                          <TableHead>对象</TableHead>
-                          <TableHead>状态迁移</TableHead>
-                          <TableHead>说明</TableHead>
+                          <TableHead>{t("obs.audit.col.time")}</TableHead>
+                          <TableHead>{t("obs.audit.col.action")}</TableHead>
+                          <TableHead>{t("obs.audit.col.actor")}</TableHead>
+                          <TableHead>{t("obs.audit.col.object")}</TableHead>
+                          <TableHead>{t("obs.audit.col.transition")}</TableHead>
+                          <TableHead>{t("obs.audit.col.detail")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {data.items.map((a) => (
                           <TableRow key={a.eventId}>
-                            <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                            <TableCell
+                              className="whitespace-nowrap text-xs text-muted-foreground"
+                              dir="ltr"
+                            >
                               {formatTime(a.at)}
                             </TableCell>
                             <TableCell>
@@ -298,7 +357,7 @@ export default function Observability() {
                             <TableCell className="text-xs">
                               {a.changeId ?? a.packageId ?? "—"}
                               {a.packageVersion && (
-                                <span className="ml-1 text-muted-foreground">
+                                <span className="ms-1 text-muted-foreground">
                                   {a.packageVersion}
                                 </span>
                               )}
@@ -324,37 +383,39 @@ export default function Observability() {
 
         <TabsContent value="enums">
           <SectionIntro
-            source="契约文档 contracts/01 §3.6 / §5（编译进代码，不来自接口）"
-            question="决策值和理由码允许取哪些值？"
-            note="静态表，改它等于改 DSL 契约，要走契约变更。它不会因为某次决策而变，也不参与回放。"
+            source={t("obs.enums.source")}
+            question={t("obs.enums.question")}
+            note={t("obs.enums.note")}
           />
           <div className="space-y-5">
             <div className="space-y-2">
               <div>
                 <h3 className="text-sm font-medium">
-                  决策值
-                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                    共 {decisionEnums.length} 个
+                  {t("obs.enums.decisionTitle")}
+                  <span className="ms-1.5 text-xs font-normal text-muted-foreground">
+                    {t("obs.enums.decisionCount", { count: decisionEnums.length })}
                   </span>
                 </h3>
                 <p className="text-xs text-muted-foreground">
-                  决定这次求值的结论落在哪个分支
+                  {t("obs.enums.decisionHint")}
                 </p>
               </div>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>决策值</TableHead>
-                    <TableHead>域</TableHead>
-                    <TableHead>说明</TableHead>
+                    <TableHead>{t("obs.enums.col.value")}</TableHead>
+                    <TableHead>{t("obs.enums.col.domain")}</TableHead>
+                    <TableHead>{t("obs.enums.col.description")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {decisionEnums.map((d) => (
                     <TableRow key={d.value}>
                       <TableCell className="font-medium">{d.value}</TableCell>
-                      <TableCell>{d.domain}</TableCell>
-                      <TableCell className="text-muted-foreground">{d.desc}</TableCell>
+                      <TableCell>{t(d.domainKey)}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {t(d.descKey)}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -363,21 +424,21 @@ export default function Observability() {
             <div className="space-y-2">
               <div>
                 <h3 className="text-sm font-medium">
-                  理由码前缀
-                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                    共 {reasonCodes.length} 个
+                  {t("obs.enums.reasonTitle")}
+                  <span className="ms-1.5 text-xs font-normal text-muted-foreground">
+                    {t("obs.enums.reasonCount", { count: reasonCodes.length })}
                   </span>
                 </h3>
                 <p className="text-xs text-muted-foreground">
-                  说明为什么得到这个结论；日志里的理由码以此开头
+                  {t("obs.enums.reasonHint")}
                 </p>
               </div>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>理由码前缀</TableHead>
-                    <TableHead>域</TableHead>
-                    <TableHead>说明</TableHead>
+                    <TableHead>{t("obs.enums.col.prefix")}</TableHead>
+                    <TableHead>{t("obs.enums.col.domain")}</TableHead>
+                    <TableHead>{t("obs.enums.col.description")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -387,9 +448,11 @@ export default function Observability() {
                         <code className="text-xs">{r.code}</code>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">{r.domain}</Badge>
+                        <Badge variant="outline">{t(r.domainKey)}</Badge>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{r.desc}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {t(r.descKey)}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -403,13 +466,14 @@ export default function Observability() {
 }
 
 function Count({ n, failed }: { n?: number; failed?: boolean }) {
+  const { t } = useTranslation()
   // When the fetch fails this panel is hidden and the error box is never seen - put a red dot on the tab,
   // otherwise "no data" and "cannot read" look identical in the navigation bar.
   if (failed) {
     return (
       <span
-        title="这一栏取数失败"
-        className="ml-1.5 rounded-full bg-red-100 px-1.5 text-[10px] font-normal text-red-700"
+        title={t("obs.tabFailed")}
+        className="ms-1.5 rounded-full bg-red-100 px-1.5 text-[10px] font-normal text-red-700"
       >
         !
       </span>
@@ -417,7 +481,7 @@ function Count({ n, failed }: { n?: number; failed?: boolean }) {
   }
   if (n === undefined) return null
   return (
-    <span className="ml-1.5 rounded-full border px-1.5 text-[10px] font-normal tabular-nums text-muted-foreground">
+    <span className="ms-1.5 rounded-full border px-1.5 text-[10px] font-normal tabular-nums text-muted-foreground">
       {n}
     </span>
   )
@@ -435,26 +499,39 @@ function SectionIntro({
   source: string
   note: string
 }) {
+  const { t } = useTranslation()
   return (
     <div className="mb-3 rounded-lg border bg-muted/40 px-3 py-2">
       <div className="text-sm font-medium">{question}</div>
       <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
         <div>
-          <span className="text-foreground/70">来源</span> · {source}
+          <span className="text-foreground/70">{t("obs.introSource")}</span> · {source}
         </div>
         <div>
-          <span className="text-foreground/70">怎么读</span> · {note}
+          <span className="text-foreground/70">{t("obs.introNote")}</span> · {note}
         </div>
       </div>
     </div>
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({
+  label,
+  value,
+  ltr,
+}: {
+  label: string
+  value: string
+  ltr?: boolean
+}) {
   return (
     <div className="rounded-lg border bg-card px-3 py-2">
       <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div className="mt-0.5 text-sm font-medium">{value}</div>
+      {/* Numbers are direction-weak: inside an RTL paragraph "0 ms" would render as "ms 0", so
+          values that are entirely numeric or ASCII are pinned to LTR. */}
+      <div className="mt-0.5 text-sm font-medium" dir={ltr ? "ltr" : undefined}>
+        {value}
+      </div>
     </div>
   )
 }
@@ -466,6 +543,7 @@ function DecisionBadge({ decision }: { decision: string }) {
       : decision === "APPROVE"
       ? "bg-green-100 text-green-700"
       : "bg-amber-100 text-amber-700"
+  // Contract enum: the value is displayed verbatim in every locale.
   return <Badge className={cls}>{decision}</Badge>
 }
 
@@ -474,6 +552,10 @@ function formatMs(ms?: number): string {
   return ms < 1 ? `${(ms * 1000).toFixed(0)} µs` : `${ms.toFixed(2)} ms`
 }
 
+/**
+ * Log timestamps stay `MM-DD HH:mm:ss` in every locale: entries are sorted and diffed as strings
+ * across screenshots and exports, so a localized rendering would make two views incomparable.
+ */
 function formatTime(iso?: string): string {
   if (!iso) return "—"
   const d = new Date(iso)
