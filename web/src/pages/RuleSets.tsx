@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next"
 import { Link } from "react-router-dom"
+import { Plus } from "lucide-react"
 import {
   Table,
   TableBody,
@@ -20,9 +21,17 @@ export default function RuleSets() {
 
   return (
     <div className="p-6 space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold">{t("rulesets.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("rulesets.subtitle")}</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-semibold">{t("rulesets.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("rulesets.subtitle")}</p>
+        </div>
+        <Link to="/rulesets/new">
+          <Button size="sm" className="shrink-0">
+            <Plus className="size-3.5" />
+            {t("rulesets.new")}
+          </Button>
+        </Link>
       </div>
 
       <Async

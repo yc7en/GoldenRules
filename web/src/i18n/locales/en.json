@@ -94,7 +94,8 @@
       "tests": "Tests (approved / total)",
       "updatedAt": "Last updated",
       "actions": "Actions"
-    }
+    },
+    "new": "New ruleset"
   },
   "facts": {
     "title": "Fact catalog",
@@ -386,5 +387,88 @@
     "trialEvaluated": "evaluated {{count}} rules · {{latency}} · engine {{engine}}",
     "trialOutputs": "Output variables:",
     "trialNoHit": "No rule matched; the default decision was used."
+  },
+  "table": {
+    "title": "Decision table · {{tableId}}",
+    "shape": "{{columns}} conditions × {{rows}} rows",
+    "addColumn": "Add condition",
+    "addRow": "Add row",
+    "removeColumn": "Remove this condition column",
+    "removeRow": "Delete this row",
+    "decision": "Decision",
+    "reasonCode": "Reason code",
+    "hint": "One row is one rule: the conditions across a row are AND-ed, and row order is priority order. The backend expands the rows into expression rules at compile time, so this table is the only thing stored.",
+    "cellMode": "Comparison",
+    "any": "any"
+  },
+  "tree": {
+    "tab": "Decision tree",
+    "level": {
+      "L1": "Editable tree",
+      "L2": "Read-only paths",
+      "L3": "Read-only overview"
+    },
+    "summary": "{{rules}} rules · {{paths}} paths",
+    "relayout": "Re-layout",
+    "editHint": "This ruleset is shaped like a tree, so the canvas is editable: each root-to-leaf path is one rule. Edits are compiled back into expression rules as you go, and the Save button still decides when the platform sees them.",
+    "edge": {
+      "yes": "yes",
+      "no": "no"
+    },
+    "node": {
+      "entry": "Input",
+      "aggregate": "Result · {{strategy}}"
+    },
+    "add": {
+      "cond": "Condition",
+      "leaf": "Outcome"
+    },
+    "placeholder": {
+      "cond": "Add a condition",
+      "leaf": "Add an outcome"
+    },
+    "inspector": {
+      "title": "Selected node",
+      "none": "Click a node in the canvas, or add one from a dashed box, to edit it here.",
+      "fact": "Fact",
+      "op": "Operator",
+      "value": "Value",
+      "decision": "Decision",
+      "reasonCode": "Reason code",
+      "delete": "Delete node",
+      "newRule": "new rule, id assigned on save"
+    },
+    "reason": {
+      "tableForm": "This ruleset is stored as a decision table, so no tree is drawn. A tree edit would have nowhere to be written back, and the two would drift apart.",
+      "empty": "There are no rules to draw yet.",
+      "strategy": "The hit strategy is {{strategy}}, so several rules can match at once and merge their outputs. A single path cannot express that, so only the rules themselves are shown.",
+      "expression": "{{ruleId}} is not a conjunction of comparisons (it uses or / not / a function call), so the rules cannot be split into branches.",
+      "ambiguous": "One rule has no condition while others do, so it holds on both sides of every split. Showing it on one side would make the drawing lie.",
+      "noSharedFact": "The rules do not all constrain the same fact: they are independent rules, not branches of one decision.",
+      "tooManyValues": "A shared fact takes more than two distinct values across the rules, so a yes/no split cannot represent them.",
+      "notComplementary": "Two conditions on a shared fact are not each other's complement, so the branches would overlap and a path could hold twice."
+    }
+  },
+  "create": {
+    "title": "New ruleset",
+    "subtitle": "Pick how the rules will be written. The choice fixes the stored form, so it cannot be changed afterwards.",
+    "id": "Ruleset ID",
+    "idHint": "Lowercase letters, digits, dot and dash. It appears in decision logs and audit entries, so it cannot be renamed later.",
+    "scene": "Scenario",
+    "sceneHint": "Pick an existing scenario…",
+    "name": "Name (optional)",
+    "kind": "Authoring form",
+    "kindHint": "A decision table is stored as `table`; expressions and trees are both stored as `rules[]`. A tree compiles down to expression rules, so editing it never needs an engine change.",
+    "expression": "Expression rules",
+    "expressionDesc": "The default. Any condition the DSL allows, including or / not / function calls.",
+    "table": "Decision table",
+    "tableDesc": "Rows of conditions, one outcome each. Best when rules differ only in thresholds.",
+    "tree": "Decision tree",
+    "treeDesc": "A canvas of conditions and outcomes. Editable only while the rules keep a tree shape.",
+    "submit": "Create and open editor",
+    "submitting": "Creating…",
+    "invalidId": "The ruleset ID may only contain lowercase letters, digits, dot, dash and underscore.",
+    "failed": "The platform rejected the new ruleset: {{message}}",
+    "taken": "That ID already exists. Open it from the list instead of overwriting it."
   }
 }

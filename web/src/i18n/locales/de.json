@@ -94,7 +94,8 @@
       "tests": "Tests (freigegeben / gesamt)",
       "updatedAt": "Zuletzt geändert",
       "actions": "Aktionen"
-    }
+    },
+    "new": "Neues Regelset"
   },
   "facts": {
     "title": "Faktenkatalog",
@@ -386,5 +387,88 @@
     "trialEvaluated": "{{count}} Regeln ausgewertet · {{latency}} · Engine {{engine}}",
     "trialOutputs": "Ausgabevariablen:",
     "trialNoHit": "Keine Regel hat getroffen; die Standardentscheidung wurde verwendet."
+  },
+  "table": {
+    "title": "Entscheidungstabelle · {{tableId}}",
+    "shape": "{{columns}} Bedingungen × {{rows}} Zeilen",
+    "addColumn": "Bedingung hinzufügen",
+    "addRow": "Zeile hinzufügen",
+    "removeColumn": "Diese Bedingungsspalte entfernen",
+    "removeRow": "Diese Zeile löschen",
+    "decision": "Entscheidung",
+    "reasonCode": "Begründungscode",
+    "hint": "Eine Zeile ist eine Regel: Die Bedingungen einer Zeile werden mit UND verknüpft, die Zeilenreihenfolge ist die Prioritätsreihenfolge. Das Back-End entfaltet die Zeilen beim Kompilieren in Ausdrucksregeln – gespeichert wird also nur diese Tabelle.",
+    "cellMode": "Vergleich",
+    "any": "beliebig"
+  },
+  "tree": {
+    "tab": "Entscheidungsbaum",
+    "level": {
+      "L1": "Bearbeitbarer Baum",
+      "L2": "Pfade (schreibgeschützt)",
+      "L3": "Übersicht (schreibgeschützt)"
+    },
+    "summary": "{{rules}} Regeln · {{paths}} Pfade",
+    "relayout": "Layout neu berechnen",
+    "editHint": "Dieses Regelset hat Baumform, die Zeichenfläche ist also bearbeitbar: Jeder Pfad von der Wurzel zu einem Blatt ist eine Regel. Änderungen werden sofort in Ausdrucksregeln zurückkompiliert; wann die Plattform sie sieht, entscheidet weiterhin die Schaltfläche Speichern.",
+    "edge": {
+      "yes": "ja",
+      "no": "nein"
+    },
+    "node": {
+      "entry": "Eingabe",
+      "aggregate": "Ergebnis · {{strategy}}"
+    },
+    "add": {
+      "cond": "Bedingung",
+      "leaf": "Ergebnis"
+    },
+    "placeholder": {
+      "cond": "Bedingung hinzufügen",
+      "leaf": "Ergebnis hinzufügen"
+    },
+    "inspector": {
+      "title": "Ausgewählter Knoten",
+      "none": "Klicken Sie auf einen Knoten der Zeichenfläche oder fügen Sie einen über ein gestricheltes Feld hinzu, um ihn hier zu bearbeiten.",
+      "fact": "Faktum",
+      "op": "Operator",
+      "value": "Wert",
+      "decision": "Entscheidung",
+      "reasonCode": "Begründungscode",
+      "delete": "Knoten löschen",
+      "newRule": "neue Regel, ID wird beim Speichern vergeben"
+    },
+    "reason": {
+      "tableForm": "Dieses Regelset ist als Entscheidungstabelle gespeichert, daher wird kein Baum gezeichnet. Eine Baumänderung hätte kein Ziel zum Zurückschreiben, und beide würden auseinanderlaufen.",
+      "empty": "Es gibt noch keine Regeln zum Zeichnen.",
+      "strategy": "Die Trefferstrategie ist {{strategy}}: Mehrere Regeln können gleichzeitig passen und ihre Ausgaben zusammenführen. Ein einzelner Pfad kann das nicht ausdrücken, daher werden nur die Regeln gezeigt.",
+      "expression": "{{ruleId}} ist keine Konjunktion von Vergleichen (nutzt or / not / einen Funktionsaufruf), lässt sich also nicht in Zweige aufteilen.",
+      "ambiguous": "Eine Regel hat gar keine Bedingung, andere schon: Sie gilt auf beiden Seiten jeder Verzweigung. Sie auf einer Seite zu zeigen, würde das Bild verfälschen.",
+      "noSharedFact": "Nicht alle Regeln schränken dasselbe Faktum ein: Sie sind unabhängige Regeln, keine Zweige einer Entscheidung.",
+      "tooManyValues": "Ein gemeinsames Faktum nimmt über die Regeln mehr als zwei verschiedene Werte an: Eine Ja/Nein-Verzweigung kann das nicht abbilden.",
+      "notComplementary": "Zwei Bedingungen zu einem gemeinsamen Faktum sind nicht die Negation voneinander: Die Zweige würden sich überlappen und ein Pfad könnte zweimal gelten."
+    }
+  },
+  "create": {
+    "title": "Neues Regelset",
+    "subtitle": "Wählen Sie, wie die Regeln geschrieben werden. Diese Wahl legt die gespeicherte Form fest und lässt sich später nicht ändern.",
+    "id": "Regelset-ID",
+    "idHint": "Kleinbuchstaben, Ziffern, Punkt und Bindestrich. Sie erscheint in Entscheidungsprotokollen und im Audit und kann später nicht umbenannt werden.",
+    "scene": "Szenario",
+    "sceneHint": "Bestehendes Szenario wählen…",
+    "name": "Name (optional)",
+    "kind": "Schreibform",
+    "kindHint": "Eine Entscheidungstabelle wird als `table` gespeichert, Ausdrücke und Bäume als `rules[]`. Ein Baum wird zu Ausdrucksregeln kompiliert – seine Bearbeitung erfordert also keine Änderung an der Engine.",
+    "expression": "Ausdrucksregeln",
+    "expressionDesc": "Die Standardform. Jede Bedingung, die das DSL erlaubt, einschließlich or / not / Funktionsaufrufen.",
+    "table": "Entscheidungstabelle",
+    "tableDesc": "Zeilen von Bedingungen mit je einem Ergebnis. Am besten, wenn sich Regeln nur in Schwellenwerten unterscheiden.",
+    "tree": "Entscheidungsbaum",
+    "treeDesc": "Eine Zeichenfläche aus Bedingungen und Ergebnissen. Nur bearbeitbar, solange die Regeln Baumform behalten.",
+    "submit": "Anlegen und Editor öffnen",
+    "submitting": "Wird angelegt…",
+    "invalidId": "Die ID darf nur Kleinbuchstaben, Ziffern, Punkt, Bindestrich und Unterstrich enthalten.",
+    "failed": "Die Plattform hat das neue Regelset abgelehnt: {{message}}",
+    "taken": "Diese ID existiert bereits. Öffnen Sie sie aus der Liste, statt sie zu überschreiben."
   }
 }

@@ -52,7 +52,8 @@ export interface FactCatalogResponse {
 /** Typed literals like `{type: "decimal", value: "1000"}`, common in the backend IR */
 export interface TypedLiteral {
   type: string
-  value: string | number | boolean | null
+  /** `array` literals are the right-hand side of `in` / `notIn`, so the value is not always scalar. */
+  value: string | number | boolean | null | (string | number | boolean)[]
 }
 
 export type ExprNode =

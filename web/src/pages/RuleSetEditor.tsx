@@ -1,28 +1,25 @@
 import { useMemo, useState } from "react"
 import { Trans, useTranslation } from "react-i18next"
-import { useParams, Link } from "react-router-dom"
+import { useParams, useSearchParams, Link } from "react-router-dom"
 import Editor from "@monaco-editor/react"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Async, ErrorBox } from "@/components/async"
+import { DecisionTableEditor } from "@/components/DecisionTableEditor"
+import { TreeView } from "@/components/tree/TreeView"
 import { useAsync } from "@/lib/useAsync"
 import { api, ApiError, getActor } from "@/lib/api"
 import type {
+  FactRecord,
   RulesetDefinition,
   TrialResult,
   ValidationIssue,
   ValidationReport,
 } from "@/lib/api-types"
+import { parseView, storageFormOf, viewsFor, type EditorView } from "@/lib/ruleset/kind"
+import { isRtl, useLocale } from "@/i18n"
 import { cn } from "@/lib/utils"
 import {
   Play,
@@ -54,6 +51,7 @@ export default function RuleSetEditor() {
             // Reset the editor content when revision changes, otherwise the text is still stale after a successful save
             key={`${def.rulesetId}-${def.revision ?? 0}`}
             ruleset={def}
+            facts={facts.data?.items ?? []}
             catalogVersion={facts.data?.catalogVersion}
             onSaved={ruleset.reload}
           />
@@ -65,28 +63,64 @@ export default function RuleSetEditor() {
 
 function EditorInner({
   ruleset,
+  facts,
   catalogVersion,
   onSaved,
 }: {
   ruleset: RulesetDefinition
+  facts: FactRecord[]
   catalogVersion?: string
   onSaved: () => void
 }) {
   const { t } = useTranslation()
+  const { locale } = useLocale()
+  const [searchParams, setSearchParams] = useSearchParams()
   const initialText = useMemo(
     () => JSON.stringify(ruleset, null, 2),
     [ruleset]
   )
   const [text, setText] = useState(initialText)
-  const [view, setView] = useState<"structured" | "expression" | "table">(
-    ruleset.table ? "table" : "structured"
-  )
 
   const parsed = useMemo(
     () => parseDef(text, t("editor.topNotObject")),
     [text, t]
   )
   const dirty = text !== initialText
+
+  // The views are derived from what the editor currently holds, not from what the server last
+  // returned: adding or dropping a `table` block changes the storage form immediately, and a tab
+  // that no longer applies must disappear in the same tick.
+  const def = parsed.ok ? parsed.value : null
+  const parseError = parsed.ok ? "" : parsed.message
+  const form = storageFormOf(def ?? ruleset)
+  const views = viewsFor(form)
+  const [pick, setPick] = useState<EditorView | null>(() =>
+    parseView(searchParams.get("view"), storageFormOf(ruleset))
+  )
+  // Falls back instead of syncing through an effect: the stale value is simply never used.
+  const view: EditorView = pick && views.includes(pick) ? pick : views[0]
+
+  /**
+   * The chosen view goes into the URL as well as into state. A successful save bumps `revision`,
+   * which remounts this component by design (so the editor never shows stale JSON) - without the
+   * URL the author would be thrown back to the first tab after every save.
+   */
+  const selectView = (next: EditorView) => {
+    setPick(next)
+    const params = new URLSearchParams(searchParams)
+    params.set("view", next)
+    setSearchParams(params, { replace: true })
+  }
+
+  /** Every writer funnels through here, so `text` stays the single source of truth for save/validate. */
+  const patch = (next: RulesetDefinition) => setText(JSON.stringify(next, null, 2))
+
+  const tabLabel: Record<EditorView, string> = {
+    structured: t("editor.tab.structured"),
+    expression: t("editor.tab.expression"),
+    table: t("editor.tab.table"),
+    tree: t("tree.tab"),
+  }
 
   const [report, setReport] = useState<ValidationReport | null>(null)
   const [busy, setBusy] = useState<"validate" | "save" | "trial" | null>(null)
@@ -256,23 +290,13 @@ function EditorInner({
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
-          <Tabs value={view} onValueChange={(v) => setView(v as typeof view)}>
+          <Tabs value={view} onValueChange={(v) => selectView(v as EditorView)}>
             <TabsList>
-              <TabsTrigger
-                active={view === "structured"}
-                onClick={() => setView("structured")}
-              >
-                {t("editor.tab.structured")}
-              </TabsTrigger>
-              <TabsTrigger
-                active={view === "expression"}
-                onClick={() => setView("expression")}
-              >
-                {t("editor.tab.expression")}
-              </TabsTrigger>
-              <TabsTrigger active={view === "table"} onClick={() => setView("table")}>
-                {t("editor.tab.table")}
-              </TabsTrigger>
+              {views.map((v) => (
+                <TabsTrigger key={v} active={view === v} onClick={() => selectView(v)}>
+                  {tabLabel[v]}
+                </TabsTrigger>
+              ))}
             </TabsList>
 
             <TabsContent value="structured">
@@ -306,11 +330,57 @@ function EditorInner({
             </TabsContent>
 
             <TabsContent value="expression">
-              <ExpressionView ruleset={ruleset} />
+              <ExpressionView ruleset={def ?? ruleset} />
             </TabsContent>
 
             <TabsContent value="table">
-              <TableView ruleset={ruleset} />
+              {def?.table ? (
+                <div className="space-y-2">
+                  <DecisionTableEditor
+                    table={def.table}
+                    facts={facts}
+                    onChange={(table) => patch({ ...def, table })}
+                  />
+                  {/* The fallback row is not part of the grid: it applies when no row matches,
+                      so drawing it as a row would imply it competes on the same terms. */}
+                  {def.table.defaultRow && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {t("editor.tableDefault", {
+                        decision: def.table.defaultRow.decision,
+                        reasonCode: def.table.defaultRow.reasonCode,
+                      })}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <Card>
+                  <CardContent className="p-6">
+                    <p className="text-sm text-muted-foreground">
+                      {parsed.ok ? t("editor.tableNone") : t("editor.parseFailed", { message: parseError })}
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="tree">
+              {def ? (
+                <TreeView
+                  ruleset={def}
+                  facts={facts}
+                  rtl={isRtl(locale)}
+                  trial={trial}
+                  onRulesChange={(rules) => patch({ ...def, rules })}
+                />
+              ) : (
+                <Card>
+                  <CardContent className="p-6">
+                    <p className="text-sm text-red-600">
+                      {t("editor.parseFailed", { message: parseError })}
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
           </Tabs>
         </div>
@@ -374,69 +444,6 @@ function ExpressionView({ ruleset }: { ruleset: RulesetDefinition }) {
               </div>
             </div>
           ))
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function TableView({ ruleset }: { ruleset: RulesetDefinition }) {
-  const { t } = useTranslation()
-  const dt = ruleset.table
-  if (!dt) {
-    return (
-      <Card>
-        <CardContent className="p-6">
-          <p className="text-sm text-muted-foreground">{t("editor.tableNone")}</p>
-        </CardContent>
-      </Card>
-    )
-  }
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm">
-          {t("editor.tableTitle", { tableId: dt.tableId })}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12">#</TableHead>
-              {dt.columns.map((c) => (
-                <TableHead key={c.fact}>{c.fact}</TableHead>
-              ))}
-              <TableHead>{t("editor.decision")}</TableHead>
-              <TableHead>{t("editor.reasonCode")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {dt.rows.map((row, i) => (
-              <TableRow key={i}>
-                <TableCell>{i + 1}</TableCell>
-                {dt.columns.map((c) => (
-                  <TableCell key={c.fact} className="font-mono text-xs">
-                    {renderCell(row.conditions[c.fact])}
-                  </TableCell>
-                ))}
-                <TableCell>
-                  <Badge variant="outline">{row.then.decision}</Badge>
-                </TableCell>
-                <TableCell>
-                  <code className="text-xs">{row.then.reasonCode}</code>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        {dt.defaultRow && (
-          <p className="mt-3 text-xs text-muted-foreground">
-            {t("editor.tableDefault", {
-              decision: dt.defaultRow.decision,
-              reasonCode: dt.defaultRow.reasonCode,
-            })}
-          </p>
         )}
       </CardContent>
     </Card>
@@ -687,17 +694,6 @@ function parseDef(
 
 function toErr(e: unknown): ApiError {
   return e instanceof ApiError ? e : new ApiError(0, "UNKNOWN", String(e))
-}
-
-function renderCell(v: unknown): string {
-  if (v === undefined) return "*"
-  if (v === null) return "null"
-  if (typeof v === "object") {
-    const o = v as { op?: string; value?: unknown }
-    if (o.op) return `${o.op} ${JSON.stringify(o.value)}`
-    return JSON.stringify(v)
-  }
-  return String(v)
 }
 
 /** Expression -> readable text. Display only, never used for evaluation (evaluation always lives in the engine). */

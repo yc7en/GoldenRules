@@ -96,7 +96,8 @@
       "tests": "Cas de test (approuvés / total)",
       "updatedAt": "Dernière mise à jour",
       "actions": "Actions"
-    }
+    },
+    "new": "Nouveau jeu de règles"
   },
   "facts": {
     "title": "Catalogue de faits",
@@ -395,5 +396,88 @@
     "trialEvaluated": "{{count}} règles évaluées · {{latency}} · moteur {{engine}}",
     "trialOutputs": "Variables de sortie :",
     "trialNoHit": "Aucune règle ne correspond ; la décision par défaut a été utilisée."
+  },
+  "table": {
+    "title": "Table de décision · {{tableId}}",
+    "shape": "{{columns}} conditions × {{rows}} lignes",
+    "addColumn": "Ajouter une condition",
+    "addRow": "Ajouter une ligne",
+    "removeColumn": "Supprimer cette colonne de condition",
+    "removeRow": "Supprimer cette ligne",
+    "decision": "Décision",
+    "reasonCode": "Code de motif",
+    "hint": "Une ligne est une règle : les conditions d'une même ligne sont combinées par ET, et l'ordre des lignes est l'ordre de priorité. Le back-end déploie les lignes en règles d'expression à la compilation : cette table est donc la seule chose stockée.",
+    "cellMode": "Comparaison",
+    "any": "quelconque"
+  },
+  "tree": {
+    "tab": "Arbre de décision",
+    "level": {
+      "L1": "Arbre modifiable",
+      "L2": "Chemins en lecture seule",
+      "L3": "Vue d'ensemble en lecture seule"
+    },
+    "summary": "{{rules}} règles · {{paths}} chemins",
+    "relayout": "Recalculer la disposition",
+    "editHint": "Ce jeu de règles a une forme d'arbre, le canevas est donc modifiable : chaque chemin de la racine à une feuille est une règle. Les modifications sont recompilées en règles d'expression au fil de l'eau ; le bouton Enregistrer décide toujours quand la plateforme les voit.",
+    "edge": {
+      "yes": "oui",
+      "no": "non"
+    },
+    "node": {
+      "entry": "Entrée",
+      "aggregate": "Résultat · {{strategy}}"
+    },
+    "add": {
+      "cond": "Condition",
+      "leaf": "Conclusion"
+    },
+    "placeholder": {
+      "cond": "Ajouter une condition",
+      "leaf": "Ajouter une conclusion"
+    },
+    "inspector": {
+      "title": "Nœud sélectionné",
+      "none": "Cliquez sur un nœud du canevas, ou ajoutez-en un depuis un cadre en pointillés, pour l'éditer ici.",
+      "fact": "Fait",
+      "op": "Opérateur",
+      "value": "Valeur",
+      "decision": "Décision",
+      "reasonCode": "Code de motif",
+      "delete": "Supprimer le nœud",
+      "newRule": "nouvelle règle, identifiant attribué à l'enregistrement"
+    },
+    "reason": {
+      "tableForm": "Ce jeu de règles est stocké sous forme de table de décision : aucun arbre n'est dessiné. Une modification de l'arbre n'aurait nulle part où être réécrite, et les deux divergeraient.",
+      "empty": "Aucune règle à dessiner pour l'instant.",
+      "strategy": "La stratégie de correspondance est {{strategy}} : plusieurs règles peuvent correspondre en même temps et fusionner leurs sorties. Un seul chemin ne peut pas l'exprimer, seules les règles sont donc affichées.",
+      "expression": "{{ruleId}} n'est pas une conjonction de comparaisons (elle utilise or / not / un appel de fonction) : les règles ne peuvent pas être découpées en branches.",
+      "ambiguous": "Une règle n'a aucune condition alors que d'autres en ont : elle est vraie des deux côtés de chaque division. La placer d'un seul côté ferait mentir le schéma.",
+      "noSharedFact": "Toutes les règles ne portent pas sur le même fait : ce sont des règles indépendantes, pas les branches d'une même décision.",
+      "tooManyValues": "Un fait commun prend plus de deux valeurs distinctes selon les règles : une division oui/non ne peut pas les représenter.",
+      "notComplementary": "Deux conditions sur un fait commun ne sont pas le complément l'une de l'autre : les branches se chevaucheraient et un chemin pourrait être vrai deux fois."
+    }
+  },
+  "create": {
+    "title": "Nouveau jeu de règles",
+    "subtitle": "Choisissez la façon d'écrire les règles. Ce choix fixe la forme stockée : il ne pourra plus être modifié.",
+    "id": "Identifiant du jeu de règles",
+    "idHint": "Lettres minuscules, chiffres, point et tiret. Il apparaît dans les journaux de décision et l'audit : il ne peut pas être renommé ensuite.",
+    "scene": "Scénario",
+    "sceneHint": "Choisir un scénario existant…",
+    "name": "Nom (facultatif)",
+    "kind": "Forme de rédaction",
+    "kindHint": "Une table de décision est stockée en `table` ; les expressions et les arbres le sont en `rules[]`. Un arbre est compilé en règles d'expression : l'éditer ne demande aucune modification du moteur.",
+    "expression": "Règles d'expression",
+    "expressionDesc": "La forme par défaut. Toute condition permise par le DSL, y compris or / not / appels de fonction.",
+    "table": "Table de décision",
+    "tableDesc": "Des lignes de conditions, une conclusion par ligne. Idéal quand les règles ne diffèrent que par des seuils.",
+    "tree": "Arbre de décision",
+    "treeDesc": "Un canevas de conditions et de conclusions. Modifiable uniquement tant que les règles gardent une forme d'arbre.",
+    "submit": "Créer et ouvrir l'éditeur",
+    "submitting": "Création…",
+    "invalidId": "L'identifiant ne peut contenir que des lettres minuscules, des chiffres, un point, un tiret et un souligné.",
+    "failed": "La plateforme a refusé le nouveau jeu de règles : {{message}}",
+    "taken": "Cet identifiant existe déjà. Ouvrez-le depuis la liste plutôt que de l'écraser."
   }
 }
