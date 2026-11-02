@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Async, ErrorBox } from "@/components/async"
 import { DecisionTableEditor } from "@/components/DecisionTableEditor"
+import { CrossTableEditor } from "@/components/CrossTableEditor"
 import { TreeView } from "@/components/tree/TreeView"
 import { useAsync } from "@/lib/useAsync"
 import { api, ApiError, getActor } from "@/lib/api"
@@ -120,6 +121,7 @@ function EditorInner({
     expression: t("editor.tab.expression"),
     table: t("editor.tab.table"),
     tree: t("tree.tab"),
+    cross: t("cross.tab"),
   }
 
   const [report, setReport] = useState<ValidationReport | null>(null)
@@ -335,28 +337,34 @@ function EditorInner({
 
             <TabsContent value="table">
               {def?.table ? (
-                <div className="space-y-2">
-                  <DecisionTableEditor
-                    table={def.table}
-                    facts={facts}
-                    onChange={(table) => patch({ ...def, table })}
-                  />
-                  {/* The fallback row is not part of the grid: it applies when no row matches,
-                      so drawing it as a row would imply it competes on the same terms. */}
-                  {def.table.defaultRow && (
-                    <p className="text-[11px] text-muted-foreground">
-                      {t("editor.tableDefault", {
-                        decision: def.table.defaultRow.decision,
-                        reasonCode: def.table.defaultRow.reasonCode,
-                      })}
-                    </p>
-                  )}
-                </div>
+                <DecisionTableEditor
+                  table={def.table}
+                  facts={facts}
+                  onChange={(table) => patch({ ...def, table })}
+                />
               ) : (
                 <Card>
                   <CardContent className="p-6">
                     <p className="text-sm text-muted-foreground">
                       {parsed.ok ? t("editor.tableNone") : t("editor.parseFailed", { message: parseError })}
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="cross">
+              {def?.crossTable ? (
+                <CrossTableEditor
+                  table={def.crossTable}
+                  facts={facts}
+                  onChange={(crossTable) => patch({ ...def, crossTable })}
+                />
+              ) : (
+                <Card>
+                  <CardContent className="p-6">
+                    <p className="text-sm text-muted-foreground">
+                      {parsed.ok ? t("cross.none") : t("editor.parseFailed", { message: parseError })}
                     </p>
                   </CardContent>
                 </Card>

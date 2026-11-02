@@ -363,7 +363,6 @@
     "priority": "优先级 {{priority}}",
     "tableTitle": "决策表 · {{tableId}}",
     "tableNone": "该规则集为表达式写法，没有决策表。决策表视图只在 ruleset.table 存在时有内容。",
-    "tableDefault": "兜底：{{decision}} · {{reasonCode}}",
     "decision": "决策",
     "reasonCode": "理由码",
     "validationTitle": "校验结果",
@@ -399,7 +398,12 @@
     "reasonCode": "理由码",
     "hint": "一行就是一条规则：同一行内的条件是「且」的关系，行序即优先级顺序。后端编译时把行展开成表达式规则，所以库里存的只有这张表。",
     "cellMode": "比较方式",
-    "any": "任意"
+    "any": "任意",
+    "output": "输出",
+    "addAssign": "加输出",
+    "assignVar": "输出变量",
+    "assignValue": "值",
+    "removeAssign": "删除这个输出"
   },
   "tree": {
     "tab": "决策树",
@@ -458,7 +462,7 @@
     "sceneHint": "选一个已有场景…",
     "name": "名称（可选）",
     "kind": "编写形态",
-    "kindHint": "决策表存成 table；表达式与树都存成 rules[]。树会编译成表达式规则，所以改它不需要动引擎。",
+    "kindHint": "决策表存为 `table`，交叉表存为 `crossTable`；表达式与决策树都存为 `rules[]`。四者编译成同一套规则，引擎不需要任何改动——但存储形状不同，所以形态创建后不能切换。",
     "expression": "表达式规则",
     "expressionDesc": "默认形态。DSL 允许的任何条件都能写，包括 or / not / 函数调用。",
     "table": "决策表",
@@ -469,6 +473,33 @@
     "submitting": "创建中…",
     "invalidId": "ID 只能用小写字母、数字、点、短横线和下划线。",
     "failed": "平台拒绝了新建：{{message}}",
-    "taken": "这个 ID 已存在。请在列表里打开它，不要覆盖。"
+    "taken": "这个 ID 已存在。请在列表里打开它，不要覆盖。",
+    "cross": "交叉表",
+    "crossDesc": "纵横两维条件，一格一个值。适合费率表、定价档位。"
+  },
+  "cross": {
+    "tab": "交叉表",
+    "title": "交叉表 · {{crossTableId}}",
+    "shape": "{{rows}} 行 × {{cols}} 列 · 已填 {{filled}} 格",
+    "rowHeaders": "纵向条件",
+    "colHeaders": "横向条件",
+    "target": "赋值目标",
+    "targetVar": "目标变量",
+    "targetType": "目标类型",
+    "then": "结论",
+    "addRow": "加一行",
+    "addCol": "加一列",
+    "removeRow": "删除该行",
+    "removeCol": "删除该列",
+    "addRowHeader": "增加纵向维度",
+    "addColHeader": "增加横向维度",
+    "removeRowHeader": "移除这个纵向维度",
+    "removeColHeader": "移除这个横向维度",
+    "empty": "无",
+    "clear": "清空该格",
+    "cellValue": "格子值",
+    "none": "这个规则集不是交叉表，或者当前定义无法解析。",
+    "hint": "每格就是一条规则：纵横两维都命中后，把格子里的值赋给目标变量。清空的格子不生成规则。同一维度的条件可以重叠，所以命中策略应保持 FIRST。",
+    "noFreeValue": "这个维度的取值已经用尽，请先删掉一行或一列。"
   }
 }

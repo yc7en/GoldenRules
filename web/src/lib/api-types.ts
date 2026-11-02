@@ -103,7 +103,31 @@ export interface DecisionTableDef {
   tableId: string
   columns: { fact: string; type?: string }[]
   rows: { conditions: Record<string, unknown>; then: RuleThen }[]
-  defaultRow?: RuleThen
+}
+
+/** A dimension header: one fact field plus the type that types the cell literals on that axis. */
+export interface CrossHeader {
+  fact: string
+  type?: string
+}
+
+/**
+ * Cross decision table / decision matrix (`contracts/01` §3.2.5).
+ *
+ * Two axes pick out one cell; that cell's literal is assigned to `target.var`, and the whole table shares one
+ * conclusion. `cells[i][j] === null` means "no rule here". Deliberately a separate stored form from
+ * `DecisionTableDef`: turning one into the other is lossy, so the kind is fixed at creation and never converted.
+ */
+export interface CrossTableDef {
+  crossTableId: string
+  rowHeaders: CrossHeader[]
+  colHeaders: CrossHeader[]
+  /** One entry per row / column holding that line's condition for every header fact (same encoding as a table cell). */
+  rowCells: Record<string, unknown>[]
+  colCells: Record<string, unknown>[]
+  cells: (TypedLiteral | null)[][]
+  target: { var: string; type: string }
+  then: RuleThen
 }
 
 export interface RulesetDefinition {
@@ -120,6 +144,8 @@ export interface RulesetDefinition {
   rules?: Rule[]
   /** Decision table form (either this or rules; note the field is named table, not decisionTable) */
   table?: DecisionTableDef
+  /** Cross table form; mutually exclusive with both `rules` and `table` */
+  crossTable?: CrossTableDef
   tests?: TestCaseRecord[]
   updatedAt?: string
   updatedBy?: string

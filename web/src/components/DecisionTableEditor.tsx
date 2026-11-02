@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Plus, Trash2 } from "lucide-react"
-import type { DecisionTableDef, FactRecord, RuleThen } from "@/lib/api-types"
+import type { AssignEntry, DecisionTableDef, FactRecord, RuleThen } from "@/lib/api-types"
+import {
+  CELL_MODES,
+  cellToDraft,
+  defaultText,
+  draftToCell,
+  stringify,
+  type CellMode,
+} from "@/lib/ruleset/cell"
+import { exprToText } from "@/lib/tree/text"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
@@ -15,8 +24,6 @@ import { cn } from "@/lib/utils"
  */
 
 /** `*` is a wildcard; the rest become `eq` (bare literal) or `{op, value}` cells. */
-const CELL_MODES = ["*", "eq", "ne", "gt", "gte", "lt", "lte"] as const
-type CellMode = (typeof CELL_MODES)[number]
 
 const DECISIONS = ["APPROVE", "REJECT", "REVIEW", "ROUTE"]
 
@@ -178,6 +185,12 @@ export function DecisionTableEditor({ table, facts, onChange, readOnlyReason }: 
                 <th className="min-w-[160px] p-1 text-start font-medium text-muted-foreground">
                   {t("table.reasonCode")}
                 </th>
+                {/* Output variables live on `then.assign` (`contracts/01` §3.2.4). The grid used to have no
+                    column for them, so an assign written in the JSON tab was invisible here - the author
+                    would read the row as "no output" while the engine assigned one. */}
+                <th className="min-w-[190px] p-1 text-start font-medium text-muted-foreground">
+                  {t("table.output")}
+                </th>
                 <th className="w-8 p-1" />
               </tr>
             </thead>
@@ -216,6 +229,15 @@ export function DecisionTableEditor({ table, facts, onChange, readOnlyReason }: 
                       value={row.then.reasonCode}
                       readOnly={readOnly}
                       onChange={(reasonCode) => setThen(rowIndex, { ...row.then, reasonCode })}
+                    />
+                  </td>
+                  <td className="p-1">
+                    <AssignCell
+                      assigns={row.then.assign ?? []}
+                      readOnly={readOnly}
+                      onChange={(assign) =>
+                        setThen(rowIndex, { ...row.then, assign: assign.length > 0 ? assign : undefined })
+                      }
                     />
                   </td>
                   <td className="p-1">
@@ -388,64 +410,193 @@ function ReasonInput({
   )
 }
 
-// ---------------------------------------------------------------- cell <-> draft
+// ---------------------------------------------------------------- assign actions
 
-interface CellDraft {
-  mode: CellMode
+const ASSIGN_TYPES = ["string", "decimal", "integer", "boolean"] as const
+type AssignType = (typeof ASSIGN_TYPES)[number]
+
+interface AssignDraft {
+  varName: string
+  type: AssignType
   value: string
 }
 
-function cellToDraft(raw: unknown): CellDraft {
-  if (raw === undefined) return { mode: "*", value: "" }
-  if (raw === "*") return { mode: "*", value: "" }
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    const o = raw as { op?: string; value?: unknown }
-    const mode = (CELL_MODES as readonly string[]).includes(o.op ?? "")
-      ? (o.op as CellMode)
-      : "eq"
-    return { mode, value: stringify(o.value) }
+function assignToDraft(a: AssignEntry): AssignDraft {
+  const e = a.expr
+  if (e && typeof e === "object" && !Array.isArray(e) && "type" in e) {
+    const declared = String((e as { type: unknown }).type)
+    const type = (ASSIGN_TYPES as readonly string[]).includes(declared)
+      ? (declared as AssignType)
+      : "string"
+    return { varName: a.var, type, value: stringify((e as { value?: unknown }).value) }
   }
-  return { mode: "eq", value: stringify(raw) }
+  // A bare string expression is the common hand-written form (`"rate": "0.10"` in the JSON tab).
+  return { varName: a.var, type: "string", value: stringify(e) }
 }
 
-function draftToCell(draft: CellDraft, fact: FactRecord | undefined): unknown {
-  if (draft.mode === "*") return "*"
-  const value = literalValue(draft.value, fact)
-  if (draft.mode === "eq") return value
-  return { op: draft.mode, value }
+function draftToAssign(d: AssignDraft): AssignEntry {
+  const value =
+    d.type === "integer"
+      ? d.value.trim() === ""
+        ? 0
+        : Number(d.value)
+      : d.type === "decimal"
+        ? d.value // decimal stays a string: Number("0.1") is not 0.1
+        : d.type === "boolean"
+          ? d.value === "true"
+          : d.value
+  return { var: d.varName, expr: { type: d.type, value } }
 }
 
-function literalValue(raw: string, fact: FactRecord | undefined): unknown {
-  switch (fact?.type) {
-    case "integer":
-      return raw.trim() === "" ? 0 : Number(raw)
-    case "decimal":
-      // Decimal is carried as a string on purpose: Number("0.1") is not 0.1.
-      return raw
-    case "boolean":
-      return raw === "true"
-    default:
-      return raw
+/**
+ * One row's output variables.
+ *
+ * Literals only, with an explicit type selector instead of guessing from the text: `"001"` is a code, `1` is a
+ * number, and no amount of regex tells them apart. The backend accepts any expression here, so an expression
+ * written in the JSON tab is shown as text and left untouched until the row is edited.
+ */
+function AssignCell({
+  assigns,
+  readOnly,
+  onChange,
+}: {
+  assigns: AssignEntry[]
+  readOnly: boolean
+  onChange: (next: AssignEntry[]) => void
+}) {
+  const { t } = useTranslation()
+
+  if (readOnly) {
+    if (assigns.length === 0) return <span className="text-[11px] text-muted-foreground">—</span>
+    return (
+      <div className="space-y-0.5 font-mono text-[11px]" dir="ltr">
+        {assigns.map((a, i) => (
+          <div key={`${a.var}-${i}`} className="break-words">
+            {a.var} = {exprToText(a.expr)}
+          </div>
+        ))}
+      </div>
+    )
   }
+
+  return (
+    <div className="space-y-1">
+      {assigns.map((a, i) => (
+        <AssignRow
+          key={`${a.var}-${i}`}
+          entry={a}
+          onChange={(next) => onChange(assigns.map((x, xi) => (xi === i ? next : x)))}
+          onRemove={() => onChange(assigns.filter((_, xi) => xi !== i))}
+          removeLabel={t("table.removeAssign")}
+          varLabel={t("table.assignVar")}
+          valueLabel={t("table.assignValue")}
+        />
+      ))}
+      <button
+        type="button"
+        className="flex items-center gap-0.5 rounded px-1 text-[11px] text-muted-foreground hover:text-foreground"
+        onClick={() => onChange([...assigns, { var: "", expr: { type: "string", value: "" } }])}
+      >
+        <Plus className="size-3" />
+        {t("table.addAssign")}
+      </button>
+    </div>
+  )
 }
 
-function stringify(v: unknown): string {
-  if (v === null || v === undefined) return ""
-  if (typeof v === "object") return JSON.stringify(v)
-  return String(v)
-}
+function AssignRow({
+  entry,
+  onChange,
+  onRemove,
+  removeLabel,
+  varLabel,
+  valueLabel,
+}: {
+  entry: AssignEntry
+  onChange: (next: AssignEntry) => void
+  onRemove: () => void
+  removeLabel: string
+  varLabel: string
+  valueLabel: string
+}) {
+  const initial = assignToDraft(entry)
+  const [varName, setVarName] = useState(initial.varName)
+  const [value, setValue] = useState(initial.value)
+  const type = initial.type
+  const focused = useRef(false)
 
-function defaultText(fact: FactRecord | undefined): string {
-  switch (fact?.type) {
-    case "enum":
-      return fact.enum?.[0] ?? ""
-    case "boolean":
-      return "true"
-    case "integer":
-      return "0"
-    case "decimal":
-      return "0"
-    default:
-      return ""
-  }
+  useEffect(() => {
+    if (focused.current) return
+    const d = assignToDraft(entry)
+    setVarName(d.varName)
+    setValue(d.value)
+  }, [entry])
+
+  const commit = (next: Partial<AssignDraft>) =>
+    onChange(draftToAssign({ varName, type, value, ...next }))
+
+  return (
+    <div className="space-y-0.5" dir="ltr">
+      <div className="flex items-center gap-1">
+        <input
+          className="w-full rounded-md border border-input bg-transparent px-1 py-0.5 font-mono text-[11px]"
+          value={varName}
+          aria-label={varLabel}
+          onFocus={() => (focused.current = true)}
+          onChange={(e) => setVarName(e.target.value)}
+          onBlur={(e) => {
+            focused.current = false
+            commit({ varName: e.target.value })
+          }}
+        />
+        <button
+          type="button"
+          className="rounded p-0.5 text-muted-foreground hover:text-red-600"
+          onClick={onRemove}
+          aria-label={removeLabel}
+        >
+          <Trash2 className="size-3" />
+        </button>
+      </div>
+      <div className="flex items-center gap-1">
+        <select
+          className="rounded-md border border-input bg-transparent px-0.5 py-0.5 text-[10px]"
+          value={type}
+          onChange={(e) => commit({ type: e.target.value as AssignType })}
+        >
+          {ASSIGN_TYPES.map((x) => (
+            <option key={x} value={x}>
+              {x}
+            </option>
+          ))}
+        </select>
+        {type === "boolean" ? (
+          <select
+            className="w-full rounded-md border border-input bg-transparent px-1 py-0.5 font-mono text-[11px]"
+            value={value || "true"}
+            aria-label={valueLabel}
+            onChange={(e) => {
+              setValue(e.target.value)
+              commit({ value: e.target.value })
+            }}
+          >
+            <option value="true">true</option>
+            <option value="false">false</option>
+          </select>
+        ) : (
+          <input
+            className="w-full rounded-md border border-input bg-transparent px-1 py-0.5 font-mono text-[11px]"
+            value={value}
+            aria-label={valueLabel}
+            onFocus={() => (focused.current = true)}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={(e) => {
+              focused.current = false
+              commit({ value: e.target.value })
+            }}
+          />
+        )}
+      </div>
+    </div>
+  )
 }

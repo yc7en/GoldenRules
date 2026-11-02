@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Link, useNavigate } from "react-router-dom"
-import { ArrowLeft, ListTree, Table2, SquareCode } from "lucide-react"
+import { ArrowLeft, Grid3x3, ListTree, Table2, SquareCode } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorBox } from "@/components/async"
@@ -15,16 +15,18 @@ import { cn } from "@/lib/utils"
  * New ruleset.
  *
  * The authoring form is chosen here and nowhere else, because it decides the stored form: a table is
- * `table`, expressions and trees are both `rules[]`. The platform rejects a definition carrying
- * both, so "switch the form later" is not a UI gap - it would be a silent data loss.
+ * `table`, a cross table is `crossTable`, and expressions and trees are both `rules[]`. The platform
+ * rejects a definition carrying more than one, so "switch the form later" is not a UI gap - it would be
+ * a silent data loss.
  *
  * Each kind starts from a skeleton that already passes the backend dry-run. An empty rule set is not
- * an option: `Analyze` rejects zero rules, and a table with no rows, so an empty shell would fail the
- * moment it is saved and look like a platform bug.
+ * an option: `Analyze` rejects zero rules, a table with no rows, and a matrix with no filled cell, so
+ * an empty shell would fail the moment it is saved and look like a platform bug.
  */
 const KINDS: { kind: AuthoringKind; icon: typeof Table2 }[] = [
   { kind: "expression", icon: SquareCode },
   { kind: "table", icon: Table2 },
+  { kind: "cross", icon: Grid3x3 },
   { kind: "tree", icon: ListTree },
 ]
 
@@ -173,7 +175,7 @@ export default function RuleSetNew() {
           <CardTitle className="text-sm">{t("create.kind")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {KINDS.map(({ kind: k, icon: Icon }) => (
               <button
                 key={k}

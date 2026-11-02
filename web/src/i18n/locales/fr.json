@@ -371,7 +371,6 @@
     "priority": "priorité {{priority}}",
     "tableTitle": "Table de décision · {{tableId}}",
     "tableNone": "Ce jeu de règles utilise des expressions et n'a pas de table de décision. La vue table n'a de contenu que si ruleset.table existe.",
-    "tableDefault": "Défaut : {{decision}} · {{reasonCode}}",
     "decision": "Décision",
     "reasonCode": "Code de motif",
     "validationTitle": "Résultat de validation",
@@ -408,7 +407,12 @@
     "reasonCode": "Code de motif",
     "hint": "Une ligne est une règle : les conditions d'une même ligne sont combinées par ET, et l'ordre des lignes est l'ordre de priorité. Le back-end déploie les lignes en règles d'expression à la compilation : cette table est donc la seule chose stockée.",
     "cellMode": "Comparaison",
-    "any": "quelconque"
+    "any": "quelconque",
+    "output": "Sorties",
+    "addAssign": "Ajouter une sortie",
+    "assignVar": "Variable de sortie",
+    "assignValue": "Valeur",
+    "removeAssign": "Supprimer cette sortie"
   },
   "tree": {
     "tab": "Arbre de décision",
@@ -467,7 +471,7 @@
     "sceneHint": "Choisir un scénario existant…",
     "name": "Nom (facultatif)",
     "kind": "Forme de rédaction",
-    "kindHint": "Une table de décision est stockée en `table` ; les expressions et les arbres le sont en `rules[]`. Un arbre est compilé en règles d'expression : l'éditer ne demande aucune modification du moteur.",
+    "kindHint": "Une table de décision est stockée en `table`, une table croisée en `crossTable` ; les expressions et les arbres sont stockés en `rules[]`. Tout est compilé vers les mêmes règles, donc aucune modification du moteur n'est nécessaire — mais les formes stockées diffèrent, d'où l'impossibilité de changer de forme après création.",
     "expression": "Règles d'expression",
     "expressionDesc": "La forme par défaut. Toute condition permise par le DSL, y compris or / not / appels de fonction.",
     "table": "Table de décision",
@@ -478,6 +482,33 @@
     "submitting": "Création…",
     "invalidId": "L'identifiant ne peut contenir que des lettres minuscules, des chiffres, un point, un tiret et un souligné.",
     "failed": "La plateforme a refusé le nouveau jeu de règles : {{message}}",
-    "taken": "Cet identifiant existe déjà. Ouvrez-le depuis la liste plutôt que de l'écraser."
+    "taken": "Cet identifiant existe déjà. Ouvrez-le depuis la liste plutôt que de l'écraser.",
+    "cross": "Table croisée",
+    "crossDesc": "Deux axes de conditions, une valeur par cellule. Idéal pour les grilles tarifaires."
+  },
+  "cross": {
+    "tab": "Table croisée",
+    "title": "Table croisée · {{crossTableId}}",
+    "shape": "{{rows}} lignes × {{cols}} colonnes · {{filled}} cellules remplies",
+    "rowHeaders": "Conditions en ligne",
+    "colHeaders": "Conditions en colonne",
+    "target": "Affecter à",
+    "targetVar": "Variable cible",
+    "targetType": "Type de la cible",
+    "then": "Conclusion",
+    "addRow": "Ajouter une ligne",
+    "addCol": "Ajouter une colonne",
+    "removeRow": "Supprimer cette ligne",
+    "removeCol": "Supprimer cette colonne",
+    "addRowHeader": "Ajouter une dimension de ligne",
+    "addColHeader": "Ajouter une dimension de colonne",
+    "removeRowHeader": "Retirer cette dimension de ligne",
+    "removeColHeader": "Retirer cette dimension de colonne",
+    "empty": "aucune",
+    "clear": "Vider cette cellule",
+    "cellValue": "Valeur de la cellule",
+    "none": "Ce jeu de règles n'est pas une table croisée, ou la définition n'est pas analysable pour l'instant.",
+    "hint": "Chaque cellule est une règle : les deux axes doivent correspondre, puis la valeur est affectée à la variable cible. Une cellule vidée ne produit aucune règle. Deux conditions du même axe peuvent se recouper : gardez la stratégie de correspondance sur FIRST.",
+    "noFreeValue": "Toutes les valeurs de cette dimension sont déjà utilisées. Supprimez d'abord une ligne ou une colonne."
   }
 }

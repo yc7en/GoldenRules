@@ -51,6 +51,43 @@ func baseDef() Definition {
 	}
 }
 
+// crossDef is a 3x2 matrix with one cleared cell: enough rows to prove the traversal order, plus a gap in the middle.
+func crossDef() Definition {
+	return Definition{
+		RulesetID:       "rs-cross-rate",
+		Scene:           "withdraw-rate",
+		Version:         "rs-1",
+		HitStrategy:     "FIRST",
+		DefaultDecision: "REJECT",
+		CrossTable: &CrossTable{
+			CrossTableID: "CT-001",
+			RowHeaders:   []TableColumn{{Fact: "request.channel", Type: "enum"}},
+			ColHeaders:   []TableColumn{{Fact: "sanctions.hit", Type: "boolean"}},
+			RowCells: []map[string]json.RawMessage{
+				{"request.channel": json.RawMessage(`"APP"`)},
+				{"request.channel": json.RawMessage(`"WEB"`)},
+				{"request.channel": json.RawMessage(`"API"`)},
+			},
+			ColCells: []map[string]json.RawMessage{
+				{"sanctions.hit": json.RawMessage(`true`)},
+				{"sanctions.hit": json.RawMessage(`false`)},
+			},
+			Cells: [][]json.RawMessage{
+				{json.RawMessage(`{"type":"decimal","value":"0.10"}`), json.RawMessage(`{"type":"decimal","value":"0.12"}`)},
+				{json.RawMessage(`{"type":"decimal","value":"0.15"}`), nil},
+				{json.RawMessage(`{"type":"decimal","value":"0.20"}`), json.RawMessage(`{"type":"decimal","value":"0.22"}`)},
+			},
+			Target: CrossTarget{Var: "rate", Type: "decimal"},
+			Then:   contracts.Then{Decision: "APPROVE", ReasonCode: "AMOUNT_RATE_MATCHED"},
+		},
+		OutputSchema: &contracts.OutputSchema{
+			OutputSchemaID:      "withdraw-rate-output",
+			OutputSchemaVersion: "v1",
+			Fields:              map[string]contracts.OutputField{"rate": {Type: "decimal", Nullable: true}},
+		},
+	}
+}
+
 func analyze(t *testing.T, def Definition, cat contracts.FactCatalog, out *contracts.OutputSchema) Report {
 	t.Helper()
 	return Analyze(Input{Definition: def, Catalog: cat, OutputSchema: out, Limits: DefaultLimits()})
@@ -171,7 +208,6 @@ func TestDecisionTableExpands(t *testing.T) {
 					Then: contracts.Then{Decision: "REVIEW", ReasonCode: "AMOUNT_REVIEW"},
 				},
 			},
-			DefaultRow: &contracts.Then{Decision: "REJECT", ReasonCode: "DEFAULT_NO_RULE_MATCHED"},
 		},
 		OutputSchema: &contracts.OutputSchema{
 			OutputSchemaID:      "withdraw-risk-output",
@@ -201,6 +237,151 @@ func TestDecisionTableExpands(t *testing.T) {
 	}
 	if len(rep.IR.SlotTable) != 2 {
 		t.Fatalf("slot 数 = %d (%+v)", len(rep.IR.SlotTable), rep.IR.SlotTable)
+	}
+}
+
+// Acceptance 5: a cross table (decision matrix) expands cell by cell into ordinary rules.
+func TestCrossTableExpands(t *testing.T) {
+	cat := loadCatalog(t)
+	def := crossDef()
+	rep := analyze(t, def, cat, nil)
+	if !rep.Valid {
+		t.Fatalf("交叉表应可编译: %+v", rep.Errors)
+	}
+	// 3 rows x 2 cols with one cleared cell → 5 rules, in row-major order.
+	want := []string{"CT-001-R1C1", "CT-001-R1C2", "CT-001-R2C1", "CT-001-R3C1", "CT-001-R3C2"}
+	if len(rep.IR.Rules) != len(want) {
+		t.Fatalf("规则数 = %d，期望 %d", len(rep.IR.Rules), len(want))
+	}
+	for i, id := range want {
+		if rep.IR.Rules[i].RuleID != id {
+			t.Fatalf("第 %d 条 ID = %s，期望 %s", i, rep.IR.Rules[i].RuleID, id)
+		}
+	}
+	// Priority counts every cell including the empty one, so clearing a cell does not renumber its neighbours:
+	// R2C2 is the gap between 40 and 20.
+	wantPrio := []int64{60, 50, 40, 20, 10}
+	for i, r := range rep.IR.Rules {
+		if r.Priority != wantPrio[i] {
+			t.Fatalf("%s 优先级 = %d，期望 %d", r.RuleID, r.Priority, wantPrio[i])
+		}
+	}
+	if rep.IR.Rules[0].Then.Decision != "APPROVE" || rep.IR.Rules[0].Then.ReasonCode != "AMOUNT_RATE_MATCHED" {
+		t.Fatalf("表级结论应下发到每条规则: %+v", rep.IR.Rules[0].Then)
+	}
+	if len(rep.IR.Rules[0].Then.Assign) != 1 || rep.IR.Rules[0].Then.Assign[0].Var != "rate" {
+		t.Fatalf("每格应赋值给 target.var: %+v", rep.IR.Rules[0].Then.Assign)
+	}
+	if !containsStr(string(rep.IR.Rules[0].Then.Assign[0].Expr), "0.10") {
+		t.Fatalf("赋值表达式应带格子值: %s", rep.IR.Rules[0].Then.Assign[0].Expr)
+	}
+	// Both axes are and-ed into one condition, then resolved into slots at compile time.
+	if containsStr(string(rep.IR.Rules[0].When), "fact") {
+		t.Fatalf("编译后不应残留 fact 引用: %s", rep.IR.Rules[0].When)
+	}
+	if len(rep.IR.SlotTable) != 2 {
+		t.Fatalf("slot 数 = %d (%+v)", len(rep.IR.SlotTable), rep.IR.SlotTable)
+	}
+}
+
+// The same fact on both axes can never match; catching it at dry-run is the whole point of the shape check.
+func TestCrossTableRejectsSharedFactAcrossAxes(t *testing.T) {
+	cat := loadCatalog(t)
+	def := crossDef()
+	def.CrossTable.ColHeaders = []TableColumn{{Fact: "request.channel", Type: "enum"}}
+
+	rep := analyze(t, def, cat, nil)
+	if rep.Valid {
+		t.Fatal("同一事实同时作纵横维应判定不合法")
+	}
+	if d := hasDiag(rep.Errors, CodeTableInvalid); d == nil {
+		t.Fatalf("期望 %s，实际 %+v", CodeTableInvalid, rep.Errors)
+	}
+}
+
+// A wildcard in a dimension cell means "this axis does not constrain", which is a flat table in disguise.
+func TestCrossTableRejectsWildcardInAxis(t *testing.T) {
+	cat := loadCatalog(t)
+	def := crossDef()
+	def.CrossTable.ColCells[1]["sanctions.hit"] = json.RawMessage(`"*"`)
+
+	rep := analyze(t, def, cat, nil)
+	if rep.Valid {
+		t.Fatal("维度条件出现通配应判定不合法")
+	}
+	if d := hasDiag(rep.Errors, CodeTableInvalid); d == nil || !containsStr(d.Message, "通配") {
+		t.Fatalf("期望通配错误，实际 %+v", rep.Errors)
+	}
+}
+
+// Shape drift is the dangerous failure: cells and headers silently shift and every value lands in the wrong square.
+func TestCrossTableRejectsShapeMismatch(t *testing.T) {
+	cat := loadCatalog(t)
+	def := crossDef()
+	def.CrossTable.Cells = def.CrossTable.Cells[:2]
+
+	rep := analyze(t, def, cat, nil)
+	if rep.Valid {
+		t.Fatal("cells 行数与纵向条件不一致应判定不合法")
+	}
+	d := hasDiag(rep.Errors, CodeTableInvalid)
+	if d == nil || !containsStr(d.Message, "不一致") {
+		t.Fatalf("期望形状错误，实际 %+v", rep.Errors)
+	}
+}
+
+// Duplicate conditions inside one axis produce a dead line.
+func TestCrossTableRejectsDuplicateAxisValue(t *testing.T) {
+	cat := loadCatalog(t)
+	def := crossDef()
+	def.CrossTable.RowCells[1]["request.channel"] = json.RawMessage(`"APP"`)
+
+	rep := analyze(t, def, cat, nil)
+	if rep.Valid {
+		t.Fatal("同一维度重复条件应判定不合法")
+	}
+	if d := hasDiag(rep.Errors, CodeTableInvalid); d == nil || !containsStr(d.Message, "完全相同") {
+		t.Fatalf("期望重复条件错误，实际 %+v", rep.Errors)
+	}
+}
+
+// Two lines may repeat one fact as long as another header fact distinguishes them - that is a legitimate matrix.
+func TestCrossTableAllowsPartialRepeatWithTwoDimensions(t *testing.T) {
+	cat := loadCatalog(t)
+	def := crossDef()
+	def.CrossTable.RowHeaders = []TableColumn{
+		{Fact: "request.channel", Type: "enum"},
+		{Fact: "customer.level", Type: "enum"},
+	}
+	for i := range def.CrossTable.RowCells {
+		level := []string{"NORMAL", "VIP", "NORMAL"}[i]
+		def.CrossTable.RowCells[i]["customer.level"] = json.RawMessage(`"` + level + `"`)
+	}
+
+	rep := analyze(t, def, cat, nil)
+	if !rep.Valid {
+		t.Fatalf("只在同一事实重复、另一维度不同，应当合法: %+v", rep.Errors)
+	}
+}
+
+// A matrix has no structural mutual exclusion, so anything but FIRST must at least warn.
+func TestCrossTableWarnsWithoutFirst(t *testing.T) {
+	cat := loadCatalog(t)
+	def := crossDef()
+	def.HitStrategy = ""
+
+	rep := analyze(t, def, cat, nil)
+	if !rep.Valid {
+		t.Fatalf("应仍然合法（只是告警）: %+v", rep.Errors)
+	}
+	found := false
+	for _, w := range rep.Warnings {
+		if w.Code == CodeTableInvalid && containsStr(w.Message, "FIRST") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("期望命中策略告警，实际 %+v", rep.Warnings)
 	}
 }
 

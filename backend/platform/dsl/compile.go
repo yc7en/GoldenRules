@@ -82,10 +82,7 @@ func compile(def Definition, asts []ruleAST, cat map[string]contracts.FactSchema
 		})
 	}
 
-	strategy := def.HitStrategy
-	if strategy == "" {
-		strategy = "ALL"
-	}
+	strategy := effectiveStrategy(def.HitStrategy)
 	ir := &contracts.RuleSet{
 		RulesetID:           def.RulesetID,
 		Version:             def.Version,

@@ -363,7 +363,6 @@
     "priority": "priority {{priority}}",
     "tableTitle": "Decision table · {{tableId}}",
     "tableNone": "This ruleset uses expressions and has no decision table. The table view only has content when ruleset.table exists.",
-    "tableDefault": "Default: {{decision}} · {{reasonCode}}",
     "decision": "Decision",
     "reasonCode": "Reason code",
     "validationTitle": "Validation",
@@ -399,7 +398,12 @@
     "reasonCode": "Reason code",
     "hint": "One row is one rule: the conditions across a row are AND-ed, and row order is priority order. The backend expands the rows into expression rules at compile time, so this table is the only thing stored.",
     "cellMode": "Comparison",
-    "any": "any"
+    "any": "any",
+    "output": "Output",
+    "addAssign": "Add output",
+    "assignVar": "Output variable",
+    "assignValue": "Value",
+    "removeAssign": "Remove this output"
   },
   "tree": {
     "tab": "Decision tree",
@@ -458,7 +462,7 @@
     "sceneHint": "Pick an existing scenario…",
     "name": "Name (optional)",
     "kind": "Authoring form",
-    "kindHint": "A decision table is stored as `table`; expressions and trees are both stored as `rules[]`. A tree compiles down to expression rules, so editing it never needs an engine change.",
+    "kindHint": "A decision table is stored as `table`, a cross table as `crossTable`; expressions and trees are both stored as `rules[]`. All four compile down to the same rules, so none of this needs an engine change - but the stored shapes differ, which is why the form cannot be switched later.",
     "expression": "Expression rules",
     "expressionDesc": "The default. Any condition the DSL allows, including or / not / function calls.",
     "table": "Decision table",
@@ -469,6 +473,33 @@
     "submitting": "Creating…",
     "invalidId": "The ruleset ID may only contain lowercase letters, digits, dot, dash and underscore.",
     "failed": "The platform rejected the new ruleset: {{message}}",
-    "taken": "That ID already exists. Open it from the list instead of overwriting it."
+    "taken": "That ID already exists. Open it from the list instead of overwriting it.",
+    "cross": "Cross table",
+    "crossDesc": "Two axes of conditions, one value per cell. Best for rate tables and pricing grids."
+  },
+  "cross": {
+    "tab": "Cross table",
+    "title": "Cross table · {{crossTableId}}",
+    "shape": "{{rows}} rows × {{cols}} columns · {{filled}} filled",
+    "rowHeaders": "Row conditions",
+    "colHeaders": "Column conditions",
+    "target": "Assign to",
+    "targetVar": "Target variable",
+    "targetType": "Target type",
+    "then": "Outcome",
+    "addRow": "Add row",
+    "addCol": "Add column",
+    "removeRow": "Delete this row",
+    "removeCol": "Delete this column",
+    "addRowHeader": "Add row dimension",
+    "addColHeader": "Add column dimension",
+    "removeRowHeader": "Remove this row dimension",
+    "removeColHeader": "Remove this column dimension",
+    "empty": "none",
+    "clear": "Clear this cell",
+    "cellValue": "Cell value",
+    "none": "This ruleset is not a cross table, or the definition cannot be parsed right now.",
+    "hint": "Each cell is one rule: both axes must match, then the value is assigned to the target variable. A cleared cell produces no rule. Conditions on the same axis can overlap, so keep the hit strategy at FIRST.",
+    "noFreeValue": "Every value of this dimension is already used. Remove a row or column first."
   }
 }

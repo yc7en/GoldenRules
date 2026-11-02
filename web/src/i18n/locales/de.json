@@ -363,7 +363,6 @@
     "priority": "Priorität {{priority}}",
     "tableTitle": "Entscheidungstabelle · {{tableId}}",
     "tableNone": "Dieses Regelwerk nutzt Ausdrücke und hat keine Entscheidungstabelle. Die Tabellenansicht hat nur Inhalt, wenn ruleset.table existiert.",
-    "tableDefault": "Standard: {{decision}} · {{reasonCode}}",
     "decision": "Entscheidung",
     "reasonCode": "Begründungscode",
     "validationTitle": "Prüfergebnis",
@@ -399,7 +398,12 @@
     "reasonCode": "Begründungscode",
     "hint": "Eine Zeile ist eine Regel: Die Bedingungen einer Zeile werden mit UND verknüpft, die Zeilenreihenfolge ist die Prioritätsreihenfolge. Das Back-End entfaltet die Zeilen beim Kompilieren in Ausdrucksregeln – gespeichert wird also nur diese Tabelle.",
     "cellMode": "Vergleich",
-    "any": "beliebig"
+    "any": "beliebig",
+    "output": "Ausgaben",
+    "addAssign": "Ausgabe hinzufügen",
+    "assignVar": "Ausgabevariable",
+    "assignValue": "Wert",
+    "removeAssign": "Diese Ausgabe entfernen"
   },
   "tree": {
     "tab": "Entscheidungsbaum",
@@ -458,7 +462,7 @@
     "sceneHint": "Bestehendes Szenario wählen…",
     "name": "Name (optional)",
     "kind": "Schreibform",
-    "kindHint": "Eine Entscheidungstabelle wird als `table` gespeichert, Ausdrücke und Bäume als `rules[]`. Ein Baum wird zu Ausdrucksregeln kompiliert – seine Bearbeitung erfordert also keine Änderung an der Engine.",
+    "kindHint": "Eine Entscheidungstabelle wird als `table` gespeichert, eine Kreuztabelle als `crossTable`; Ausdrücke und Entscheidungsbäume als `rules[]`. Alles wird zu denselben Regeln kompiliert, der Engine bleibt unverändert — die gespeicherten Formen unterscheiden sich jedoch, daher lässt sich die Form später nicht wechseln.",
     "expression": "Ausdrucksregeln",
     "expressionDesc": "Die Standardform. Jede Bedingung, die das DSL erlaubt, einschließlich or / not / Funktionsaufrufen.",
     "table": "Entscheidungstabelle",
@@ -469,6 +473,33 @@
     "submitting": "Wird angelegt…",
     "invalidId": "Die ID darf nur Kleinbuchstaben, Ziffern, Punkt, Bindestrich und Unterstrich enthalten.",
     "failed": "Die Plattform hat das neue Regelset abgelehnt: {{message}}",
-    "taken": "Diese ID existiert bereits. Öffnen Sie sie aus der Liste, statt sie zu überschreiben."
+    "taken": "Diese ID existiert bereits. Öffnen Sie sie aus der Liste, statt sie zu überschreiben.",
+    "cross": "Kreuztabelle",
+    "crossDesc": "Zwei Achsen von Bedingungen, ein Wert pro Zelle. Ideal für Tarif- und Preisraster."
+  },
+  "cross": {
+    "tab": "Kreuztabelle",
+    "title": "Kreuztabelle · {{crossTableId}}",
+    "shape": "{{rows}} Zeilen × {{cols}} Spalten · {{filled}} Zellen belegt",
+    "rowHeaders": "Zeilenbedingungen",
+    "colHeaders": "Spaltenbedingungen",
+    "target": "Zuordnen an",
+    "targetVar": "Zielvariable",
+    "targetType": "Zieltyp",
+    "then": "Ergebnis",
+    "addRow": "Zeile hinzufügen",
+    "addCol": "Spalte hinzufügen",
+    "removeRow": "Diese Zeile löschen",
+    "removeCol": "Diese Spalte löschen",
+    "addRowHeader": "Zeilendimension hinzufügen",
+    "addColHeader": "Spaltendimension hinzufügen",
+    "removeRowHeader": "Diese Zeilendimension entfernen",
+    "removeColHeader": "Diese Spaltendimension entfernen",
+    "empty": "keine",
+    "clear": "Diese Zelle leeren",
+    "cellValue": "Zellwert",
+    "none": "Dieses Regelset ist keine Kreuztabelle, oder die Definition ist derzeit nicht lesbar.",
+    "hint": "Jede Zelle ist eine Regel: erst wenn beide Achsen passen, wird der Zellwert der Zielvariablen zugewiesen. Eine geleerte Zelle erzeugt keine Regel. Bedingungen derselben Achse können sich überschneiden, daher sollte die Trefferstrategie FIRST bleiben.",
+    "noFreeValue": "Alle Werte dieser Dimension sind bereits vergeben. Entfernen Sie zuerst eine Zeile oder Spalte."
   }
 }

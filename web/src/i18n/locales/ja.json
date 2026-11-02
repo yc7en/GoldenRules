@@ -363,7 +363,6 @@
     "priority": "優先度 {{priority}}",
     "tableTitle": "決定表 · {{tableId}}",
     "tableNone": "このルールセットは式で記述されており、決定表はありません。決定表ビューは ruleset.table が存在する場合のみ内容があります。",
-    "tableDefault": "既定：{{decision}} · {{reasonCode}}",
     "decision": "判定",
     "reasonCode": "理由コード",
     "validationTitle": "検証結果",
@@ -399,7 +398,12 @@
     "reasonCode": "理由コード",
     "hint": "1 行が 1 ルールです。同じ行の条件は AND で結合され、行の順序がそのまま優先順位になります。バックエンドがコンパイル時に式ルールへ展開するため、保存されるのはこの表だけです。",
     "cellMode": "比較方法",
-    "any": "すべて"
+    "any": "すべて",
+    "output": "出力",
+    "addAssign": "出力を追加",
+    "assignVar": "出力変数",
+    "assignValue": "値",
+    "removeAssign": "この出力を削除"
   },
   "tree": {
     "tab": "デシジョンツリー",
@@ -458,7 +462,7 @@
     "sceneHint": "既存のシナリオを選択…",
     "name": "名前（任意）",
     "kind": "記述形式",
-    "kindHint": "デシジョンテーブルは table として、式とツリーはどちらも rules[] として保存されます。ツリーは式ルールにコンパイルされるため、編集にエンジン側の変更は不要です。",
+    "kindHint": "決定表は `table`、クロス表は `crossTable`、式と決定木はどちらも `rules[]` として保存されます。いずれも同じルールにコンパイルされるためエンジンの変更は不要ですが、保存形状が異なるため作成後に形態を切り替えることはできません。",
     "expression": "式ルール",
     "expressionDesc": "既定の形式。DSL が許す条件はすべて書けます（or / not / 関数呼び出しを含む）。",
     "table": "デシジョンテーブル",
@@ -469,6 +473,33 @@
     "submitting": "作成中…",
     "invalidId": "ID に使えるのは小文字英数字・ドット・ハイフン・アンダースコアだけです。",
     "failed": "プラットフォームが作成を拒否しました：{{message}}",
-    "taken": "この ID は既に存在します。上書きせず、一覧から開いてください。"
+    "taken": "この ID は既に存在します。上書きせず、一覧から開いてください。",
+    "cross": "クロス表",
+    "crossDesc": "行と列の 2 軸の条件でセルごとに値を決めます。料率表や価格表向きです。"
+  },
+  "cross": {
+    "tab": "クロス表",
+    "title": "クロス表 · {{crossTableId}}",
+    "shape": "{{rows}} 行 × {{cols}} 列 · {{filled}} 件入力済み",
+    "rowHeaders": "行条件",
+    "colHeaders": "列条件",
+    "target": "代入先",
+    "targetVar": "対象変数",
+    "targetType": "対象の型",
+    "then": "結論",
+    "addRow": "行を追加",
+    "addCol": "列を追加",
+    "removeRow": "この行を削除",
+    "removeCol": "この列を削除",
+    "addRowHeader": "行の次元を追加",
+    "addColHeader": "列の次元を追加",
+    "removeRowHeader": "この行の次元を削除",
+    "removeColHeader": "この列の次元を削除",
+    "empty": "なし",
+    "clear": "このセルを空にする",
+    "cellValue": "セルの値",
+    "none": "このルールセットはクロス表ではないか、定義を解析できません。",
+    "hint": "1 つのセルが 1 つのルールです。行と列の両方が一致すると、セルの値を対象変数に代入します。空のセルはルールを作りません。同じ次元の条件は重複しうるため、hitStrategy は FIRST のままにしてください。",
+    "noFreeValue": "この次元の値はすべて使用済みです。先に行または列を削除してください。"
   }
 }

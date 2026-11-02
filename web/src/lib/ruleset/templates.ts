@@ -16,12 +16,12 @@ export interface BlankOptions {
 }
 
 /**
- * Starter skeletons for the three authoring kinds.
+ * Starter skeletons for the four authoring kinds.
  *
  * Every skeleton has to survive the backend dry-run on its own: `Analyze` rejects a rule set with no
- * rules, and rejects a table with no columns or no rows. "Create an empty rule set and fill it in
- * later" is therefore not an option - each kind needs one honest, working example the author edits
- * rather than an empty shell that fails validation the moment it is saved.
+ * rules, a table with no columns or no rows, and a matrix with no filled cell. "Create an empty rule
+ * set and fill it in later" is therefore not an option - each kind needs one honest, working example
+ * the author edits rather than an empty shell that fails validation the moment it is saved.
  */
 export function blankDefinition(
   kind: AuthoringKind,
@@ -32,10 +32,11 @@ export function blankDefinition(
     ...(opts.name ? { name: opts.name } : {}),
     scene: opts.scene,
     version: "v1",
-    hitStrategy: kind === "table" || kind === "tree" ? "FIRST" : "ALL",
+    hitStrategy: kind === "expression" ? "ALL" : "FIRST",
     defaultDecision: "REJECT",
   }
   if (kind === "table") return { ...base, table: blankTable(opts.rulesetId, opts.facts) }
+  if (kind === "cross") return { ...base, crossTable: blankCross(opts.rulesetId, opts.facts) }
   return { ...base, rules: [starterRule(opts.scene, opts.facts)] }
 }
 
@@ -99,6 +100,54 @@ function blankTable(id: string, facts: FactRecord[]) {
     // author meant, and would quietly approve traffic nobody asked about.
     rows: [{ conditions: { [column.fact]: "*" }, then }],
   }
+}
+
+/**
+ * A 2x2 matrix with every cell filled.
+ *
+ * Cells are decimals because that is what a matrix is actually for - fee tables, rate tiers, quota grids -
+ * and `rate` is the output variable the fixtures already use. The target type is what decides how the cell
+ * literals are read, so no output schema is needed for the skeleton to pass dry-run.
+ */
+function blankCross(id: string, facts: FactRecord[]) {
+  const usable = facts.filter((f) => f.type === "enum" || f.type === "boolean")
+  const colFact = usable.find((f) => f.fact === "request.channel") ?? usable[0] ?? facts[0]
+  const rowFact =
+    usable.find((f) => f !== colFact && f.type === "boolean") ?? usable.find((f) => f !== colFact)
+
+  const col = colFact
+    ? { fact: colFact.fact, type: colFact.type }
+    : { fact: "request.channel", type: "enum" }
+  const row = rowFact
+    ? { fact: rowFact.fact, type: rowFact.type }
+    : { fact: "sanctions.hit", type: "boolean" }
+
+  const colVals = axisValues(colFact)
+  const rowVals = axisValues(rowFact)
+  const rate = (i: number, j: number): TypedLiteral => ({
+    type: "decimal",
+    value: ["0.10", "0.12", "0.15", "0.20"][i * 2 + j] ?? "0.10",
+  })
+
+  return {
+    crossTableId: `CT-${id}`.slice(0, 40),
+    rowHeaders: [row],
+    colHeaders: [col],
+    rowCells: rowVals.map((v) => ({ [row.fact]: v })),
+    colCells: colVals.map((v) => ({ [col.fact]: v })),
+    cells: rowVals.map((_, i) => colVals.map((_, j) => rate(i, j))),
+    target: { var: "rate", type: "decimal" },
+    then: { decision: "APPROVE", reasonCode: "OK" } as RuleThen,
+  }
+}
+
+/** Two distinguishable values for one axis, taken from the fact's own domain so the skeleton is realistic. */
+function axisValues(fact: FactRecord | undefined): unknown[] {
+  if (!fact) return [true, false]
+  if (fact.type === "enum" && (fact.enum?.length ?? 0) >= 2) return [fact.enum![0], fact.enum![1]]
+  if (fact.type === "boolean") return [true, false]
+  if (fact.type === "integer") return [1, 2]
+  return ["A", "B"]
 }
 
 /** Reason codes must start with a registered prefix or be exactly `OK`; otherwise dry-run warns. */

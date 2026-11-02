@@ -67,6 +67,14 @@ type ruleAST struct {
 
 var builtinDecisions = map[string]bool{"APPROVE": true, "REJECT": true, "REVIEW": true, "ROUTE": true}
 
+// effectiveStrategy mirrors compile's default so validation reasons about the strategy that will actually run.
+func effectiveStrategy(s string) string {
+	if s == "" {
+		return "ALL"
+	}
+	return s
+}
+
 var reasonPrefixes = []string{"AMOUNT_", "LIST_", "FREQ_", "CONTRACT_", "DEGRADE_", "DEFAULT_"}
 
 // Analyze is the main dry-run entry point of B7: parse → static validation → (when error-free) compile an IR preview.
@@ -109,11 +117,27 @@ func Analyze(in Input) Report {
 			"同一规则集不能同时用「表达式」与「决策表」两种写法",
 			"决策表/表达式是同一 IR 的两种写法，不是两个模块（contracts/01 §3.1）")
 	}
+	if def.CrossTable != nil && (def.Table != nil || len(def.Rules) > 0) {
+		d.errorf(CodeRuleSetInvalid, "", "", "",
+			"同一规则集不能同时用「交叉表」与「表达式/决策表」两种写法",
+			"三种写法存储的形状不同，换成另一种等于另建一张表（contracts/01 §3.2.5）")
+	}
 
 	// ---- 2 form expansion ----
 	rules := def.Rules
 	if def.Table != nil {
 		rules = ExpandTable(def.Table, d)
+	}
+	if def.CrossTable != nil {
+		rules = ExpandCrossTable(def.CrossTable, d)
+		// A matrix has no structural mutual exclusion (two rows may both match), so a unique conclusion depends
+		// entirely on the hit strategy. ALL/PRIORITY - including the implicit default - would let several cells
+		// assign the same target in turn, and the winner would be the last one traversed.
+		if hs := effectiveStrategy(def.HitStrategy); hs != "FIRST" {
+			d.warnf(CodeTableInvalid, "hitStrategy", "", "",
+				fmt.Sprintf("交叉表建议使用 FIRST，当前生效的是 %s：多个格子同时命中会依次覆盖同一个输出变量", hs),
+				"显式写 \"hitStrategy\": \"FIRST\"，或确认「后者覆盖前者」正是想要的语义")
+		}
 	}
 	if len(rules) == 0 && !d.hasError() {
 		d.errorf(CodeRuleSetInvalid, "rules", "", "", "规则集里没有任何规则")
