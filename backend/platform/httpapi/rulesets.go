@@ -7,13 +7,24 @@ import (
 	"goldenrules/platform/dsl"
 )
 
+// rulesetSummary is a rule set plus the one field the list page cannot derive from the document itself.
+//
+// A decision table / cross table stores `rules: []` and only materialises them at compile time, so a client
+// reading `len(rules)` shows "0 rules" for a table that compiles to a dozen. The count is computed here rather
+// than in the browser because expansion lives in `dsl` (single source of truth for the expansion order).
+type rulesetSummary struct {
+	dsl.Definition
+	RuleCount int `json:"ruleCount"`
+}
+
 // GET /api/v1/rulesets?scene=
 func (s *Server) listRulesets(w http.ResponseWriter, r *http.Request) {
 	items := s.deps.Rulesets.List(r.URL.Query().Get("scene"))
-	if items == nil {
-		items = []dsl.Definition{}
+	out := make([]rulesetSummary, 0, len(items))
+	for _, def := range items {
+		out = append(out, rulesetSummary{Definition: def, RuleCount: def.RuleCount()})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"total": len(items), "items": items})
+	writeJSON(w, http.StatusOK, map[string]any{"total": len(out), "items": out})
 }
 
 // GET /api/v1/rulesets/{id}

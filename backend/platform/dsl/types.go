@@ -523,3 +523,22 @@ func mustJSON(e *Expr) json.RawMessage {
 	}
 	return body
 }
+
+// RuleCount reports how many rules the definition actually compiles to.
+//
+// It has to expand the table forms instead of reading `len(def.Rules)`: a decision table and a cross table are
+// **storage forms**, so their `rules` list is empty by design and `len(rules)` would report 0 for a table that
+// compiles to a dozen rules. Callers that summarise a rule set (the list page) must use this, otherwise every
+// table-shaped rule set shows up as empty.
+//
+// Expansion diagnostics are discarded on purpose: this is a counting call, not a validation one.
+func (def Definition) RuleCount() int {
+	switch {
+	case def.CrossTable != nil:
+		return len(ExpandCrossTable(def.CrossTable, &diag{}))
+	case def.Table != nil:
+		return len(ExpandTable(def.Table, &diag{}))
+	default:
+		return len(def.Rules)
+	}
+}

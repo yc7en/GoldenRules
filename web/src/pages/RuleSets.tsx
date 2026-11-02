@@ -67,7 +67,9 @@ export default function RuleSets() {
                     <TableCell className="font-mono text-xs">{rs.version}</TableCell>
                     <TableCell>{rs.hitStrategy}</TableCell>
                     <TableCell className="text-xs">{rs.defaultDecision}</TableCell>
-                    <TableCell>{rs.rules?.length ?? 0}</TableCell>
+                    {/* `ruleCount` comes from the server: a decision table / cross table stores an empty
+                        `rules` list and would otherwise always read 0 here. */}
+                    <TableCell>{rs.ruleCount ?? rs.rules?.length ?? 0}</TableCell>
                     <TableCell>
                       <span
                         className={

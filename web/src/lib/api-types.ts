@@ -150,6 +150,14 @@ export interface RulesetDefinition {
   updatedAt?: string
   updatedBy?: string
   revision?: number
+  /**
+   * Compiled rule count, sent by the list endpoint only.
+   *
+   * Table forms keep `rules: []` in storage and expand at compile time, so `rules.length` reads 0 for a table
+   * that compiles to a dozen rules. The server expands it for the list; the detail endpoints do not send this
+   * field, which is why it is optional and falls back to `rules.length`.
+   */
+  ruleCount?: number
 }
 
 export interface RulesetListResponse {

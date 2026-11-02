@@ -587,3 +587,36 @@ func containsStr(hay, needle string) bool {
 		return false
 	})()
 }
+
+// RuleCount is what the rule-set list page shows. Table forms keep `rules: []` in storage, so a client that
+// counts `len(rules)` reports 0 for a table that compiles to several rules - the list page did exactly that.
+func TestRuleCountExpandsTableForms(t *testing.T) {
+	cross := crossDef()
+	if got := cross.RuleCount(); got != 5 { // 3 rows x 2 cols, one empty cell
+		t.Fatalf("交叉表规则数 = %d, want 5", got)
+	}
+
+	plain := Definition{
+		RulesetID:       "rs-table-count",
+		Scene:           "withdraw-rate",
+		DefaultDecision: "REJECT",
+		Table: &Table{
+			TableID: "DT-1",
+			Columns: []TableColumn{{Fact: "request.channel", Type: "enum"}},
+			Rows: []TableRow{
+				{Conditions: map[string]json.RawMessage{"request.channel": json.RawMessage(`"APP"`)}},
+				{Conditions: map[string]json.RawMessage{"request.channel": json.RawMessage(`"WEB"`)}},
+			},
+		},
+	}
+	if got := plain.RuleCount(); got != 2 {
+		t.Fatalf("决策表规则数 = %d, want 2", got)
+	}
+
+	expr := Definition{DefaultDecision: "REJECT", Rules: []contracts.Rule{
+		{RuleID: "R1", Priority: 10, When: json.RawMessage(`{"op":"eq","args":[{"fact":"sanctions.hit"},true]}`)},
+	}}
+	if got := expr.RuleCount(); got != 1 {
+		t.Fatalf("表达式规则数 = %d, want 1", got)
+	}
+}
