@@ -50,6 +50,15 @@
     "uiCrashHint": "Es wurde nichts gespeichert und nichts geht verloren – die Daten liegen weiterhin auf dem Server. Ein Neuladen hilft meist; tritt es wiederholt auf, geben Sie die Meldung unten an die Entwicklung weiter.",
     "uiCrashReload": "Neu laden",
     "uiCrashDetail": "Fehlerdetails",
+    "degrade": {
+      "CONTRACT_REQUIRED_MISSING": "Dieses Pflichtfeld fehlt in der Anfrage, daher gilt der Entscheid als Vertragsverstoß.",
+      "CONTRACT_UNKNOWN_FIELD": "Dieses Feld steht nicht im Faktenkatalog; der strikte Modus lehnt es ab.",
+      "CONTRACT_TYPE_ERROR": "Der Werttyp stimmt nicht mit dem Faktenkatalog überein.",
+      "CONTRACT_ENUM_INVALID": "Der Wert ist keiner der zulässigen Werte dieses Feldes.",
+      "CONTRACT_SNAPSHOT_TOO_LARGE": "Der Eingabe-Snapshot überschreitet die Größenobergrenze.",
+      "OUTPUT_SCHEMA_VIOLATION": "Eine Ausgabevariable verletzt den Ausgabevertrag.",
+      "FALLBACK_DECISION": "Ein Pflichtfakt fehlte, daher nutzt das gesamte Szenario den Ersatzentscheid."
+    },
     "howToFix": "Was zu tun ist",
     "unknownCode": "Unbekannter Fehlercode",
     "backendRaw": "Originalmeldung des Backends",

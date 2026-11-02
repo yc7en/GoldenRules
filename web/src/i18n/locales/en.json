@@ -50,6 +50,15 @@
     "uiCrashHint": "Nothing was saved and nothing was lost - the data is still on the server. Reloading usually clears it; if it keeps happening, hand the message below to a developer.",
     "uiCrashReload": "Reload",
     "uiCrashDetail": "Error details",
+    "degrade": {
+      "CONTRACT_REQUIRED_MISSING": "The request is missing this required fact, so the decision is treated as a contract violation.",
+      "CONTRACT_UNKNOWN_FIELD": "This field is not in the fact catalog; strict mode rejects it.",
+      "CONTRACT_TYPE_ERROR": "The value type does not match the fact catalog.",
+      "CONTRACT_ENUM_INVALID": "The value is not one of the fact's enum members.",
+      "CONTRACT_SNAPSHOT_TOO_LARGE": "The input snapshot exceeds the size limit.",
+      "OUTPUT_SCHEMA_VIOLATION": "An output variable violates the output schema.",
+      "FALLBACK_DECISION": "A required fact was missing, so the whole scene used the fallback decision."
+    },
     "howToFix": "What to do",
     "unknownCode": "Unrecognized error code",
     "backendRaw": "Backend message",

@@ -50,6 +50,15 @@
     "uiCrashHint": "保存も消失もしていません。データはサーバー側にあります。再読み込みで多くの場合復帰します。繰り返す場合は下のエラーを開発者に渡してください。",
     "uiCrashReload": "再読み込み",
     "uiCrashDetail": "エラーの詳細",
+    "degrade": {
+      "CONTRACT_REQUIRED_MISSING": "必須のファクトがリクエストに無いため、契約違反として扱いました。",
+      "CONTRACT_UNKNOWN_FIELD": "ファクトカタログに無い項目です（厳格モードでは拒否されます）。",
+      "CONTRACT_TYPE_ERROR": "値の型がファクトカタログの宣言と一致しません。",
+      "CONTRACT_ENUM_INVALID": "値がこの項目の列挙値に含まれていません。",
+      "CONTRACT_SNAPSHOT_TOO_LARGE": "入力スナップショットがサイズ上限を超えています。",
+      "OUTPUT_SCHEMA_VIOLATION": "出力変数が出力契約に違反しています。",
+      "FALLBACK_DECISION": "必須ファクトが欠けたため、シーン全体がフォールバック判定に切り替わりました。"
+    },
     "howToFix": "対処方法",
     "unknownCode": "未知のエラーコード",
     "backendRaw": "バックエンドの原文",

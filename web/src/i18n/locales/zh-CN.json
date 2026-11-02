@@ -50,6 +50,15 @@
     "uiCrashHint": "没有保存也没有丢数据——数据仍在服务端。刷新通常就能恢复；若反复出现，把下面的报错交给开发。",
     "uiCrashReload": "重新加载",
     "uiCrashDetail": "错误详情",
+    "degrade": {
+      "CONTRACT_REQUIRED_MISSING": "请求里缺少这个必填事实，本次决策按契约违约处理。",
+      "CONTRACT_UNKNOWN_FIELD": "事实目录里没有这个字段；严格模式下直接拒收。",
+      "CONTRACT_TYPE_ERROR": "值的类型与事实目录里的声明不一致。",
+      "CONTRACT_ENUM_INVALID": "取值不在该字段的枚举范围内。",
+      "CONTRACT_SNAPSHOT_TOO_LARGE": "输入快照超过体积上限。",
+      "OUTPUT_SCHEMA_VIOLATION": "输出变量不符合输出契约。",
+      "FALLBACK_DECISION": "有必填事实缺失，整个场景改走了兜底决策。"
+    },
     "howToFix": "怎么办",
     "unknownCode": "未识别的错误码",
     "backendRaw": "后端原文",

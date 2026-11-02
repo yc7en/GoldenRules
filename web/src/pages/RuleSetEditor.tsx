@@ -680,12 +680,14 @@ function TrialPanel({
                   {degradedList.map((r, i) => {
                     const d = degradedText(r)
                     return (
-                      <li key={`${d.fact}-${d.code ?? ""}-${i}`}>
+                      <li key={`${d.fact}-${d.code ?? ""}-${i}`} title={d.detail}>
                         {d.fact && <code className="font-mono">{d.fact}</code>}
                         {d.code && (
                           <code className="ms-1 rounded bg-red-100 px-1 text-[10px]">{d.code}</code>
                         )}
-                        {d.detail && <span className="ms-1">{d.detail}</span>}
+                        <span className="ms-1">
+                          {degradeSentence(d, t) || d.detail || d.reason || ""}
+                        </span>
                         {d.fallback && <span className="ms-1 opacity-70">→ {d.fallback}</span>}
                       </li>
                     )
@@ -705,13 +707,19 @@ function formatMs(ms: number): string {
 }
 
 /**
- * A degrade reason as the UI needs it: `{fact, code, detail, fallback}`.
+ * A degrade reason as the UI needs it: `{fact, code, reason, detail, fallback}`.
  *
  * Accepts a bare string as well. The declared contract is an object, but the panel is the last line of
  * defence between a payload and a white screen - a shape we did not anticipate must render as one dull
  * line, not throw during reconciliation.
  */
-function degradedText(r: unknown): { fact?: string; code?: string; detail?: string; fallback?: string } {
+function degradedText(r: unknown): {
+  fact?: string
+  code?: string
+  reason?: string
+  detail?: string
+  fallback?: string
+} {
   if (r == null) return {}
   if (typeof r === "string") return { detail: r }
   if (typeof r === "object") {
@@ -720,13 +728,53 @@ function degradedText(r: unknown): { fact?: string; code?: string; detail?: stri
     return {
       fact: str(o.fact),
       code: str(o.code),
-      // `reason` is the enum (`CONTRACT_VIOLATION`); `detail` is the human sentence. Show the sentence,
-      // fall back to the enum so the line is never empty just because the engine omitted prose.
-      detail: str(o.detail) ?? str(o.reason),
+      reason: str(o.reason),
+      detail: str(o.detail),
       fallback: str(o.fallback),
     }
   }
   return { detail: String(r) }
+}
+
+/**
+ * Degrade codes the console can phrase itself. The engine's `detail` is Chinese prose built in Rust and
+ * belongs to the audit trail (decision logs are stored and replayed verbatim), so it cannot be translated
+ * without translating the engine. The UI therefore writes its own sentence for the codes it knows and
+ * keeps the engine text as the tooltip, which leaves unknown codes displaying exactly what the engine said.
+ */
+const DEGRADE_KEYS = {
+  CONTRACT_REQUIRED_MISSING: "errors.degrade.CONTRACT_REQUIRED_MISSING",
+  CONTRACT_UNKNOWN_FIELD: "errors.degrade.CONTRACT_UNKNOWN_FIELD",
+  CONTRACT_TYPE_ERROR: "errors.degrade.CONTRACT_TYPE_ERROR",
+  CONTRACT_ENUM_INVALID: "errors.degrade.CONTRACT_ENUM_INVALID",
+  CONTRACT_SNAPSHOT_TOO_LARGE: "errors.degrade.CONTRACT_SNAPSHOT_TOO_LARGE",
+  OUTPUT_SCHEMA_VIOLATION: "errors.degrade.OUTPUT_SCHEMA_VIOLATION",
+  FALLBACK_DECISION: "errors.degrade.FALLBACK_DECISION",
+} as const
+
+type DegradeKey = (typeof DEGRADE_KEYS)[keyof typeof DEGRADE_KEYS]
+
+/**
+ * Which sentence fits this reason. The `_scene` / `_outputs` sentinels win over the code: the engine reuses
+ * `CONTRACT_REQUIRED_MISSING` for "the whole scene fell back", and `_scene` with that code would otherwise
+ * read as "a fact called _scene was missing".
+ */
+function degradeSentence(
+  d: ReturnType<typeof degradedText>,
+  t: (key: DegradeKey) => string
+): string {
+  const byFact =
+    d.fact === "_scene"
+      ? DEGRADE_KEYS.FALLBACK_DECISION
+      : d.fact === "_outputs"
+      ? DEGRADE_KEYS.OUTPUT_SCHEMA_VIOLATION
+      : undefined
+  const byCode = [d.code, d.reason]
+    .filter((c): c is string => Boolean(c))
+    .map((c) => (DEGRADE_KEYS as Record<string, DegradeKey | undefined>)[c])
+    .find((k): k is DegradeKey => Boolean(k))
+  const key = byFact ?? byCode
+  return key ? t(key) : ""
 }
 
 function toDegradedList(v: unknown): unknown[] {

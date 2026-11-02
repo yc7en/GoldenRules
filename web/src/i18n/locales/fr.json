@@ -50,6 +50,15 @@
     "uiCrashHint": "Rien n'a été enregistré et rien n'est perdu : les données restent sur le serveur. Un rechargement suffit le plus souvent ; si cela se répète, transmettez le message ci-dessous à un développeur.",
     "uiCrashReload": "Recharger",
     "uiCrashDetail": "Détail de l'erreur",
+    "degrade": {
+      "CONTRACT_REQUIRED_MISSING": "Ce fait obligatoire manque dans la requête : la décision est traitée comme une violation de contrat.",
+      "CONTRACT_UNKNOWN_FIELD": "Ce champ n'existe pas dans le catalogue de faits ; le mode strict le rejette.",
+      "CONTRACT_TYPE_ERROR": "Le type de la valeur ne correspond pas à celui déclaré dans le catalogue de faits.",
+      "CONTRACT_ENUM_INVALID": "La valeur ne fait pas partie des valeurs autorisées pour ce champ.",
+      "CONTRACT_SNAPSHOT_TOO_LARGE": "L'instantané d'entrée dépasse la taille maximale.",
+      "OUTPUT_SCHEMA_VIOLATION": "Une variable de sortie viole le contrat de sortie.",
+      "FALLBACK_DECISION": "Un fait obligatoire manquait : tout le scénario est passé en décision de repli."
+    },
     "howToFix": "Que faire",
     "unknownCode": "Code d'erreur non reconnu",
     "backendRaw": "Message du back-end",
