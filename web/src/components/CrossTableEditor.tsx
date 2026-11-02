@@ -12,6 +12,7 @@ import {
 } from "@/lib/ruleset/cell"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 
 /**
  * Cross decision table editor (decision matrix, `contracts/01` §3.2.5).
@@ -23,11 +24,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
  *
  * Axis cells reuse the plain table's cell encoding, minus the wildcard: an axis that constrains nothing would
  * make the two-dimensional promise a lie, and the backend rejects it for the same reason.
+ *
+ * The layout is a real grid - one bordered cell per matrix square, row headers pinned to the start edge - because
+ * the shape *is* the content here. A stack of "column 1 condition" inputs would make the reader reconstruct the
+ * matrix in their head, which is the one thing this form exists to avoid.
  */
 
 const DECISIONS = ["APPROVE", "REJECT", "REVIEW", "ROUTE"]
 const TARGET_TYPES = ["string", "enum", "integer", "decimal", "boolean"] as const
 const AXIS_MODES = CELL_MODES.filter((m) => m !== "*") as [CellMode, ...CellMode[]]
+
+/** Grid lines are the layout: every cell draws its own, so `border-collapse` never leaves a gap. */
+const LINE = "border border-border"
+const HEAD = cn(LINE, "bg-muted/50 p-1 align-bottom text-start text-[10px] font-medium text-muted-foreground")
+/** Pinned so that a wide matrix can be scrolled without losing which row a value belongs to. */
+const PIN = "sticky start-0 z-10"
+/** A cell-sized editor: no box of its own, the cell border is the box. */
+const BARE =
+  "w-full border-0 bg-transparent px-1 font-mono text-[11px] outline-none focus:ring-1 focus:ring-inset focus:ring-ring"
 
 export interface CrossTableEditorProps {
   table: CrossTableDef
@@ -52,15 +66,25 @@ export function CrossTableEditor({ table, facts, onChange, readOnlyReason }: Cro
     const cellKey = axis === "row" ? "rowCells" : "colCells"
     const headers = table[key]
     const prev = headers[index]?.fact
+    const prevFact = prev ? factIndex.get(prev) : undefined
     const nextFact = factIndex.get(fact)
     const nextHeaders = headers.map((h, i) => (i === index ? { fact, type: nextFact?.type } : h))
     // Renaming a dimension moves its condition values instead of leaving orphan keys behind: an undeclared
     // key in a header cell is a hard validation error, so a stale one would make the whole table invalid.
+    // The value itself only survives the move when it still fits the new fact - carrying `"APP"` into an
+    // integer dimension (or into a different enum) produces a cell that no longer compiles, and the author
+    // would only find out from a type-mismatch refusal at save time. Resampled values skip whatever the other
+    // lines already took, otherwise a rename could leave two identical lines behind.
+    const taken: unknown[] = []
     const nextCells = table[cellKey].map((line) => {
-      if (!prev || prev === fact) return line
+      if (!prev || prev === fact) {
+        taken.push(line[fact])
+        return line
+      }
       const copy = { ...line }
-      copy[fact] = copy[prev] ?? sampleFor(nextFact)
+      copy[fact] = fitsValue(prevFact, nextFact, copy[prev]) ? copy[prev] : nextSample(nextFact, taken)
       delete copy[prev]
+      taken.push(copy[fact])
       return copy
     })
     patch({ [key]: nextHeaders, [cellKey]: nextCells } as Partial<CrossTableDef>)
@@ -161,7 +185,7 @@ export function CrossTableEditor({ table, facts, onChange, readOnlyReason }: Cro
       <CardHeader className="py-2">
         <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <span>
-            {t("cross.title", { id: table.crossTableId })}
+            {t("cross.title", { crossTableId: table.crossTableId })}
             <span className="ms-2 text-[11px] font-normal text-muted-foreground">
               {t("cross.shape", { rows, cols, filled })}
             </span>
@@ -199,72 +223,14 @@ export function CrossTableEditor({ table, facts, onChange, readOnlyReason }: Cro
           </p>
         )}
 
-        {/* The table-level half of `then`: one conclusion for the whole matrix, plus the assignment target. */}
-        <div className="flex flex-wrap items-end gap-3 rounded-md border border-dashed p-2">
-          <label className="text-[11px] text-muted-foreground">
-            {t("cross.target")}
-            <span className="mt-0.5 flex items-center gap-1">
-              <input
-                className="w-40 rounded-md border border-input bg-transparent px-1 py-1 font-mono text-[11px]"
-                dir="ltr"
-                value={table.target.var}
-                disabled={readOnly}
-                aria-label={t("cross.targetVar")}
-                onChange={(e) => patch({ target: { ...table.target, var: e.target.value } })}
-              />
-              <select
-                className="rounded-md border border-input bg-transparent px-1 py-1 text-[11px]"
-                value={table.target.type}
-                disabled={readOnly}
-                aria-label={t("cross.targetType")}
-                onChange={(e) => patch({ target: { ...table.target, type: e.target.value } })}
-              >
-                {TARGET_TYPES.map((x) => (
-                  <option key={x} value={x}>
-                    {x}
-                  </option>
-                ))}
-              </select>
-            </span>
-          </label>
-
-          <label className="text-[11px] text-muted-foreground">
-            {t("cross.then")}
-            <span className="mt-0.5 flex items-center gap-1">
-              <select
-                className="rounded-md border border-input bg-transparent px-1 py-1 text-[11px]"
-                value={table.then.decision}
-                disabled={readOnly}
-                onChange={(e) => patch({ then: { ...table.then, decision: e.target.value } })}
-              >
-                {DECISIONS.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="w-44 rounded-md border border-input bg-transparent px-1 py-1 font-mono text-[11px]"
-                dir="ltr"
-                value={table.then.reasonCode}
-                disabled={readOnly}
-                aria-label={t("table.reasonCode")}
-                onChange={(e) =>
-                  patch({ then: { ...table.then, reasonCode: e.target.value } as RuleThen })
-                }
-              />
-            </span>
-          </label>
-        </div>
-
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] border-collapse text-xs">
+          <table className="w-full min-w-[620px] border-collapse text-xs">
             <thead>
+              {/* Band 1 names the two axes. The pickers live here and only here - repeating them per column
+                  would suggest each column has its own dimensions. */}
               <tr>
-                <th rowSpan={2} className="min-w-[180px] border-b p-1 text-start align-bottom">
-                  <div className="text-[11px] font-medium text-muted-foreground">
-                    {t("cross.rowHeaders")}
-                  </div>
+                <th rowSpan={2} className={cn(HEAD, PIN, "w-[210px] min-w-[190px] bg-muted")}>
+                  <div className="text-[10px] font-medium text-muted-foreground">{t("cross.rowHeaders")}</div>
                   <HeaderPickers
                     axis="row"
                     headers={table.rowHeaders}
@@ -275,10 +241,8 @@ export function CrossTableEditor({ table, facts, onChange, readOnlyReason }: Cro
                     onRemove={(i) => removeHeader("row", i)}
                   />
                 </th>
-                <th colSpan={cols} className="border-b p-1 text-start">
-                  <div className="text-[11px] font-medium text-muted-foreground">
-                    {t("cross.colHeaders")}
-                  </div>
+                <th colSpan={cols} className={HEAD}>
+                  <div className="text-[10px] font-medium text-muted-foreground">{t("cross.colHeaders")}</div>
                   <HeaderPickers
                     axis="col"
                     headers={table.colHeaders}
@@ -289,40 +253,70 @@ export function CrossTableEditor({ table, facts, onChange, readOnlyReason }: Cro
                     onRemove={(i) => removeHeader("col", i)}
                   />
                 </th>
-                <th rowSpan={2} className="w-8 border-b p-1" />
               </tr>
+              {/* Band 2 is the column axis: one condition set per column, in the same order as the pickers
+                  above, so line k of every column belongs to dimension k. */}
               <tr>
                 {table.colCells.map((line, j) => (
-                  <th key={j} className="min-w-[120px] border-b p-1 align-bottom">
-                    {table.colHeaders.map((h) => (
-                      <AxisCell
-                        key={h.fact}
-                        fact={factIndex.get(h.fact)}
-                        raw={line[h.fact]}
-                        readOnly={readOnly}
-                        onChange={(raw) => setAxisCell("col", j, h.fact, raw)}
-                      />
-                    ))}
+                  <th key={j} className={cn(LINE, "relative min-w-[128px] bg-muted/20 p-1 align-top")}>
+                    {!readOnly && cols > 1 && (
+                      <button
+                        type="button"
+                        className="absolute end-0.5 top-0.5 rounded p-0.5 text-muted-foreground/60 hover:text-red-600"
+                        onClick={() => removeCol(j)}
+                        aria-label={t("cross.removeCol")}
+                      >
+                        <Trash2 className="size-2.5" />
+                      </button>
+                    )}
+                    <div className="space-y-0.5 pe-2.5">
+                      {table.colHeaders.map((h) => (
+                        <AxisCell
+                          key={h.fact}
+                          fact={factIndex.get(h.fact)}
+                          raw={line[h.fact]}
+                          readOnly={readOnly}
+                          onChange={(raw) => setAxisCell("col", j, h.fact, raw)}
+                        />
+                      ))}
+                    </div>
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {table.rowCells.map((line, i) => (
-                <tr key={i} className="border-b align-top">
-                  <th className="p-1 text-start">
-                    {table.rowHeaders.map((h) => (
-                      <AxisCell
-                        key={h.fact}
-                        fact={factIndex.get(h.fact)}
-                        raw={line[h.fact]}
-                        readOnly={readOnly}
-                        onChange={(raw) => setAxisCell("row", i, h.fact, raw)}
-                      />
-                    ))}
+                <tr key={i} className="group/row">
+                  <th className={cn(HEAD, PIN, "bg-muted align-middle")}>
+                    <div className="flex items-start gap-1">
+                      <span className="w-3.5 shrink-0 pt-[3px] text-end text-[10px] font-normal tabular-nums text-muted-foreground">
+                        {i + 1}
+                      </span>
+                      <div className="flex-1 space-y-0.5">
+                        {table.rowHeaders.map((h) => (
+                          <AxisCell
+                            key={h.fact}
+                            fact={factIndex.get(h.fact)}
+                            raw={line[h.fact]}
+                            readOnly={readOnly}
+                            onChange={(raw) => setAxisCell("row", i, h.fact, raw)}
+                          />
+                        ))}
+                      </div>
+                      {!readOnly && rows > 1 && (
+                        <button
+                          type="button"
+                          className="rounded p-0.5 text-muted-foreground opacity-0 hover:text-red-600 group-hover/row:opacity-100 focus-visible:opacity-100"
+                          onClick={() => removeRow(i)}
+                          aria-label={t("cross.removeRow")}
+                        >
+                          <Trash2 className="size-3" />
+                        </button>
+                      )}
+                    </div>
                   </th>
                   {table.colCells.map((_, j) => (
-                    <td key={j} className="p-1">
+                    <td key={j} className={cn(LINE, "group/cell relative p-0 align-middle")}>
                       <MatrixCell
                         value={table.cells[i]?.[j] ?? null}
                         targetType={table.target.type}
@@ -331,39 +325,76 @@ export function CrossTableEditor({ table, facts, onChange, readOnlyReason }: Cro
                       />
                     </td>
                   ))}
-                  <td className="p-1">
-                    {!readOnly && rows > 1 && (
-                      <button
-                        type="button"
-                        className="rounded p-0.5 text-muted-foreground hover:text-red-600"
-                        onClick={() => removeRow(i)}
-                        aria-label={t("cross.removeRow")}
-                      >
-                        <Trash2 className="size-3" />
-                      </button>
-                    )}
-                  </td>
                 </tr>
               ))}
-              {!readOnly && cols > 1 && (
-                <tr>
-                  <td />
-                  {table.colCells.map((_, j) => (
-                    <td key={j} className="p-1 text-center">
-                      <button
-                        type="button"
-                        className="rounded p-0.5 text-muted-foreground hover:text-red-600"
-                        onClick={() => removeCol(j)}
-                        aria-label={t("cross.removeCol")}
-                      >
-                        <Trash2 className="size-3" />
-                      </button>
-                    </td>
-                  ))}
-                  <td />
-                </tr>
-              )}
             </tbody>
+            {/* The table-level half of `then` sits in the grid's own footer rows: it applies to every cell
+                above, and a footer reads that way without a label explaining it. */}
+            <tfoot>
+              <tr>
+                <th className={cn(HEAD, PIN, "bg-muted align-middle")}>{t("cross.target")}</th>
+                <td colSpan={cols} className={cn(LINE, "p-1")}>
+                  {readOnly ? (
+                    <span className="font-mono text-[11px]" dir="ltr">
+                      {table.target.var} : {table.target.type}
+                    </span>
+                  ) : (
+                    <span className="flex flex-wrap items-center gap-1" dir="ltr">
+                      <input
+                        className="h-7 w-40 rounded-sm border border-input bg-transparent px-1 font-mono text-[11px]"
+                        value={table.target.var}
+                        aria-label={t("cross.targetVar")}
+                        onChange={(e) => patch({ target: { ...table.target, var: e.target.value } })}
+                      />
+                      <select
+                        className="h-7 rounded-sm border border-input bg-transparent px-1 text-[11px]"
+                        value={table.target.type}
+                        aria-label={t("cross.targetType")}
+                        onChange={(e) => patch({ target: { ...table.target, type: e.target.value } })}
+                      >
+                        {TARGET_TYPES.map((x) => (
+                          <option key={x} value={x}>
+                            {x}
+                          </option>
+                        ))}
+                      </select>
+                    </span>
+                  )}
+                </td>
+              </tr>
+              <tr>
+                <th className={cn(HEAD, PIN, "bg-muted align-middle")}>{t("cross.then")}</th>
+                <td colSpan={cols} className={cn(LINE, "p-1")}>
+                  {readOnly ? (
+                    <span className="font-mono text-[11px]" dir="ltr">
+                      {table.then.decision} / {table.then.reasonCode}
+                    </span>
+                  ) : (
+                    <span className="flex flex-wrap items-center gap-1" dir="ltr">
+                      <select
+                        className="h-7 rounded-sm border border-input bg-transparent px-1 text-[11px]"
+                        value={table.then.decision}
+                        onChange={(e) => patch({ then: { ...table.then, decision: e.target.value } })}
+                      >
+                        {DECISIONS.map((d) => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className="h-7 w-44 rounded-sm border border-input bg-transparent px-1 font-mono text-[11px]"
+                        value={table.then.reasonCode}
+                        aria-label={t("table.reasonCode")}
+                        onChange={(e) =>
+                          patch({ then: { ...table.then, reasonCode: e.target.value } as RuleThen })
+                        }
+                      />
+                    </span>
+                  )}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
         <p className="text-[11px] text-muted-foreground">{t("cross.hint")}</p>
@@ -396,7 +427,7 @@ function HeaderPickers({
       {headers.map((h, i) => (
         <span key={`${h.fact}-${i}`} className="flex items-center gap-0.5">
           <select
-            className="max-w-[150px] rounded-md border border-input bg-transparent px-1 py-0.5 text-[11px]"
+            className="max-w-[150px] rounded-sm border border-input bg-transparent px-1 py-0.5 text-[11px]"
             value={h.fact}
             disabled={readOnly}
             onChange={(e) => onPick(i, e.target.value)}
@@ -466,10 +497,12 @@ function AxisCell({
     )
   }
 
+  const hint = fact ? `${fact.displayName ?? fact.fact} ${mode} ${committed || "—"}` : undefined
+
   return (
-    <div className="flex items-center gap-0.5" dir="ltr">
+    <div className="flex items-center gap-0.5" dir="ltr" title={hint}>
       <select
-        className="rounded-md border border-input bg-transparent px-0.5 py-0.5 text-[10px]"
+        className="shrink-0 cursor-pointer appearance-none border-0 bg-transparent px-0 text-[10px] text-muted-foreground outline-none focus:ring-1 focus:ring-inset focus:ring-ring"
         value={mode}
         aria-label={t("table.cellMode")}
         onChange={(e) =>
@@ -484,7 +517,7 @@ function AxisCell({
       </select>
       {fact?.type === "boolean" ? (
         <select
-          className="w-full rounded-md border border-input bg-transparent px-1 py-0.5 font-mono text-[11px]"
+          className={cn(BARE, "h-6 w-auto max-w-[150px] cursor-pointer")}
           value={text || "true"}
           onChange={(e) => {
             setText(e.target.value)
@@ -496,7 +529,7 @@ function AxisCell({
         </select>
       ) : fact?.type === "enum" && fact.enum && fact.enum.length > 0 && mode === "eq" ? (
         <select
-          className="w-full rounded-md border border-input bg-transparent px-1 py-0.5 font-mono text-[11px]"
+          className={cn(BARE, "h-6 w-auto max-w-[150px] cursor-pointer")}
           value={text}
           onChange={(e) => {
             setText(e.target.value)
@@ -511,7 +544,7 @@ function AxisCell({
         </select>
       ) : (
         <input
-          className="w-full rounded-md border border-input bg-transparent px-1 py-0.5 font-mono text-[11px]"
+          className={cn(BARE, "h-6 min-w-0 max-w-[150px]")}
           value={text}
           onFocus={() => (focused.current = true)}
           onChange={(e) => setText(e.target.value)}
@@ -548,7 +581,7 @@ function MatrixCell({
 
   if (readOnly) {
     return (
-      <div className="font-mono text-[11px]" dir="ltr">
+      <div className="px-1 py-1.5 text-center font-mono text-[11px]" dir="ltr">
         {committed === "" ? "—" : committed}
       </div>
     )
@@ -559,27 +592,46 @@ function MatrixCell({
     onChange({ type: targetType, value: targetType === "integer" ? Number(raw) : raw })
   }
 
+  const clear = (
+    <button
+      type="button"
+      className="absolute end-0.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground opacity-0 hover:text-red-600 group-hover/cell:opacity-100 focus-visible:opacity-100"
+      onClick={() => {
+        setText("")
+        onChange(null)
+      }}
+      aria-label={t("cross.clear")}
+    >
+      <Trash2 className="size-3" />
+    </button>
+  )
+
   if (targetType === "boolean") {
     return (
-      <div className="flex items-center gap-0.5" dir="ltr">
+      <div className="relative" dir="ltr">
         <select
-          className="w-full rounded-md border border-input bg-transparent px-1 py-0.5 font-mono text-[11px]"
+          className={cn(BARE, "h-8 cursor-pointer text-center")}
           value={committed}
           aria-label={t("cross.cellValue")}
-          onChange={(e) => (e.target.value === "" ? onChange(null) : onChange({ type: "boolean", value: e.target.value === "true" }))}
+          onChange={(e) =>
+            e.target.value === ""
+              ? onChange(null)
+              : onChange({ type: "boolean", value: e.target.value === "true" })
+          }
         >
           <option value="">{t("cross.empty")}</option>
           <option value="true">true</option>
           <option value="false">false</option>
         </select>
+        {clear}
       </div>
     )
   }
 
   return (
-    <div className="flex items-center gap-0.5" dir="ltr">
+    <div className="relative" dir="ltr">
       <input
-        className="w-full rounded-md border border-input bg-transparent px-1 py-0.5 font-mono text-[11px]"
+        className={cn(BARE, "h-8 text-center placeholder:text-center")}
         value={text}
         placeholder={t("cross.empty")}
         aria-label={t("cross.cellValue")}
@@ -590,17 +642,7 @@ function MatrixCell({
           commit(e.target.value)
         }}
       />
-      <button
-        type="button"
-        className="rounded p-0.5 text-muted-foreground hover:text-red-600"
-        onClick={() => {
-          setText("")
-          onChange(null)
-        }}
-        aria-label={t("cross.clear")}
-      >
-        <Trash2 className="size-3" />
-      </button>
+      {clear}
     </div>
   )
 }
@@ -625,6 +667,27 @@ function hasFreeLine(
 /** First value of a fact's own domain, so a renamed dimension never ends up without a condition. */
 function sampleFor(fact: FactRecord | undefined): unknown {
   return nextSample(fact, [])
+}
+
+/**
+ * Whether an existing condition value still means the same thing for the fact it is being moved onto. A value
+ * that fails this is not merely odd-looking, it is a cell the compiler will refuse - so it gets replaced.
+ */
+function fitsValue(prevFact: FactRecord | undefined, nextFact: FactRecord | undefined, value: unknown): boolean {
+  if (value === undefined || value === null || value === "") return false
+  if (!prevFact || !nextFact || prevFact.type !== nextFact.type) return false
+  switch (nextFact.type) {
+    case "enum":
+      return (nextFact.enum ?? []).includes(String(value))
+    case "boolean":
+      return typeof value === "boolean"
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value)
+    case "decimal":
+      return typeof value === "number" || (typeof value === "string" && value.trim() !== "")
+    default:
+      return typeof value === "string"
+  }
 }
 
 /**
