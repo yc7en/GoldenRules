@@ -11,6 +11,14 @@ cd /d "%~dp0.."
 set "ROOT=%CD%"
 if not defined ENGINE_ADDR set "ENGINE_ADDR=127.0.0.1:18080"
 if not defined RELOAD_TOKEN set "RELOAD_TOKEN=devtoken"
+rem Which rule package to load. Defaults to the fixture package (4 rule sets, the
+rem one the engine's own tests use). Point it at an artifact exported from the
+rem platform to trial rule sets that only exist there:
+rem   set PKG=%CD%\.dev\pkg\rule-package.json
+rem   scripts\start-engine.bat
+rem Without this the platform's editor says "trial runs the loaded package" and
+rem then returns VERSION_RULESET_NOT_FOUND for anything created locally.
+if not defined PKG set "PKG=%ROOT%\backend\fixtures\rule-package.json"
 
 set "ENGINE=%ROOT%\backend\target\release\gr-server.exe"
 if not exist "%ENGINE%" (
@@ -20,11 +28,11 @@ if not exist "%ENGINE%" (
     exit /b 1
 )
 
-echo [engine] %ENGINE_ADDR%
+echo [engine] %ENGINE_ADDR% package=%PKG%
 "%ENGINE%" ^
     --addr "%ENGINE_ADDR%" ^
     --facts "%ROOT%\backend\fixtures\fact-catalog.json" ^
-    --package "%ROOT%\backend\fixtures\rule-package.json" ^
+    --package "%PKG%" ^
     --providers "%ROOT%\backend\fixtures\providers.json" ^
     --reload-token "%RELOAD_TOKEN%"
 exit /b %ERRORLEVEL%

@@ -29,7 +29,11 @@ func compile(def Definition, asts []ruleAST, cat map[string]contracts.FactSchema
 	})
 
 	slotIndex := map[string]int{}
-	var slots []contracts.SlotDef
+	// Empty, not nil: the compiled artifact is loaded by the Rust engine, where `slotTable` is a Vec - a nil
+	// Go slice marshals to `null` and the engine refuses the whole package with "invalid type: null, expected
+	// a sequence". A ruleset whose conditions never touch a fact (`*` columns only, a cross table over literals)
+	// legitimately has zero slots, so this path is reachable, not theoretical.
+	slots := make([]contracts.SlotDef, 0, 8)
 
 	var resolve func(*Expr) *Expr
 	resolve = func(e *Expr) *Expr {

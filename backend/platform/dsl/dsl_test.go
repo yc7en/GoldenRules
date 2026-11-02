@@ -1,6 +1,7 @@
 package dsl
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -618,5 +619,38 @@ func TestRuleCountExpandsTableForms(t *testing.T) {
 	}}
 	if got := expr.RuleCount(); got != 1 {
 		t.Fatalf("表达式规则数 = %d, want 1", got)
+	}
+}
+
+// A ruleset whose conditions never touch a fact (only `*` wildcards) has zero slots. The compiled artifact is
+// consumed by the Rust engine, where `slotTable` is a Vec: a nil Go slice marshals to `null` and the engine
+// rejects the entire package with "invalid type: null, expected a sequence". Empty must be `[]`.
+func TestZeroSlotRulesetEmitsEmptySlotTable(t *testing.T) {
+	def := Definition{
+		RulesetID:       "rs-no-slot",
+		Scene:           "withdraw-rate",
+		DefaultDecision: "REJECT",
+		Table: &Table{
+			TableID: "DT-no-slot",
+			Columns: []TableColumn{{Fact: "request.channel", Type: "enum"}},
+			Rows: []TableRow{{
+				Conditions: map[string]json.RawMessage{"request.channel": json.RawMessage(`"*"`)},
+				Then:       contracts.Then{Decision: "REVIEW", ReasonCode: "DEFAULT_REVIEW"},
+			}},
+		},
+	}
+	rep := Analyze(Input{Definition: def})
+	if !rep.Valid {
+		t.Fatalf("应当合法，却报错: %+v", rep.Errors)
+	}
+	body, err := json.Marshal(rep.IR)
+	if err != nil {
+		t.Fatalf("序列化失败: %v", err)
+	}
+	if bytes.Contains(body, []byte(`"slotTable":null`)) {
+		t.Fatalf("零 slot 的规则集把 slotTable 序列化成了 null（引擎会整包拒收）: %s", body)
+	}
+	if !bytes.Contains(body, []byte(`"slotTable":[]`)) {
+		t.Fatalf("零 slot 应序列化为空数组: %s", body)
 	}
 }
