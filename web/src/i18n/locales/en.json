@@ -46,6 +46,10 @@
     "emptySet": "The endpoint returned an empty set. This is not a load failure — the backend really has no data."
   },
   "errors": {
+    "uiCrashTitle": "This page failed to render",
+    "uiCrashHint": "Nothing was saved and nothing was lost - the data is still on the server. Reloading usually clears it; if it keeps happening, hand the message below to a developer.",
+    "uiCrashReload": "Reload",
+    "uiCrashDetail": "Error details",
     "howToFix": "What to do",
     "unknownCode": "Unrecognized error code",
     "backendRaw": "Backend message",
@@ -384,6 +388,7 @@
     "trialInputNotJson": "Trial input is not valid JSON: {{message}}",
     "trialDecision": "Decision: {{decision}}",
     "degraded": "Degraded",
+    "degradedReasons": "Degraded reasons",
     "trialPackage": "Package {{packageId}} {{packageVersion}} · ruleset version {{rulesetVersion}}",
     "trialEvaluated": "evaluated {{count}} rules · {{latency}} · engine {{engine}}",
     "trialOutputs": "Output variables:",

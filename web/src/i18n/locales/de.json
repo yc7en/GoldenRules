@@ -46,6 +46,10 @@
     "emptySet": "Der Endpunkt hat eine leere Menge zurückgegeben. Das ist kein Ladefehler – das Backend hat wirklich keine Daten."
   },
   "errors": {
+    "uiCrashTitle": "Diese Seite konnte nicht gerendert werden",
+    "uiCrashHint": "Es wurde nichts gespeichert und nichts geht verloren – die Daten liegen weiterhin auf dem Server. Ein Neuladen hilft meist; tritt es wiederholt auf, geben Sie die Meldung unten an die Entwicklung weiter.",
+    "uiCrashReload": "Neu laden",
+    "uiCrashDetail": "Fehlerdetails",
     "howToFix": "Was zu tun ist",
     "unknownCode": "Unbekannter Fehlercode",
     "backendRaw": "Originalmeldung des Backends",
@@ -384,6 +388,7 @@
     "trialInputNotJson": "Die Eingabe des Probelaufs ist kein gültiges JSON: {{message}}",
     "trialDecision": "Entscheidung: {{decision}}",
     "degraded": "Degradiert",
+    "degradedReasons": "Degradierungsgründe",
     "trialPackage": "Paket {{packageId}} {{packageVersion}} · Regelwerksversion {{rulesetVersion}}",
     "trialEvaluated": "{{count}} Regeln ausgewertet · {{latency}} · Engine {{engine}}",
     "trialOutputs": "Ausgabevariablen:",

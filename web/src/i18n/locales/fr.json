@@ -46,6 +46,10 @@
     "emptySet": "L'API a renvoyé un ensemble vide. Ce n'est pas un échec de chargement : le back-end n'a réellement aucune donnée."
   },
   "errors": {
+    "uiCrashTitle": "L'affichage de cette page a échoué",
+    "uiCrashHint": "Rien n'a été enregistré et rien n'est perdu : les données restent sur le serveur. Un rechargement suffit le plus souvent ; si cela se répète, transmettez le message ci-dessous à un développeur.",
+    "uiCrashReload": "Recharger",
+    "uiCrashDetail": "Détail de l'erreur",
     "howToFix": "Que faire",
     "unknownCode": "Code d'erreur non reconnu",
     "backendRaw": "Message du back-end",
@@ -393,6 +397,7 @@
     "trialInputNotJson": "L'entrée de l'essai n'est pas un JSON valide : {{message}}",
     "trialDecision": "Décision : {{decision}}",
     "degraded": "Dégradé",
+    "degradedReasons": "Motifs de dégradation",
     "trialPackage": "Paquet {{packageId}} {{packageVersion}} · version du jeu de règles {{rulesetVersion}}",
     "trialEvaluated": "{{count}} règles évaluées · {{latency}} · moteur {{engine}}",
     "trialOutputs": "Variables de sortie :",

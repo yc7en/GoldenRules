@@ -46,6 +46,10 @@
     "emptySet": "エンドポイントが空の集合を返しました。読み込み失敗ではなく、バックエンドに本当にデータがありません。"
   },
   "errors": {
+    "uiCrashTitle": "画面の描画に失敗しました",
+    "uiCrashHint": "保存も消失もしていません。データはサーバー側にあります。再読み込みで多くの場合復帰します。繰り返す場合は下のエラーを開発者に渡してください。",
+    "uiCrashReload": "再読み込み",
+    "uiCrashDetail": "エラーの詳細",
     "howToFix": "対処方法",
     "unknownCode": "未知のエラーコード",
     "backendRaw": "バックエンドの原文",
@@ -384,6 +388,7 @@
     "trialInputNotJson": "試行の入力が正しい JSON ではありません：{{message}}",
     "trialDecision": "判定：{{decision}}",
     "degraded": "縮退",
+    "degradedReasons": "縮退の理由",
     "trialPackage": "実行パッケージ {{packageId}} {{packageVersion}} · ルールセットのバージョン {{rulesetVersion}}",
     "trialEvaluated": "{{count}} 件を評価 · {{latency}} · エンジン {{engine}}",
     "trialOutputs": "出力変数：",

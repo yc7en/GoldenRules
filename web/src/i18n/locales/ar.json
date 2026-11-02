@@ -46,6 +46,10 @@
     "emptySet": "أعادت الواجهة مجموعة فارغة. هذا ليس فشل تحميل، بل لا توجد بيانات فعلًا في الخادم."
   },
   "errors": {
+    "uiCrashTitle": "تعذّر عرض هذه الصفحة",
+    "uiCrashHint": "لم يتم حفظ شيء ولم يُفقد شيء، فالبيانات لا تزال على الخادم. إعادة التحميل تحلّ المشكلة عادةً، وإن تكرّرت فأرسل رسالة الخطأ أدناه إلى المطوّر.",
+    "uiCrashReload": "إعادة التحميل",
+    "uiCrashDetail": "تفاصيل الخطأ",
     "howToFix": "ما ينبغي فعله",
     "unknownCode": "رمز خطأ غير معروف",
     "backendRaw": "نص الخادم الأصلي",
@@ -420,6 +424,7 @@
     "trialInputNotJson": "مدخل التجربة ليس JSON صالحًا: {{message}}",
     "trialDecision": "القرار: {{decision}}",
     "degraded": "مخفّض",
+    "degradedReasons": "أسباب التدهور",
     "trialPackage": "حزمة التنفيذ {{packageId}} {{packageVersion}} · إصدار المجموعة {{rulesetVersion}}",
     "trialEvaluated": "تمّ تقييم {{count}} قاعدة · {{latency}} · المحرك {{engine}}",
     "trialOutputs": "متغيّرات الإخراج:",

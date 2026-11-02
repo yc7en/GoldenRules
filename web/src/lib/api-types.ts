@@ -346,7 +346,8 @@ export interface DecisionLogEntry {
   decision: string
   reasonCode: string
   degraded: boolean
-  degradedReasons?: string[]
+  /** Same object shape as `TrialResult.degradedReasons` - the log entry is the engine's result, stored verbatim. */
+  degradedReasons?: DegradedReason[]
   engineVersion?: string
   executionTimeMs?: number
   evaluatedRules?: number
@@ -414,6 +415,19 @@ export interface AuditListResponse {
 
 // ---------------------------------------------------------------- Engine (decision service)
 
+/**
+ * One degraded reason. This is an **object**, not a string: `contracts/03` sends
+ * `{fact, reason, fallback?, code?, detail?}`. Typing it as `string[]` made the trial panel render a raw object
+ * as a React child, which throws and leaves a blank page - so the shape here is the contract's, verbatim.
+ */
+export interface DegradedReason {
+  fact: string
+  reason: string
+  fallback?: string
+  code?: string
+  detail?: string
+}
+
 /** Return of `POST /v1/trial`: note that it reports the package and version actually executed */
 export interface TrialResult {
   resultVersion?: string
@@ -435,7 +449,7 @@ export interface TrialResult {
   outputSchemaId?: string
   outputSchemaVersion?: string
   degraded: boolean
-  degradedReasons: string[]
+  degradedReasons: DegradedReason[]
   executionTimeMs: number
   executedAt?: string
   engineVersion?: string

@@ -575,6 +575,10 @@ function TrialPanel({
   rulesetId: string
 }) {
   const { t } = useTranslation()
+  // The engine answers with objects here (`contracts/03` DegradedReason). Rendering one directly throws
+  // "Objects are not valid as a React child" and takes the whole page down, so the shape is normalised
+  // before it reaches JSX - including the case where a build still sends bare strings.
+  const degradedList = toDegradedList(result?.degradedReasons)
   return (
     <Card>
       <CardHeader>
@@ -669,12 +673,25 @@ function TrialPanel({
                 </div>
               ))}
             </div>
-            {result.degraded && result.degradedReasons.length > 0 && (
-              <ul className="list-inside list-disc text-[11px] text-red-600">
-                {result.degradedReasons.map((r, i) => (
-                  <li key={i}>{r}</li>
-                ))}
-              </ul>
+            {degradedList.length > 0 && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-2 text-[11px] text-red-800">
+                <div className="font-medium">{t("editor.degradedReasons")}</div>
+                <ul className="mt-1 list-inside list-disc space-y-0.5">
+                  {degradedList.map((r, i) => {
+                    const d = degradedText(r)
+                    return (
+                      <li key={`${d.fact}-${d.code ?? ""}-${i}`}>
+                        {d.fact && <code className="font-mono">{d.fact}</code>}
+                        {d.code && (
+                          <code className="ms-1 rounded bg-red-100 px-1 text-[10px]">{d.code}</code>
+                        )}
+                        {d.detail && <span className="ms-1">{d.detail}</span>}
+                        {d.fallback && <span className="ms-1 opacity-70">→ {d.fallback}</span>}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
             )}
           </div>
         )}
@@ -685,6 +702,35 @@ function TrialPanel({
 
 function formatMs(ms: number): string {
   return ms < 1 ? `${(ms * 1000).toFixed(0)} µs` : `${ms.toFixed(2)} ms`
+}
+
+/**
+ * A degrade reason as the UI needs it: `{fact, code, detail, fallback}`.
+ *
+ * Accepts a bare string as well. The declared contract is an object, but the panel is the last line of
+ * defence between a payload and a white screen - a shape we did not anticipate must render as one dull
+ * line, not throw during reconciliation.
+ */
+function degradedText(r: unknown): { fact?: string; code?: string; detail?: string; fallback?: string } {
+  if (r == null) return {}
+  if (typeof r === "string") return { detail: r }
+  if (typeof r === "object") {
+    const o = r as Record<string, unknown>
+    const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined)
+    return {
+      fact: str(o.fact),
+      code: str(o.code),
+      // `reason` is the enum (`CONTRACT_VIOLATION`); `detail` is the human sentence. Show the sentence,
+      // fall back to the enum so the line is never empty just because the engine omitted prose.
+      detail: str(o.detail) ?? str(o.reason),
+      fallback: str(o.fallback),
+    }
+  }
+  return { detail: String(r) }
+}
+
+function toDegradedList(v: unknown): unknown[] {
+  return Array.isArray(v) ? v : []
 }
 
 function parseDef(

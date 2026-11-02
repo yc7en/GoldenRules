@@ -46,6 +46,10 @@
     "emptySet": "接口返回了空集合。这不是加载失败 —— 后端确实没有数据。"
   },
   "errors": {
+    "uiCrashTitle": "界面渲染出错",
+    "uiCrashHint": "没有保存也没有丢数据——数据仍在服务端。刷新通常就能恢复；若反复出现，把下面的报错交给开发。",
+    "uiCrashReload": "重新加载",
+    "uiCrashDetail": "错误详情",
     "howToFix": "怎么办",
     "unknownCode": "未识别的错误码",
     "backendRaw": "后端原文",
@@ -384,6 +388,7 @@
     "trialInputNotJson": "试跑输入不是合法 JSON：{{message}}",
     "trialDecision": "决策：{{decision}}",
     "degraded": "降级",
+    "degradedReasons": "降级原因",
     "trialPackage": "执行包 {{packageId}} {{packageVersion}} · 规则集版本 {{rulesetVersion}}",
     "trialEvaluated": "求值 {{count}} 条 · {{latency}} · 引擎 {{engine}}",
     "trialOutputs": "输出变量：",
