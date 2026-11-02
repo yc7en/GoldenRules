@@ -58,7 +58,9 @@
       "TIMEOUT": "请求超时。引擎在做长决策，或后端进程已卡死。",
       "NOT_FOUND": "对象不存在。可能是数据目录被重置过，刷新列表重新选。",
       "PKG_VERIFY_UNAVAILABLE": "平台没有配置门禁执行器（--engine-url）。带 approved 用例的包会因此发不出去。",
-      "VERSION_SELECTION_CONFLICT": "该场景挂了多个规则集，请求必须指定 rulesetId。"
+      "VERSION_SELECTION_CONFLICT": "该场景挂了多个规则集，请求必须指定 rulesetId。",
+      "VERSION_RULESET_NOT_FOUND": "该规则集不在引擎已装载的规则包里。试跑跑的是已发布包，不是编辑器草稿——把它纳入新的包版本并热重载后才能试跑（编辑器里的「校验」不受影响，照常可用）。",
+      "VERSION_PACKAGE_NOT_FOUND": "引擎没有装载这个规则包。确认启动参数 --package 指向的包文件存在，或重新发布后热重载。"
     }
   },
   "scenes": {

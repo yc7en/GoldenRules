@@ -58,7 +58,9 @@
       "TIMEOUT": "The request timed out. The engine is doing a long decision, or the backend process is stuck.",
       "NOT_FOUND": "The object does not exist. The data directory may have been reset — refresh the list and pick again.",
       "PKG_VERIFY_UNAVAILABLE": "The platform has no gate executor configured (--engine-url). Packages with approved test cases cannot be released because of this.",
-      "VERSION_SELECTION_CONFLICT": "This scenario mounts more than one ruleset, so the request must specify rulesetId."
+      "VERSION_SELECTION_CONFLICT": "This scenario mounts more than one ruleset, so the request must specify rulesetId.",
+      "VERSION_RULESET_NOT_FOUND": "This rule set is not in the package the engine has loaded. A trial runs the published package, not the editor draft — put it in a new package version and hot-reload before trialing (the editor's Validate button is unaffected).",
+      "VERSION_PACKAGE_NOT_FOUND": "The engine has no such package loaded. Check that the file passed via --package exists, or republish and hot-reload."
     }
   },
   "scenes": {

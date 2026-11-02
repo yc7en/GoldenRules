@@ -26,6 +26,14 @@ function hintFor(t: TFunction, code: string): string {
       return t("errors.hint.PKG_VERIFY_UNAVAILABLE")
     case "VERSION_SELECTION_CONFLICT":
       return t("errors.hint.VERSION_SELECTION_CONFLICT")
+    // Both version errors come back from the engine during a trial run, and both say the same thing in
+    // different words: what you are trialing is not what the engine has loaded. Without a hint the box
+    // renders "unrecognized error code" next to a perfectly clear backend message (a rule set created in
+    // the platform is never in the engine's package until it is published and hot-reloaded).
+    case "VERSION_RULESET_NOT_FOUND":
+      return t("errors.hint.VERSION_RULESET_NOT_FOUND")
+    case "VERSION_PACKAGE_NOT_FOUND":
+      return t("errors.hint.VERSION_PACKAGE_NOT_FOUND")
     default:
       return ""
   }

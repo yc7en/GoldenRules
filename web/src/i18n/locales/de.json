@@ -58,7 +58,9 @@
       "TIMEOUT": "Die Anfrage ist abgelaufen. Die Engine rechnet an einer langen Entscheidung, oder der Backend-Prozess hängt.",
       "NOT_FOUND": "Das Objekt existiert nicht. Möglicherweise wurde das Datenverzeichnis zurückgesetzt – Liste aktualisieren und neu auswählen.",
       "PKG_VERIFY_UNAVAILABLE": "Auf der Plattform ist kein Gate-Ausführer konfiguriert (--engine-url). Pakete mit freigegebenen Testfällen lassen sich deshalb nicht veröffentlichen.",
-      "VERSION_SELECTION_CONFLICT": "Dieses Szenario bindet mehrere Regelwerke ein; die Anfrage muss rulesetId angeben."
+      "VERSION_SELECTION_CONFLICT": "Dieses Szenario bindet mehrere Regelwerke ein; die Anfrage muss rulesetId angeben.",
+      "VERSION_RULESET_NOT_FOUND": "Diese Regelsammlung ist nicht im geladenen Paket des Motors. Ein Probelauf führt das veröffentlichte Paket aus, nicht den Entwurf — in eine neue Paketversion aufnehmen und heiß nachladen (die Schaltfläche Prüfen im Editor ist nicht betroffen).",
+      "VERSION_PACKAGE_NOT_FOUND": "Der Motor hat kein solches Paket geladen. Prüfe die über --package übergebene Datei oder veröffentliche neu und lade heiß nach."
     }
   },
   "scenes": {

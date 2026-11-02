@@ -58,7 +58,9 @@
       "TIMEOUT": "La requête a expiré. Le moteur exécute une décision longue, ou le processus du back-end est bloqué.",
       "NOT_FOUND": "L'objet n'existe pas. Le répertoire de données a peut-être été réinitialisé ; actualisez la liste et sélectionnez à nouveau.",
       "PKG_VERIFY_UNAVAILABLE": "La plateforme n'a pas d'exécuteur de contrôle configuré (--engine-url). Les paquets contenant des cas approuvés ne peuvent donc pas être publiés.",
-      "VERSION_SELECTION_CONFLICT": "Ce scénario monte plusieurs jeux de règles ; la requête doit préciser rulesetId."
+      "VERSION_SELECTION_CONFLICT": "Ce scénario monte plusieurs jeux de règles ; la requête doit préciser rulesetId.",
+      "VERSION_RULESET_NOT_FOUND": "Ce jeu de règles n'est pas dans le paquet chargé par le moteur. Un essai exécute le paquet publié, pas le brouillon — ajoutez-le à une nouvelle version de paquet puis rechargez à chaud (le bouton Valider de l'éditeur n'est pas concerné).",
+      "VERSION_PACKAGE_NOT_FOUND": "Le moteur n'a chargé aucun paquet de ce nom. Vérifiez le fichier passé via --package, ou republiez puis rechargez à chaud."
     }
   },
   "scenes": {
