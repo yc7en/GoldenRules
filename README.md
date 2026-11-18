@@ -154,7 +154,7 @@ backend/
   tools/           dev-up.sh 一键联调脚本 + console 自测台
 web/               运营台前端（React 19 + Vite 8 + Tailwind + TanStack Table + Monaco + React Router）
 scripts/           Windows 启停批处理
-docs/              对外英文文档快照（发版时由内部文档生成；当前未启用）
+docs/              对外英文文档快照：README.md / ARCHITECTURE.md / FEATURES.md（带版本头，发版时由内部文档生成）
 ```
 
 内部文档不在本仓库，在统一文档仓库 `docs-local/GoldenRules/`（中文）。
